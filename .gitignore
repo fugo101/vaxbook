@@ -1,0 +1,16 @@
+# Build output
+engine-prototype/dist/
+dist/
+node_modules/
+
+# Local secrets and deployment values (operator domain, tokens, etc.)
+.env
+.env.*
+!.env.example
+
+# Local-only issue tracker (kept out of git by choice; see docs/agents/issue-tracker.md)
+.scratch/
+
+# Tool artifacts
+.playwright-mcp/
+.DS_Store

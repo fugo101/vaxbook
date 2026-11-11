@@ -1,0 +1,100 @@
+{
+  "version": "proto-2026.11.10",
+  "note": "DỮ LIỆU MINH HOẠ CHO PROTOTYPE — chưa kiểm chứng, không dùng cho mục đích y khoa",
+  "diseases": [
+    { "id": "rota", "name": "Tiêu chảy do Rota" },
+    { "id": "pertussis", "name": "Ho gà" },
+    { "id": "measles", "name": "Sởi" },
+    { "id": "hpv", "name": "HPV" }
+  ],
+  "products": [
+    { "id": "rotarix", "name": "Rotarix", "diseases": ["rota"], "live": true },
+    { "id": "rotateq", "name": "RotaTeq", "diseases": ["rota"], "live": true },
+    { "id": "rotavin", "name": "Rotavin-M1", "diseases": ["rota"], "live": true },
+    { "id": "hexaxim", "name": "Hexaxim (6in1)", "diseases": ["pertussis"] },
+    { "id": "infanrix", "name": "Infanrix Hexa (6in1)", "diseases": ["pertussis"] },
+    { "id": "mvvac", "name": "MVVac", "diseases": ["measles"], "live": true },
+    { "id": "gardasil9", "name": "Gardasil 9", "diseases": ["hpv"] }
+  ],
+  "citations": [
+    { "id": "c-tt10", "source": "TT 10/2024/TT-BYT (minh hoạ)", "locator": "Phụ lục" },
+    { "id": "c-rotarix", "source": "Tờ HDSD Rotarix (minh hoạ)", "locator": "Mục 4.2" },
+    { "id": "c-rotateq", "source": "Tờ HDSD RotaTeq (minh hoạ)", "locator": "Mục 4.2" },
+    { "id": "c-rotavin", "source": "Tờ HDSD Rotavin-M1 (minh hoạ)", "locator": "Mục 4.2" },
+    { "id": "c-g9", "source": "Tờ HDSD Gardasil 9 (minh hoạ)", "locator": "Mục 4.2" }
+  ],
+  "series": [
+    {
+      "id": "rota-rotarix", "disease": "rota", "product": "rotarix", "stage": "childhood",
+      "maxAgeStart": "15w", "maxAgeComplete": "24w",
+      "plans": [{ "id": "p", "label": "2 liều", "doses": [
+        { "minAge": "6w", "recommended": { "from": "birth", "offset": "2m" } },
+        { "minInterval": "4w", "recommended": { "from": "birth", "offset": "4m" } }
+      ]}],
+      "citations": ["c-rotarix"]
+    },
+    {
+      "id": "rota-rotateq", "disease": "rota", "product": "rotateq", "stage": "childhood",
+      "maxAgeStart": "15w", "maxAgeComplete": "32w",
+      "plans": [{ "id": "p", "label": "3 liều", "doses": [
+        { "minAge": "6w", "recommended": { "from": "birth", "offset": "2m" } },
+        { "minInterval": "4w", "recommended": { "from": "birth", "offset": "4m" } },
+        { "minInterval": "4w", "recommended": { "from": "birth", "offset": "6m" } }
+      ]}],
+      "citations": ["c-rotateq"]
+    },
+    {
+      "id": "rota-rotavin", "disease": "rota", "product": "rotavin", "stage": "childhood",
+      "maxAgeStart": "15w", "maxAgeComplete": "6m",
+      "plans": [{ "id": "p", "label": "2 liều", "doses": [
+        { "minAge": "6w", "recommended": { "from": "birth", "offset": "2m" } },
+        { "minInterval": "4w", "recommended": { "from": "birth", "offset": "3m" } }
+      ]}],
+      "citations": ["c-rotavin", "c-tt10"]
+    },
+    {
+      "id": "pertussis-primary", "disease": "pertussis", "stage": "childhood", "maxAgeStart": "7y",
+      "plans": [
+        { "id": "a", "label": "2-3-4 tháng", "doses": [
+          { "minAge": "6w", "recommended": { "from": "birth", "offset": "2m" } },
+          { "minInterval": "4w", "recommended": { "from": "birth", "offset": "3m" } },
+          { "minInterval": "4w", "recommended": { "from": "birth", "offset": "4m" } }
+        ]},
+        { "id": "b", "label": "2-4-6 tháng", "doses": [
+          { "minAge": "6w", "recommended": { "from": "birth", "offset": "2m" } },
+          { "minInterval": "4w", "recommended": { "from": "birth", "offset": "4m" } },
+          { "minInterval": "4w", "recommended": { "from": "birth", "offset": "6m" } }
+        ]}
+      ],
+      "citations": ["c-tt10"]
+    },
+    {
+      "id": "measles-primary", "disease": "measles", "stage": "childhood",
+      "plans": [{ "id": "p", "label": "9 tháng + 18 tháng", "doses": [
+        { "minAge": "9m", "recommended": { "from": "birth", "offset": "9m" } },
+        { "minInterval": "4w", "recommended": { "from": "birth", "offset": "18m" } }
+      ]}],
+      "citations": ["c-tt10"]
+    },
+    {
+      "id": "hpv-g9-9to14", "disease": "hpv", "product": "gardasil9", "stage": "adult",
+      "startAge": { "min": "9y", "max": "15y" },
+      "plans": [{ "id": "p", "label": "2 mũi (0, 6–12 tháng)", "doses": [
+        { "minAge": "9y", "recommended": { "from": "birth", "offset": "9y" } },
+        { "minInterval": "5m", "recommended": { "from": "firstDose", "offset": "6m" } }
+      ]}],
+      "citations": ["c-g9"]
+    },
+    {
+      "id": "hpv-g9-15to45", "disease": "hpv", "product": "gardasil9", "stage": "adult",
+      "startAge": { "min": "15y", "max": "46y" },
+      "maxAgeStart": "46y",
+      "plans": [{ "id": "p", "label": "3 mũi (0, 2, 6 tháng)", "doses": [
+        { "minAge": "9y", "recommended": { "from": "birth", "offset": "15y" } },
+        { "minInterval": "4w", "recommended": { "from": "firstDose", "offset": "2m" } },
+        { "minInterval": "12w", "minIntervalFromFirst": "5m", "recommended": { "from": "firstDose", "offset": "6m" } }
+      ]}],
+      "citations": ["c-g9"]
+    }
+  ]
+}

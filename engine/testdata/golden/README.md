@@ -20,6 +20,7 @@ Each file is `{ "ruleset": "<fixture name>", "input": Input, "output": Output }`
 - T30 = today + 30 days; T6m = today + 6 months (always added to today).
 - Bucket: today ≥ O → overdue; else today ≥ E and Du ≤ T30 → due; else Du ≤ T6m → upcoming; else ≥ 1 dose counted → complete + `ON_TRACK`; else `notYetScheduled`. `DOSE_INVALID` or `INVALID_DATE` → unknown.
 - Months keep the day of month and clamp to the month end; 1w = 7d; 1y = 12m. All doses are precision `day`.
+- Fixtures write spans as ISO 8601 durations with one designator (`"P6W"`, `"P2M"`, `"P14D"`); the derivations below write them short (6w, 2m, 14d).
 
 ## Derivations
 

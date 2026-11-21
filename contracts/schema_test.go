@@ -114,8 +114,10 @@ func TestSchemaRejects(t *testing.T) {
 		"bucket and block":         {"Assessment", `{"disease": "a", "bucket": "due", "block": "notYetScheduled"}`},
 		"neither bucket nor block": {"Assessment", `{"disease": "a"}`},
 		"unknown member":           {"Disease", `{"id": "a", "name": "A", "extra": 1}`},
-		"span with leading zero":   {"Span", `"06w"`},
-		"span without unit":        {"Span", `"6"`},
+		"span with leading zero":   {"Span", `"P06W"`},
+		"span without unit":        {"Span", `"P6"`},
+		"compact S1 span":          {"Span", `"6w"`},
+		"compound span":            {"Span", `"P1Y6M"`},
 		"impossible date":          {"Date", `"2026-02-30"`},
 		"year zero":                {"Date", `"0000-01-01"`},
 		"month thirteen":           {"Date", `"2026-13-01"`},
@@ -189,6 +191,34 @@ func TestDatePatternMatchesParseDate(t *testing.T) {
 				check(fmt.Sprintf("%04d-%02d-%02d", y, m, d))
 			}
 		}
+	}
+}
+
+// TestSpanPatternMatchesParseSpan: $defs/Span's pattern accepts exactly the
+// strings ruleset.ParseSpan accepts, over every count up to past the cap,
+// every designator letter in both cases, and leading zeros.
+func TestSpanPatternMatchesParseSpan(t *testing.T) {
+	t.Parallel()
+	pattern, _ := schemaDefs(t)["Span"]["pattern"].(string)
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		t.Fatalf("$defs/Span pattern %q: %v", pattern, err)
+	}
+	check := func(s string) {
+		_, perr := ruleset.ParseSpan(s)
+		if got, want := re.MatchString(s), perr == nil; got != want {
+			t.Errorf("%q: pattern match %v, ParseSpan ok %v", s, got, want)
+		}
+	}
+	for n := range 1201 {
+		for _, u := range "DWMYdwmyHST" {
+			for _, form := range []string{"P%d%c", "P0%d%c", "P%03d%c", "p%d%c", "%d%c", "PT%d%c", "P%d%cP"} {
+				check(fmt.Sprintf(form, n, u))
+			}
+		}
+	}
+	for _, s := range []string{"", "P", "PD", "P-1D", "P1Y6M", "P14W6D", " P1D", "P1D "} {
+		check(s)
 	}
 }
 

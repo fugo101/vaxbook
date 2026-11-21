@@ -20,8 +20,8 @@ const validCase = `{
   "series": [{
     "id": "s", "disease": "d", "stage": "childhood",
     "plans": [{"id": "p", "doses": [
-      {"minAge": "6w", "recommended": {"from": "birth", "offset": "2m"}},
-      {"minInterval": "4w", "recommended": {"from": "previousDose", "offset": "2m"}, "buffer": "14d"}
+      {"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}},
+      {"minInterval": "P4W", "recommended": {"from": "previousDose", "offset": "P2M"}, "buffer": "P14D"}
     ]}]
   }]
 }`
@@ -48,7 +48,9 @@ func TestDecodeIsStrict(t *testing.T) {
 		"unknown member":   strings.Replace(validCase, `"version"`, `"extra": 1, "version"`, 1),
 		"wrong case":       strings.Replace(validCase, `"version"`, `"Version"`, 1),
 		"duplicate member": strings.Replace(validCase, `"version": "v1"`, `"version": "v1", "version": "v2"`, 1),
-		"bad span":         strings.Replace(validCase, `"6w"`, `"6 weeks"`, 1),
+		"bad span":         strings.Replace(validCase, `"P6W"`, `"6 weeks"`, 1),
+		"S1 compact span":  strings.Replace(validCase, `"P6W"`, `"6w"`, 1),
+		"compound span":    strings.Replace(validCase, `"P6W"`, `"P1M2W"`, 1),
 		"trailing data":    validCase + `{}`,
 	}
 	for name, in := range bad {
@@ -70,16 +72,16 @@ func TestDecodeShape(t *testing.T) {
 	}{
 		{"truncated snapshot", `{"version": "x"}`, contractjson.KindMissing, "/diseases"},
 		{"missing series", `{"version": "v1", "diseases": [{"id": "d", "name": "D"}]}`, contractjson.KindMissing, "/series"},
-		{"missing offset", strings.Replace(validCase, `"recommended": {"from": "birth", "offset": "2m"}`, `"recommended": {"from": "birth"}`, 1),
+		{"missing offset", strings.Replace(validCase, `"recommended": {"from": "birth", "offset": "P2M"}`, `"recommended": {"from": "birth"}`, 1),
 			contractjson.KindMissing, "/series/0/plans/0/doses/0/recommended/offset"},
-		{"missing recommended", strings.Replace(validCase, `, "recommended": {"from": "birth", "offset": "2m"}`, ``, 1),
+		{"missing recommended", strings.Replace(validCase, `, "recommended": {"from": "birth", "offset": "P2M"}`, ``, 1),
 			contractjson.KindMissing, "/series/0/plans/0/doses/0/recommended"},
 		{"missing plan doses", `{"version": "v1", "diseases": [], "series": [{"id": "s", "disease": "d", "stage": "adult", "plans": [{"id": "p"}]}]}`,
 			contractjson.KindMissing, "/series/0/plans/0/doses"},
 		{"null version", strings.Replace(validCase, `"version": "v1"`, `"version": null`, 1), contractjson.KindNull, "/version"},
-		{"null min interval", strings.Replace(validCase, `"minInterval": "4w"`, `"minInterval": null`, 1),
+		{"null min interval", strings.Replace(validCase, `"minInterval": "P4W"`, `"minInterval": null`, 1),
 			contractjson.KindNull, "/series/0/plans/0/doses/1/minInterval"},
-		{"null buffer", strings.Replace(validCase, `"buffer": "14d"`, `"buffer": null`, 1),
+		{"null buffer", strings.Replace(validCase, `"buffer": "P14D"`, `"buffer": null`, 1),
 			contractjson.KindNull, "/series/0/plans/0/doses/1/buffer"},
 		{"null disease", strings.Replace(validCase, `[{"id": "d", "name": "D"}]`, `[{"id": "d", "name": "D"}, null]`, 1),
 			contractjson.KindNull, "/diseases/1"},
@@ -119,9 +121,9 @@ func TestValidateProblems(t *testing.T) {
 			[]Problem{{Code: InvalidValue, Severity: Reject, Path: "/series/0/stage", Params: map[string]string{"value": "teen"}}}},
 		{"bad anchor", `"from": "previousDose"`, `"from": "lastDose"`,
 			[]Problem{{Code: InvalidValue, Severity: Reject, Path: "/series/0/plans/0/doses/1/recommended/from", Params: map[string]string{"value": "lastDose"}}}},
-		{"first dose interval", `{"minAge": "6w", "recommended"`, `{"minAge": "6w", "minInterval": "1w", "recommended"`,
+		{"first dose interval", `{"minAge": "P6W", "recommended"`, `{"minAge": "P6W", "minInterval": "P1W", "recommended"`,
 			[]Problem{{Code: FirstDoseHasInterval, Severity: Reject, Path: "/series/0/plans/0/doses/0/minInterval"}}},
-		{"first dose without min age", `{"minAge": "6w", "recommended"`, `{"minInterval": "1w", "recommended"`,
+		{"first dose without min age", `{"minAge": "P6W", "recommended"`, `{"minInterval": "P1W", "recommended"`,
 			[]Problem{
 				{Code: DoseRuleNoMinimum, Severity: Reject, Path: "/series/0/plans/0/doses/0"},
 				{Code: FirstDoseHasInterval, Severity: Reject, Path: "/series/0/plans/0/doses/0/minInterval"},
@@ -174,11 +176,11 @@ func TestValidateDuplicateSeriesAndPlanIDs(t *testing.T) {
 	in := `{"version": "v1", "diseases": [{"id": "d", "name": "D"}],
 	  "series": [
 	    {"id": "s", "disease": "d", "stage": "adult", "plans": [
-	      {"id": "p", "doses": [{"minAge": "0d", "recommended": {"from": "birth", "offset": "0d"}}]},
+	      {"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]},
 	      {"id": "p", "doses": []}
 	    ]},
 	    {"id": "s", "disease": "d", "stage": "adult", "plans": [
-	      {"id": "p", "doses": [{"minAge": "0d", "recommended": {"from": "birth", "offset": "0d"}}]}
+	      {"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]}
 	    ]}
 	  ]}`
 	want := []Problem{

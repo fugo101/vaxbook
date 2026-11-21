@@ -17,14 +17,14 @@ const testSnapshot = `{
   "series": [
     {"id": "a-series", "disease": "a", "stage": "childhood", "plans": [
       {"id": "short", "doses": [
-        {"minAge": "6w", "recommended": {"from": "birth", "offset": "2m"}},
-        {"minInterval": "4w", "recommended": {"from": "birth", "offset": "4m"}}]},
+        {"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}},
+        {"minInterval": "P4W", "recommended": {"from": "birth", "offset": "P4M"}}]},
       {"id": "long", "doses": [
-        {"minAge": "6w", "recommended": {"from": "birth", "offset": "2m"}},
-        {"minInterval": "6w", "recommended": {"from": "birth", "offset": "4m"}}]}
+        {"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}},
+        {"minInterval": "P6W", "recommended": {"from": "birth", "offset": "P4M"}}]}
     ]},
     {"id": "b-series", "disease": "b", "stage": "childhood", "plans": [
-      {"id": "main", "doses": [{"minAge": "6w", "recommended": {"from": "birth", "offset": "2m"}}]}
+      {"id": "main", "doses": [{"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}}]}
     ]}
   ]
 }`
@@ -271,7 +271,7 @@ func TestDosesBeyondSeriesLengthIgnored(t *testing.T) {
 
 func TestNewRejectsInvalidSnapshot(t *testing.T) {
 	t.Parallel()
-	s, err := ruleset.Decode([]byte(strings.Replace(testSnapshot, `"6w"`, `"6w", "minInterval": "1w"`, 1)))
+	s, err := ruleset.Decode([]byte(strings.Replace(testSnapshot, `"P6W"`, `"P6W", "minInterval": "P1W"`, 1)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,8 +313,8 @@ func TestNewRejectsUnsupportedShapes(t *testing.T) {
 	for name, snap := range map[string]string{
 		"disease without series": `{"version": "v", "diseases": [{"id": "a", "name": "A"}], "series": []}`,
 		"two series for a disease": `{"version": "v", "diseases": [{"id": "a", "name": "A"}], "series": [
-		  {"id": "s1", "disease": "a", "stage": "childhood", "plans": [{"id": "p", "doses": [{"minAge": "0d", "recommended": {"from": "birth", "offset": "0d"}}]}]},
-		  {"id": "s2", "disease": "a", "stage": "adult", "plans": [{"id": "p", "doses": [{"minAge": "0d", "recommended": {"from": "birth", "offset": "0d"}}]}]}]}`,
+		  {"id": "s1", "disease": "a", "stage": "childhood", "plans": [{"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]}]},
+		  {"id": "s2", "disease": "a", "stage": "adult", "plans": [{"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]}]}]}`,
 	} {
 		s, err := ruleset.Decode([]byte(snap))
 		if err != nil {

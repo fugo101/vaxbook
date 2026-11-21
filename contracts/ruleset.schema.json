@@ -9,9 +9,10 @@
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
     },
     "Span": {
-      "description": "An age, interval, offset or buffer: <n><unit>, n in 0..999 without leading zeros, unit d (days), w (weeks = 7 days), m (months, day of month clamped to the month end) or y (years = 12 months).",
+      "description": "An age, interval, offset or buffer as an ISO 8601 duration with one designator: P<n>D days, P<n>W weeks (7 days), P<n>M months (day of month clamped to the month end), P<n>Y years (12 months); n in 0..999, no leading zeros, upper case. Compound durations are not accepted yet.",
       "type": "string",
-      "pattern": "^(0|[1-9][0-9]{0,2})[dwmy]$"
+      "pattern": "^P(0|[1-9][0-9]{0,2})[DWMY]$",
+      "format": "duration"
     },
     "Date": {
       "description": "A civil date YYYY-MM-DD from 0001-01-01 to 9999-12-31 that exists in the proleptic Gregorian calendar. The pattern alone checks this, leap years included, so a validator that treats format as an annotation (the draft 2020-12 default) accepts exactly what the engine decodes.",

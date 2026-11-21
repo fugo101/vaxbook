@@ -18,16 +18,16 @@
             "id": "main",
             "doses": [
               {
-                "minAge": "6w",
+                "minAge": "P6W",
                 "recommended": {
                   "from": "birth",
-                  "offset": "2m"
+                  "offset": "P2M"
                 }
               },
               {
                 "recommended": {
                   "from": "birth",
-                  "offset": "4m"
+                  "offset": "P4M"
                 }
               }
             ]

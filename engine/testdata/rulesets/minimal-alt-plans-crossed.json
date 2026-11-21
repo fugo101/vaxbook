@@ -17,17 +17,17 @@
           "id": "early-due",
           "doses": [
             {
-              "minAge": "6w",
+              "minAge": "P6W",
               "recommended": {
                 "from": "birth",
-                "offset": "2m"
+                "offset": "P2M"
               }
             },
             {
-              "minInterval": "8w",
+              "minInterval": "P8W",
               "recommended": {
                 "from": "birth",
-                "offset": "3m"
+                "offset": "P3M"
               }
             }
           ]
@@ -36,17 +36,17 @@
           "id": "late-due",
           "doses": [
             {
-              "minAge": "6w",
+              "minAge": "P6W",
               "recommended": {
                 "from": "birth",
-                "offset": "2m"
+                "offset": "P2M"
               }
             },
             {
-              "minInterval": "4w",
+              "minInterval": "P4W",
               "recommended": {
                 "from": "birth",
-                "offset": "4m"
+                "offset": "P4M"
               }
             }
           ]

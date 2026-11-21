@@ -1,0 +1,29 @@
+{
+  "ruleset": "minimal-single",
+  "input": {
+    "today": "2026-02-21",
+    "profile": {
+      "birth": {
+        "value": "2026-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "minimal-single-s1",
+    "today": "2026-02-21",
+    "assessments": [
+      {
+        "disease": "single",
+        "bucket": "due",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2026-02-21",
+          "due": "2026-03-10",
+          "overdue": "2026-03-17"
+        }
+      }
+    ]
+  }
+}

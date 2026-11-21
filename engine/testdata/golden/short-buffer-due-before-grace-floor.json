@@ -1,0 +1,29 @@
+{
+  "ruleset": "minimal-short-buffer",
+  "input": {
+    "today": "2026-03-13",
+    "profile": {
+      "birth": {
+        "value": "2026-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "minimal-short-buffer-s1",
+    "today": "2026-03-13",
+    "assessments": [
+      {
+        "disease": "shortbuf",
+        "bucket": "due",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2026-02-21",
+          "due": "2026-03-10",
+          "overdue": "2026-03-17"
+        }
+      }
+    ]
+  }
+}

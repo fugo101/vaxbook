@@ -1,0 +1,50 @@
+{
+  "ruleset": "minimal-first-dose-anchor",
+  "input": {
+    "today": "2025-05-01",
+    "profile": {
+      "birth": {
+        "value": "2015-03-31",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "firstanchored"
+        ],
+        "date": {
+          "value": "2024-12-31",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "firstanchored"
+        ],
+        "date": {
+          "value": "2025-03-03",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-first-dose-anchor-s1",
+    "today": "2025-05-01",
+    "assessments": [
+      {
+        "disease": "firstanchored",
+        "bucket": "upcoming",
+        "nextDose": {
+          "number": 3,
+          "earliest": "2025-05-26",
+          "due": "2025-06-30",
+          "overdue": "2025-07-07"
+        }
+      }
+    ]
+  }
+}

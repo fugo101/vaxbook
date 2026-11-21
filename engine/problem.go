@@ -12,7 +12,9 @@ type ProblemCode string
 const (
 	// Required: a required value is missing.
 	Required ProblemCode = "REQUIRED"
-	// InvalidValue: a value is outside its enum. Params: value.
+	// InvalidValue: a value is outside its enum, including the level-4
+	// precision of the other field ("none" on a dose record, "unknown" on
+	// the birth date). Params: value.
 	InvalidValue ProblemCode = "INVALID_VALUE"
 	// UnsupportedPrecision: a date precision this engine version cannot
 	// evaluate yet. Params: precision.

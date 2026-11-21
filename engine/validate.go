@@ -79,13 +79,15 @@ func (v *problems) recalled(path string, r RecalledDate, birth bool) (Range, boo
 	case "":
 		v.add(Required, path+"/precision", nil)
 		return Range{}, false
-	case Month, Year, Unknown:
+	case Month, Year:
 		v.add(UnsupportedPrecision, path+"/precision", map[string]string{"precision": string(r.Precision)})
 		return Range{}, false
-	case None:
-		if !birth {
-			// "none" means a birth date was not entered; a dose record has
-			// "unknown" for an unremembered date.
+	case Unknown, None:
+		// Level 4 differs by field (F03, GLOSSARY "Date precision"): a dose
+		// record has "unknown" for an unremembered date, and a birth date
+		// has "none" for not entered. The other field's value is invalid in
+		// every engine version, not merely unsupported yet.
+		if (r.Precision == None) != birth {
 			v.add(InvalidValue, path+"/precision", map[string]string{"value": string(r.Precision)})
 			return Range{}, false
 		}

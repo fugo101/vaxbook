@@ -112,6 +112,10 @@ func TestValidateDates(t *testing.T) {
 			[]Problem{{Code: InvalidDate, Path: "/doses/0/date/value"}}},
 		{"missing birth precision", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026-01-10"}}},
 			[]Problem{{Code: Required, Path: "/profile/birth/precision"}}},
+		// "unknown" is a dose-record level only (F03, GLOSSARY "Date
+		// precision"): no engine version evaluates it for a birth date.
+		{"birth precision unknown", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Precision: Unknown}}},
+			[]Problem{{Code: InvalidValue, Path: "/profile/birth/precision", Params: map[string]string{"value": "unknown"}}}},
 	}
 	for _, c := range cases {
 		if got := e.Validate(c.in); !reflect.DeepEqual(got, c.want) {

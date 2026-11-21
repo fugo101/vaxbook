@@ -1,10 +1,16 @@
 # Golden files
 
-Each file is `{ "ruleset": "<fixture name>", "input": Input, "output": Output }` and is decoded strictly (unknown members fail). `ruleset` names a file in `../rulesets/`.
+Each file is `{ "ruleset": "<fixture name>", "input": Input, "output": Output }` and is decoded with the contract's shape rules (unknown or missing members and `null` fail). `ruleset` names a file in `../rulesets/`.
 
-**The expected `output` is written by hand from the spec (SAD §5.1–§5.3, spec F05 and F13.2) before the engine code exists.** The `-update` flag of the golden test may only be used for pure format changes, and that diff is reviewed in the PR. A changed expectation is re-derived by hand here first.
+**The expected `output` is written by hand from the spec (SAD §5.1–§5.3, spec F05 and F13.2) before the engine code exists.** A changed expectation is re-derived by hand here first. An expectation is never written from engine output.
 
-Members of `output` are written in Go struct order (`ruleSetVersion`, `today`, `assessments`; `disease`, `bucket` or `block`, `nextDose`, `reasons`; `number`, `earliest`, `due`, `overdue`; `code`, `params`) and `params` keys are sorted, because the test compares compact bytes.
+`TestGolden` compares compact bytes, so it enforces the canonical encoding: members of `output` in Go struct order (`ruleSetVersion`, `today`, `assessments`; `disease`, `bucket` or `block`, `nextDose`, `reasons`; `number`, `earliest`, `due`, `overdue`; `code`, `params`), `params` keys sorted, optional members omitted when empty. It decodes the expectation into an Output and re-encodes it to tell the cases apart:
+
+- the expectation does not decode (an unknown, renamed, missing or `null` member, a wrong type, a bad date): an error, never rewritten;
+- the same values in a different encoding (member order, spacing): fails with a hint; `go test ./engine -run TestGolden -update` rewrites the `output` member with the canonical encoding of the expectation itself;
+- different values: fails with "re-derive by hand"; `-update` never writes it.
+
+**A contract migration is its own commit.** It changes the Go types, the schema and the fixture/golden files (by hand or with an uncommitted script) and no decision logic. The unchanged engine then checks the migrated files byte for byte.
 
 ## Notation
 

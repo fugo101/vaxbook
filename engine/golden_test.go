@@ -282,6 +282,9 @@ func TestCompareGolden(t *testing.T) {
 // this table checks every reason of the goldens and the property tests.
 var reasonParams = map[engine.ReasonCode][]string{
 	engine.ReasonInvalidDate:      {"dose"},
+	engine.ReasonOutOfRange:       {"dose"},
+	engine.ReasonDateInFuture:     {"dose"},
+	engine.ReasonDateBeforeBirth:  {"dose"},
 	engine.ReasonDoseInvalid:      {"checks", "dose", "number"},
 	engine.ReasonAlternativePlans: {"series"},
 	engine.ReasonComplete:         nil,

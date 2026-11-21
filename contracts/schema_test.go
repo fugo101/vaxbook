@@ -326,7 +326,7 @@ func TestSchemaEnumsMatchConstants(t *testing.T) {
 		{"RecalledDate", "precision", str(engine.Day, engine.Month, engine.Year, engine.Unknown, engine.None)},
 		{"Assessment", "bucket", str(engine.BucketOverdue, engine.BucketDue, engine.BucketUpcoming, engine.BucketUnknown, engine.BucketComplete)},
 		{"Assessment", "block", str(engine.BlockNotYetScheduled)},
-		{"Reason", "code", str(engine.ReasonInvalidDate, engine.ReasonDoseInvalid, engine.ReasonAlternativePlans, engine.ReasonComplete, engine.ReasonOnTrack)},
+		{"Reason", "code", str(engine.ReasonInvalidDate, engine.ReasonOutOfRange, engine.ReasonDateInFuture, engine.ReasonDateBeforeBirth, engine.ReasonDoseInvalid, engine.ReasonAlternativePlans, engine.ReasonComplete, engine.ReasonOnTrack)},
 		{"ReasonParams", "checks", str(engine.CheckMinAge, engine.CheckMinInterval)},
 	}
 	for _, c := range cases {

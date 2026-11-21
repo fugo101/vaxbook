@@ -21,14 +21,15 @@ const (
 	// evaluate yet. Params: precision.
 	UnsupportedPrecision ProblemCode = "UNSUPPORTED_PRECISION"
 	// InvalidDate: a value that is not a parseable date, including an empty
-	// or absent value. On a dose record it does not stop Evaluate: the
-	// record's diseases become ⚪ INVALID_DATE.
+	// or absent value. On a dose record it is record-scoped.
 	InvalidDate ProblemCode = "INVALID_DATE"
-	// OutOfRange: a date outside [1900-01-01, 2199-12-31].
+	// OutOfRange: a date outside [1900-01-01, 2199-12-31]. On a dose record
+	// it is record-scoped.
 	OutOfRange ProblemCode = "OUT_OF_RANGE"
-	// DateInFuture: a birth or dose date after today.
+	// DateInFuture: a birth or dose date after today. On a dose record it is
+	// record-scoped.
 	DateInFuture ProblemCode = "DATE_IN_FUTURE"
-	// DateBeforeBirth: a dose date before the birth date.
+	// DateBeforeBirth: a dose date before the birth date. Record-scoped.
 	DateBeforeBirth ProblemCode = "DATE_BEFORE_BIRTH"
 	// UnknownDisease: a dose record names a disease the rule set does not
 	// have. Params: disease.
@@ -39,12 +40,27 @@ const (
 	DuplicateValue ProblemCode = "DUPLICATE_VALUE"
 )
 
+// Scope says what a problem stops.
+type Scope string
+
+// Scopes.
+const (
+	// ScopeInput: Evaluate returns an *InputError instead of an Output.
+	ScopeInput Scope = "input"
+	// ScopeRecord: a problem with a dose record's date value (INVALID_DATE,
+	// OUT_OF_RANGE, DATE_IN_FUTURE, DATE_BEFORE_BIRTH). Evaluate still
+	// assesses the profile: every disease of that record becomes ⚪ with a
+	// reason of the same code (A9, EQ27).
+	ScopeRecord Scope = "record"
+)
+
 // Problem is one input problem. Path is a JSON pointer (RFC 6901) into the
-// Input.
+// Input. Scope is Go-only for now; serializing it later is additive.
 type Problem struct {
 	Code   ProblemCode   `json:"code"`
 	Path   string        `json:"path"`
 	Params ProblemParams `json:"params,omitzero"`
+	Scope  Scope         `json:"-"`
 }
 
 // ProblemParams holds every problem parameter; each code uses the members
@@ -76,8 +92,9 @@ func paramString(pairs ...string) string {
 	return "{" + strings.Join(parts, " ") + "}"
 }
 
-// InputError is returned by Evaluate for an input it cannot assess. It holds
-// every problem that stops evaluation.
+// InputError is returned by Evaluate for an input it cannot assess:
+// Evaluate returns *InputError iff some problem has ScopeInput. It holds
+// exactly the ScopeInput problems.
 type InputError struct {
 	Problems []Problem
 }

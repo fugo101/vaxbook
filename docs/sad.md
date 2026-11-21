@@ -165,8 +165,8 @@ const overdueGraceDays = 7          // display constant of the contract, not a r
 - **"Today"** is the calendar date in `Asia/Ho_Chi_Minh`, passed in by the caller: the browser computes it itself, the server computes it in the job.
 - **Dates** are calendar dates with no time. **Adding months keeps the day of the month; if the target month does not have that day, use the last day of the month** (31/01 + 1 month = 28/02). 1 week = 7 days.
 - **Input errors** (EQ27, A9). `Validate` is a separate function that reports every problem in an input; the server and guest import run it before `Evaluate`. `Evaluate` never coerces values:
-  - an unparseable dose date gives ⚪ `INVALID_DATE` for every disease of that dose record;
-  - an invalid birth date, or the history status "Chưa nhập xong" ("Not finished entering") without `historyStatusAt`, makes `Evaluate` return an input error instead of an `Output`.
+  - a dose date that is unparseable, out of range, after today or before the birth date is **record-scoped**: every disease of that dose record becomes ⚪ with no `nextDose` and a reason of the same code (`INVALID_DATE`, `OUT_OF_RANGE`, `DATE_IN_FUTURE`, `DATE_BEFORE_BIRTH`, params `{dose}`). `Validate` still reports it, so saving the record (F04.4) stays blocked; but stored data can reach this state (an edited birth date, client/server clock skew, a guest import), and one such record must not blank the whole profile and drop every reminder for it (§7.2);
+  - every other problem (`today`, the birth date, a missing or duplicate ID, an unknown disease, an invalid or unsupported precision), or the history status "Chưa nhập xong" ("Not finished entering") without `historyStatusAt`, makes `Evaluate` return an input error instead of an `Output`.
 - **Contract documents** (`contracts/ruleset.schema.json`). The Go structs in `ruleset/` and `engine/` are the source (§3). The schema and the Go decoders (`ruleset.Decode`, `engine.DecodeInput`) agree on shape: member names, required members, JSON types and the syntax of spans and dates. `null` is never valid; an optional member is omitted. Content checks live in `ruleset.Validate` and `engine.Validate`, including the schema keywords the decoders do not enforce (enums, `minLength`, `minItems`, `uniqueItems`, the ID pattern). The Input schema accepts every Input that `Evaluate` assesses, so a recalled date's `value` is any string and ⚪ `INVALID_DATE` stays reachable for a client that validates against the schema. A future write API may use a stricter entry schema of its own (for example, a dose date that is a valid `Date`); the engine Input schema stays permissive. **The contract grows additively:** a member added after S1 is optional unless every stored document is migrated.
 - **Display constants** (EQ27): `overdueGraceDays = 7`, the 30-day and 6-month bucket thresholds, the 6-month threshold of the "Chưa tới lịch tiêm" ("Not yet scheduled") block and the 3-month "sau sinh — hỏi bác sĩ" ("after delivery — ask a doctor") note are engine constants, not medical rules; P2's citation requirement does not apply to them (spec v1.2 F05.2, F05.4).
 - **A ⚪ assessment has no next dose:** `bucket == unknown` ⇒ no `nextDose`. The spec gives no dates for ⚪, most ⚪ reasons have no single date, and adding the member later is additive while removing it would break consumers. The engine still computes the dates internally, because they decide the bucket a ⚪ layer masks (§5.3 step 10).
@@ -218,7 +218,7 @@ The prototype taught two things about the model:
 
 Steps 1–3 prepare the doses and the candidate series; steps 5–9 are evaluated at each end of the birth-date range and compared as described in step 4; step 10 applies the precedence that decides the final bucket or block; step 11 computes `historyIncompletePending`. Dose-level validation and the maximum-age checks always run **per candidate series**. Reasons from every end, candidate and masked layer are kept in `reasons[]` (A8, EQ21).
 
-1. **Collect the dose records** for the disease. A record whose date cannot be parsed makes the disease ⚪ `INVALID_DATE` (§5.1). Level 2–3 dose dates (month-year, year only) become the range **[period start, min(period end, today)]** (EQ7); this today-capped range is used for ordering, validation and the next-dose computation alike. The later end of the birth-date range is also capped at today (EQ17). Mark `estimated` if the birth date or a dose date is not at full-day precision, or if any dose is at level 4 or implied (EQ20d).
+1. **Collect the dose records** for the disease. A record whose date cannot be parsed, is out of range, is after today or is before the birth date makes the disease ⚪ with a reason of that code (`INVALID_DATE`, `OUT_OF_RANGE`, `DATE_IN_FUTURE`, `DATE_BEFORE_BIRTH`; §5.1). Level 2–3 dose dates (month-year, year only) become the range **[period start, min(period end, today)]** (EQ7); this today-capped range is used for ordering, validation and the next-dose computation alike. The later end of the birth-date range is also capped at today (EQ17). Mark `estimated` if the birth date or a dose date is not at full-day precision, or if any dose is at level 4 or implied (EQ20d).
 2. **Assign positions** (F04.2, A4, EQ20a). One position-assignment algorithm: walk the dated doses in time order; a user-entered dose number places that dose at its number and resets the counter.
    - Conflicting user-entered numbers (duplicates, or numbers that contradict the time order) → ⚪ `NUMBERING_CONFLICT`.
    - Overlapping date ranges with no user-entered number → ⚪ `OVERLAPPING_ESTIMATED_DATES`.
@@ -318,6 +318,14 @@ Added by the engine semantics decisions (spec v1.2):
 | `NO_SERIES_IN_EFFECT` | A scheduled disease has no series in effect today (EQ26) | — |
 | `CATCH_UP_ASK_DOCTOR` | Next dose after `Series.catchUpAfterAge` (EQ26) | "lịch tiêm bù — hỏi bác sĩ" ("catch-up schedule — ask a doctor") |
 | `LIVE_VACCINE_BEFORE_PREGNANCY` | Live vaccine recorded in the 3 months before the pregnant flag was turned on (EQ25d) | "hỏi bác sĩ" ("ask a doctor") |
+
+Added by the engine S1 contract review (2026-11-21), each record-scoped like `INVALID_DATE` (§5.1):
+
+| Code | Meaning | Wording shown to the user |
+|---|---|---|
+| `OUT_OF_RANGE` | A dose date outside [1900-01-01, 2199-12-31]; the record's diseases are ⚪ | — |
+| `DATE_IN_FUTURE` | A dose date after today; the record's diseases are ⚪ | — |
+| `DATE_BEFORE_BIRTH` | A dose date before the birth date; the record's diseases are ⚪ | — |
 
 Codes without wording here get their text when the web app and email templates are written; the wording is not part of the engine contract.
 
@@ -660,8 +668,9 @@ sequenceDiagram
 3. **F11.8:** a suspension target can only be a Series, Rule or Disease, not an individual dose rule.
 4. **§6:** add "Rule set backup via git" (high priority).
 5. **Engine semantics:** the 13 gaps in §5.6 B1–B13, settled in the engine semantics session (EQ1–EQ27, 2026-11-11).
+6. **F05.1:** a dose date that is out of range, after today or before the birth date is treated like an unparseable one (⚪ for the record's diseases); apply in the next spec bump.
 
-Items 1–4 were applied in spec v1.1 (Appendix B); item 5 was applied in spec v1.2 (Appendix C). Appendix A was not edited.
+Items 1–4 were applied in spec v1.1 (Appendix B); item 5 was applied in spec v1.2 (Appendix C); item 6 waits for the next spec bump. Appendix A was not edited.
 
 ## 18. Next steps
 

@@ -102,7 +102,8 @@ type Reason struct {
 type ReasonParams struct {
 	// Checks are the minimums a dose fails, in catalog order: DOSE_INVALID.
 	Checks []Check `json:"checks,omitzero"`
-	// Dose is a dose record ID: INVALID_DATE, DOSE_INVALID.
+	// Dose is a dose record ID: INVALID_DATE, OUT_OF_RANGE, DATE_IN_FUTURE,
+	// DATE_BEFORE_BIRTH, DOSE_INVALID.
 	Dose string `json:"dose,omitzero"`
 	// Number is the series position a dose was checked for, ≥ 1:
 	// DOSE_INVALID.
@@ -128,6 +129,15 @@ const (
 	// ReasonInvalidDate: a dose record of the disease has an unparseable
 	// date (A9). Params: dose.
 	ReasonInvalidDate ReasonCode = "INVALID_DATE"
+	// ReasonOutOfRange: a dose record of the disease has a date outside
+	// [1900-01-01, 2199-12-31]. Params: dose.
+	ReasonOutOfRange ReasonCode = "OUT_OF_RANGE"
+	// ReasonDateInFuture: a dose record of the disease is dated after today.
+	// Params: dose.
+	ReasonDateInFuture ReasonCode = "DATE_IN_FUTURE"
+	// ReasonDateBeforeBirth: a dose record of the disease is dated before the
+	// birth date. Params: dose.
+	ReasonDateBeforeBirth ReasonCode = "DATE_BEFORE_BIRTH"
 	// ReasonDoseInvalid: a dose violates a minimum and is not counted. Params:
 	// checks (the failed minimums), dose, number (the position it was checked
 	// for).

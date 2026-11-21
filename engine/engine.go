@@ -105,23 +105,24 @@ func compileSeries(sr ruleset.Series) seriesModel {
 type givenDose struct {
 	id      string
 	date    Range
-	invalid bool // the date cannot be parsed (A9)
+	problem ReasonCode // the record's date problem (ScopeRecord), if any
 }
 
 // Evaluate assesses every disease of the rule set for one profile, in the
 // rule set's disease order. It is pure: no clock reads, no I/O, and it never
 // coerces input values.
 //
-// An input with any problem from Validate gives an *InputError holding those
-// problems, except an unparseable dose date: that record's diseases become
-// ⚪ INVALID_DATE instead (A9).
+// It returns an *InputError holding the ScopeInput problems of Validate when
+// there are any. A ScopeRecord problem (a dose date that is unparseable, out
+// of range, after today or before birth) makes every disease of that record
+// ⚪ with a reason of the same code instead (A9, EQ27).
 func (e *Engine) Evaluate(in Input) (Output, error) {
+	v := e.validate(in)
 	var fatal []Problem
-	for _, p := range e.Validate(in) {
-		if p.Code == InvalidDate && strings.HasPrefix(p.Path, "/doses/") && strings.HasSuffix(p.Path, "/date/value") {
-			continue
+	for _, p := range v.problems {
+		if p.Scope == ScopeInput {
+			fatal = append(fatal, p)
 		}
-		fatal = append(fatal, p)
 	}
 	if len(fatal) > 0 {
 		return Output{}, &InputError{Problems: fatal}
@@ -131,10 +132,12 @@ func (e *Engine) Evaluate(in Input) (Output, error) {
 		return Output{}, fmt.Errorf("engine: birth date passed validation but has no range: %w", err)
 	}
 	byDisease := make(map[string][]givenDose, len(e.diseases))
-	for _, r := range in.Doses {
+	for i, r := range in.Doses {
 		g := givenDose{id: r.ID}
-		if g.date, err = r.Date.Range(); err != nil {
-			g.invalid = true
+		if code, ok := v.records[i]; ok {
+			g.problem = ReasonCode(code)
+		} else if g.date, err = r.Date.Range(); err != nil {
+			return Output{}, fmt.Errorf("engine: dose date passed validation but has no range: %w", err)
 		}
 		for _, dz := range r.Diseases {
 			byDisease[dz] = append(byDisease[dz], g)
@@ -153,18 +156,20 @@ func (e *Engine) Evaluate(in Input) (Output, error) {
 func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
 	a := Assessment{Disease: dz.id}
 
-	// Step 1: an unparseable dose date makes the disease ⚪ (A9).
-	var bad []string
+	// Step 1: a dose record whose date is unparseable, out of range, after
+	// today or before birth makes the disease ⚪ (A9, EQ27). Its reasons are
+	// sorted by record ID.
+	var bad []givenDose
 	for _, g := range doses {
-		if g.invalid {
-			bad = append(bad, g.id)
+		if g.problem != "" {
+			bad = append(bad, g)
 		}
 	}
 	if len(bad) > 0 {
-		slices.Sort(bad)
+		slices.SortFunc(bad, func(x, y givenDose) int { return strings.Compare(x.id, y.id) })
 		a.Bucket = BucketUnknown
-		for _, id := range bad {
-			a.Reasons = append(a.Reasons, Reason{Code: ReasonInvalidDate, Params: ReasonParams{Dose: id}})
+		for _, g := range bad {
+			a.Reasons = append(a.Reasons, Reason{Code: g.problem, Params: ReasonParams{Dose: g.id}})
 		}
 		return a
 	}

@@ -165,7 +165,7 @@
       "additionalProperties": false,
       "required": ["code"],
       "properties": {
-        "code": {"enum": ["INVALID_DATE", "DOSE_INVALID", "ALTERNATIVE_PLANS", "COMPLETE", "ON_TRACK"]},
+        "code": {"enum": ["INVALID_DATE", "OUT_OF_RANGE", "DATE_IN_FUTURE", "DATE_BEFORE_BIRTH", "DOSE_INVALID", "ALTERNATIVE_PLANS", "COMPLETE", "ON_TRACK"]},
         "params": {"$ref": "#/$defs/ReasonParams"}
       }
     },

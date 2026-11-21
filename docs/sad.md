@@ -109,7 +109,7 @@ vaxbook/
   - `gen`: runs oapi-codegen, openapi-typescript, ent generate, and generates TS types for the engine.
   - `build:wasm`: builds WASM, then pre-compresses it with brotli.
   - `build`: builds the web app, embeds it in the binary with `go:embed`, producing a single binary.
-  - `test`: Go tests (including golden) and Vitest.
+  - `test`: Go tests (including golden) and Vitest; it ends with `test:wasm`, which runs the engine and `ruleset` tests again under `GOOS=js GOARCH=wasm` with Node and logs the WASM size.
   - `e2e`: Playwright.
   - `migrate:diff`: generates migration files in goose format with the Atlas Go library (through ent's `NamedDiff`), against a throwaway Postgres started by testcontainers; no Atlas CLI or local database needed.
   - `gen:check`: CI drift check for generated code, migrations and `atlas.sum`.
@@ -150,8 +150,8 @@ A single process, routed by `Host`. Each module in `internal/` has a small inter
 ```
 Validate(Input) → []Problem         // input checks; run by the server and by guest import before Evaluate
 Evaluate(Input) → (Output, error)   // pure: no clock reads, no I/O; never coerces input values
-Input  = { today, profile{birth(FuzzyDate), sex, historyStatus, historyStatusAt, pregnancy…},
-           doses[{id, diseases[], product?, freeProduct?, date(FuzzyDate), doseNumber{disease→n}}],
+Input  = { today, profile{birth(RecalledDate), sex, historyStatus, historyStatusAt, pregnancy…},
+           doses[{id, diseases[], product?, freeProduct?, date(RecalledDate), doseNumber{disease→n}}],
            declarations[{disease, kind, createdAt, until?}], suspensions[…] }
 Output = { ruleSetVersion, today, assessments[ Assessment ], historyIncompletePending[ disease ] }
 Assessment = { disease, bucket | block, nextDose{number, earliest, due, overdue},
@@ -393,7 +393,10 @@ The same session also decided items beyond B1–B13: the two-end comparison (EQ1
 
 ### 5.7 Engine testing
 
-- **Golden files** live in `engine/testdata/golden/*.json`; each file contains an input and the expected output. They run twice: native (`go test`), and WASM via Node on CI (`GOOS=js GOARCH=wasm go test` with `go_js_wasm_exec`). The two runs must be byte-identical.
+- **Golden files** live in `engine/testdata/golden/*.json`; each file is `{ruleset, input, output}` and is decoded strictly (unknown members fail). They run twice: native (`go test`), and WASM via Node (`task test:wasm`: `GOOS=js GOARCH=wasm go test` with `go_js_wasm_exec` from `$(go env GOROOT)/lib/wasm`). Both runs compare the encoded output with the same golden bytes, so they are byte-identical by construction.
+- **Golden expectations are written by hand from the spec, before the code** (one derivation line per file in `engine/testdata/golden/README.md`). The golden test's `-update` flag rewrites only the `output` member and may be used only for a pure output format change; that diff is reviewed in the PR. A changed expectation is re-derived by hand.
+- **Fixture rule sets** are shared and named: `engine/testdata/rulesets/*.json`, referenced by the golden files' `ruleset` member. Each one is marked "Illustrative, not medically verified" and must pass `ruleset.Validate` with no problems. Rule sets that must be rejected live in `ruleset/testdata/validate/` with their expected problems.
+- **Schema check:** a test in `contracts/` (outside `engine/`, which stays stdlib-only) validates every fixture rule set and every golden input and output against `contracts/ruleset.schema.json`, and checks the schema's members against the Go structs.
 - **Mandatory test cases (F13.2)** live in the admin-only part of the snapshot. Each time a revision is submitted for review, the server runs all test cases with the native engine and stores a `TestRun`.
 - In addition, there are **property tests**:
   - date addition (month-end rule of §5.1);
@@ -661,7 +664,7 @@ Items 1–4 were applied in spec v1.1 (Appendix B); item 5 was applied in spec v
 2. ~~An "engine semantics" grilling session to settle §5.6 B1–B13, then bump the spec to v1.2.~~ Done 2026-11-11 (spec v1.2).
 3. **Next:** split the work (GitHub Issues) in this order. On 2026-11-21 the owner moved the BE skeleton ahead of the engine, so later features have a source shape to grow into:
    - (b) repo skeleton and CI, with a thin identity slice (email OTP → session → `/me`): issue #5;
-   - (a) engine, `ruleset` and golden cases (table A in §5.6, the spec v1.2 F13.2 cases and the §5.7 property tests);
+   - (a) engine, `ruleset` and golden cases (table A in §5.6, the spec v1.2 F13.2 cases and the §5.7 property tests): issue #11 (slices S1–S8);
    - (c) the rest of identity (Resend, Turnstile, per-IP/per-email rate limits, email change), profiles, consent;
    - (d) guest web with WASM;
    - (e) editorial with MCP;

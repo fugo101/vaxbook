@@ -4,10 +4,10 @@ A neutral vaccination record for users in Vietnam. Product spec: [`docs/feature-
 
 ## Backend development
 
-You need Go 1.27 or later (`GOTOOLCHAIN=auto` fetches the exact version) and Docker. Other tools are pinned in `go.tool.mod`. If you have not installed [Task](https://taskfile.dev), run `go tool -modfile=go.tool.mod task <name>` instead of `task <name>`.
+You need Go 1.27 or later (`GOTOOLCHAIN=auto` fetches the exact version), Docker, and Node 26 (`task test` also runs the engine tests as WASM under Node). Other tools are pinned in `go.tool.mod`. If you have not installed [Task](https://taskfile.dev), run `go tool -modfile=go.tool.mod task <name>` instead of `task <name>`.
 
 ```sh
-task test                     # Go tests against a throwaway Postgres (testcontainers)
+task test                     # Go tests against a throwaway Postgres (testcontainers), then the WASM engine run
 task lint                     # golangci-lint
 task gen                      # regenerate code from contracts/openapi.yaml and the ent schema
 task migrate:diff NAME=foo    # write a goose migration for ent schema changes

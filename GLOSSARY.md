@@ -38,6 +38,10 @@ _Avoid_: Vaccination, Shot, Injection, Dose (when you mean the record)
 How precisely the user remembers a date: exact day / month-year / year only / time unknown (for a dose record), or not entered (for the birth date).
 _Avoid_: Fuzzy date, Approximate date
 
+**Recalled date** — *Ngày theo trí nhớ*:
+A date as the user remembers it (a birth date or a dose date), together with its Date precision.
+_Avoid_: Fuzzy date, Approximate date, Estimated date
+
 **Disease declaration** — *Khai báo theo bệnh*:
 What the user states about one disease for a profile that is not a dose record: unknown, confirmed not vaccinated, already immune, doctor advised against vaccination, postponed until a date, chose not to vaccinate for now. The first two are *history* declarations, and a dose record for the disease takes precedence over them. The other four are *acknowledged* declarations: while active they move the disease into the acknowledged block, even when dose records exist.
 _Avoid_: ProfileDiseaseStatus, Disease status, Acknowledgement

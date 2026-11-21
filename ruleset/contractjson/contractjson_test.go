@@ -1,6 +1,7 @@
 package contractjson_test
 
 import (
+	"encoding/json/jsontext"
 	"errors"
 	"reflect"
 	"slices"
@@ -163,6 +164,36 @@ func TestMembers(t *testing.T) {
 	if got := contractjson.Members(reflect.TypeFor[untagged]()); len(got) != 1 || got[0].Name != "Plain" || !got[0].Required {
 		t.Errorf("Members(untagged) = %+v", got)
 	}
+}
+
+// A member that decodes itself (jsontext.Value, a TextUnmarshaler) is a
+// leaf: its content is not walked, but the member itself may not be null.
+func TestUnmarshalRawLeaf(t *testing.T) {
+	t.Parallel()
+	type withRaw struct {
+		Raw jsontext.Value `json:"raw"`
+	}
+	var v withRaw
+	if err := contractjson.Unmarshal([]byte(`{"raw": [null, {"a": null}]}`), &v); err != nil {
+		t.Errorf("raw content: %v", err)
+	}
+	var se *contractjson.Error
+	if err := contractjson.Unmarshal([]byte(`{"raw": null}`), &v); !errors.As(err, &se) || se.Kind != contractjson.KindNull {
+		t.Errorf("null raw member: %v, want a null error", err)
+	}
+}
+
+func TestMembersPanicsOnUnsupportedOption(t *testing.T) {
+	t.Parallel()
+	type inlined struct {
+		Rest map[string]string `json:",inline"`
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("Members did not panic on an inline member")
+		}
+	}()
+	contractjson.Members(reflect.TypeFor[inlined]())
 }
 
 func TestMembersPanicsOnEmbeddedField(t *testing.T) {

@@ -46,7 +46,8 @@ func (e *Error) Error() string { return fmt.Sprintf("%s at %q", e.Kind, e.Pointe
 // Unmarshal decodes b into v (non-nil pointer to struct): json/v2 with
 // RejectUnknownMembers, then a shape pass that rejects JSON null anywhere and
 // any missing member whose field has neither omitempty nor omitzero.
-// encoding.TextUnmarshaler types (Span, Date) are leaves; pointers are
+// Types that decode themselves (encoding.TextUnmarshaler such as Span and
+// Date, json.Unmarshaler such as jsontext.Value) are leaves; pointers are
 // dereferenced; slices and map values are walked.
 func Unmarshal(b []byte, v any) error {
 	rv := reflect.ValueOf(v)
@@ -70,7 +71,18 @@ func decode(b []byte, v any, opts ...json.Options) error {
 	return json.Unmarshal(b, v, opts...) //nolint:forbidigo // the one place contract JSON is decoded; it adds the shape pass
 }
 
-var textUnmarshaler = reflect.TypeFor[encoding.TextUnmarshaler]()
+var (
+	textUnmarshaler = reflect.TypeFor[encoding.TextUnmarshaler]()
+	jsonUnmarshaler = reflect.TypeFor[json.Unmarshaler]()
+	jsonFrom        = reflect.TypeFor[json.UnmarshalerFrom]()
+)
+
+// leaf reports whether values of t decode themselves, so their content is
+// not walked: text types (Span, Date) and raw JSON (jsontext.Value).
+func leaf(t reflect.Type) bool {
+	p := reflect.PointerTo(t)
+	return p.Implements(textUnmarshaler) || p.Implements(jsonUnmarshaler) || p.Implements(jsonFrom)
+}
 
 func shape(t reflect.Type, node any, ptr string) error {
 	if node == nil {
@@ -79,7 +91,7 @@ func shape(t reflect.Type, node any, ptr string) error {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
-	if reflect.PointerTo(t).Implements(textUnmarshaler) {
+	if leaf(t) {
 		return nil
 	}
 	switch t.Kind() {
@@ -135,8 +147,9 @@ type Member struct {
 // Members returns the JSON members of struct type t in field order,
 // skipping unexported fields and fields tagged "-". It is the one definition
 // of a required member, shared by the decoders and the schema test. It
-// panics on an embedded field: the contract structs have none, and json/v2
-// would inline it.
+// panics on an embedded field and on the inline and unknown options: the
+// contract structs have none, and json/v2 would merge their members into the
+// parent object.
 func Members(t reflect.Type) []Member {
 	var out []Member
 	for f := range t.Fields() {
@@ -155,8 +168,11 @@ func Members(t reflect.Type) []Member {
 		}
 		required := true
 		for o := range strings.SplitSeq(opts, ",") {
-			if o == "omitempty" || o == "omitzero" {
+			switch o {
+			case "omitempty", "omitzero":
 				required = false
+			case "inline", "unknown":
+				panic(errors.New("contractjson: option " + o + " on " + t.String() + "." + f.Name))
 			}
 		}
 		out = append(out, Member{Name: name, Type: f.Type, Required: required})

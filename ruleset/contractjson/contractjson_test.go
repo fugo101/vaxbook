@@ -209,3 +209,30 @@ func TestMembersPanicsOnEmbeddedField(t *testing.T) {
 	}()
 	contractjson.Members(reflect.TypeFor[embedded]())
 }
+
+// Contract texts are I-JSON (RFC 7493): a JSON Schema cannot express unique
+// member names or well-formed Unicode, so the decoders reject such texts as a
+// decode error instead of guessing which duplicate wins or replacing
+// characters with U+FFFD. The schema description and SAD §5.1 say so.
+func TestUnmarshalRejectsNonIJSON(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"duplicate member":          `{"id": "a", "id": "b", "word": "w", "inner": {"name": "n"}, "list": []}`,
+		"duplicate nested member":   `{"id": "a", "word": "w", "inner": {"name": "n", "name": "m"}, "list": []}`,
+		"lone high surrogate":       `{"id": "\ud83d", "word": "w", "inner": {"name": "n"}, "list": []}`,
+		"lone low surrogate":        `{"id": "a\ude00", "word": "w", "inner": {"name": "n"}, "list": []}`,
+		"invalid UTF-8":             "{\"id\": \"\xff\", \"word\": \"w\", \"inner\": {\"name\": \"n\"}, \"list\": []}",
+		"lone surrogate in a value": `{"id": "a", "word": "w", "inner": {"name": "n"}, "list": [], "tags": ["\udfff"]}`,
+	}
+	for name, doc := range cases {
+		var v outer
+		if err := contractjson.Unmarshal([]byte(doc), &v); err == nil {
+			t.Errorf("%s: Unmarshal = nil, want an error", name)
+		}
+	}
+	// A surrogate pair is a well-formed character and decodes.
+	var v outer
+	if err := contractjson.Unmarshal([]byte(`{"id": "😀", "word": "w", "inner": {"name": "n"}, "list": []}`), &v); err != nil || v.ID != "😀" {
+		t.Errorf("surrogate pair: Unmarshal = %v, id %q; want nil, 😀", err, v.ID)
+	}
+}

@@ -22,7 +22,10 @@ import (
 // decoders and validators accept the same documents (SAD §5.7), on every
 // seed document and on deterministic mutations of each of its nodes:
 //
-//   - I1: schema-valid ⇒ decodes;
+//   - I1: schema-valid ⇒ decodes, for an I-JSON text (RFC 7493: unique
+//     member names, well-formed Unicode), which a schema cannot require;
+//     the decoders reject the other texts (contractjson
+//     TestUnmarshalRejectsNonIJSON);
 //   - I2: decodes and Validate reports nothing (no Reject for a snapshot) ⇒
 //     schema-valid;
 //   - I3: an Input that decodes and that Evaluate assesses is schema-valid,

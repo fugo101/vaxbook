@@ -8,6 +8,10 @@
 // this package does not enforce: enums, minLength, minItems, uniqueItems and
 // the Id pattern.
 //
+// Documents are I-JSON texts (RFC 7493), which a schema cannot express: a
+// duplicate member name, an unpaired surrogate escape or invalid UTF-8 is a
+// decode error, never a guess at which duplicate wins or a U+FFFD.
+//
 // The rules come from the struct tags, so a slice that adds a member needs
 // no change here:
 //   - null is never valid; an optional member is omitted;

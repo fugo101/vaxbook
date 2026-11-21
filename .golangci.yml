@@ -42,6 +42,8 @@ linters:
           msg: the engine takes "today" from its input; never read the clock
         - pattern: ^os\.
           msg: the engine and ruleset do no I/O
+        - pattern: ^json\.Unmarshal
+          msg: decode contract JSON with contractjson.Unmarshal, which adds the schema's shape rules (required members, no null)
     revive:
       rules:
         - name: exported

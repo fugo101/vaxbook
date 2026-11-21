@@ -12,6 +12,7 @@ import (
 
 	"github.com/fugo101/vaxbook/engine"
 	"github.com/fugo101/vaxbook/ruleset"
+	"github.com/fugo101/vaxbook/ruleset/contractjson"
 )
 
 var update = flag.Bool("update", false,
@@ -27,8 +28,6 @@ type golden struct {
 	Input   jsontext.Value `json:"input"`
 	Output  jsontext.Value `json:"output"`
 }
-
-var strict = json.RejectUnknownMembers(true)
 
 func goldenFiles(t testing.TB) []string {
 	t.Helper()
@@ -46,7 +45,7 @@ func readGolden(t testing.TB, path string) golden {
 		t.Fatal(err)
 	}
 	var g golden
-	if err := json.Unmarshal(b, &g, strict); err != nil {
+	if err := contractjson.Unmarshal(b, &g); err != nil {
 		t.Fatalf("decode %s: %v", path, err)
 	}
 	return g
@@ -106,10 +105,11 @@ func TestGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Decoding the expectation strictly turns a typo in a member name
-			// into a clear failure instead of a byte mismatch.
+			// Decoding the expectation with the contract's shape rules turns a
+			// typo in a member name, a missing member or a null into a clear
+			// failure instead of a byte mismatch.
 			var want engine.Output
-			if err := json.Unmarshal(g.Output, &want, strict); err != nil {
+			if err := contractjson.Unmarshal(g.Output, &want); err != nil {
 				t.Fatalf("decode expected output: %v", err)
 			}
 			wantBytes := bytes.Clone(g.Output)

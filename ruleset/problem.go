@@ -39,7 +39,8 @@ const (
 	// UnknownReference: a series names a disease that does not exist.
 	// Params: disease.
 	UnknownReference ProblemCode = "UNKNOWN_REFERENCE"
-	// Empty: a series has no plans or a plan has no doses.
+	// Empty: a snapshot has no diseases, a series has no plans or a plan has
+	// no doses.
 	Empty ProblemCode = "EMPTY"
 )
 

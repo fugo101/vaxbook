@@ -13,6 +13,9 @@ func Validate(s *Snapshot) []Problem {
 	if s.Version == "" {
 		v.reject(Required, "/version", nil)
 	}
+	if len(s.Diseases) == 0 {
+		v.reject(Empty, "/diseases", nil)
+	}
 	diseases := make(map[string]bool, len(s.Diseases))
 	for i, d := range s.Diseases {
 		p := "/diseases/" + strconv.Itoa(i)

@@ -3,11 +3,14 @@ package ruleset
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/fugo101/vaxbook/ruleset/contractjson"
 )
 
 // validCase is a well-formed one-series snapshot that individual cases break.
@@ -55,6 +58,42 @@ func TestDecodeIsStrict(t *testing.T) {
 	}
 }
 
+// TestDecodeShape: Decode agrees with contracts/ruleset.schema.json on
+// required members and null, so a truncated snapshot never loads as one with
+// no assessments.
+func TestDecodeShape(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, doc string
+		kind      contractjson.Kind
+		pointer   string
+	}{
+		{"truncated snapshot", `{"version": "x"}`, contractjson.KindMissing, "/diseases"},
+		{"missing series", `{"version": "v1", "diseases": [{"id": "d", "name": "D"}]}`, contractjson.KindMissing, "/series"},
+		{"missing offset", strings.Replace(validCase, `"recommended": {"from": "birth", "offset": "2m"}`, `"recommended": {"from": "birth"}`, 1),
+			contractjson.KindMissing, "/series/0/plans/0/doses/0/recommended/offset"},
+		{"missing recommended", strings.Replace(validCase, `, "recommended": {"from": "birth", "offset": "2m"}`, ``, 1),
+			contractjson.KindMissing, "/series/0/plans/0/doses/0/recommended"},
+		{"missing plan doses", `{"version": "v1", "diseases": [], "series": [{"id": "s", "disease": "d", "stage": "adult", "plans": [{"id": "p"}]}]}`,
+			contractjson.KindMissing, "/series/0/plans/0/doses"},
+		{"null version", strings.Replace(validCase, `"version": "v1"`, `"version": null`, 1), contractjson.KindNull, "/version"},
+		{"null min interval", strings.Replace(validCase, `"minInterval": "4w"`, `"minInterval": null`, 1),
+			contractjson.KindNull, "/series/0/plans/0/doses/1/minInterval"},
+		{"null buffer", strings.Replace(validCase, `"buffer": "14d"`, `"buffer": null`, 1),
+			contractjson.KindNull, "/series/0/plans/0/doses/1/buffer"},
+		{"null disease", strings.Replace(validCase, `[{"id": "d", "name": "D"}]`, `[{"id": "d", "name": "D"}, null]`, 1),
+			contractjson.KindNull, "/diseases/1"},
+		{"null root", `null`, contractjson.KindNull, ""},
+	}
+	for _, c := range cases {
+		_, err := Decode([]byte(c.doc))
+		var se *contractjson.Error
+		if !errors.As(err, &se) || se.Kind != c.kind || se.Pointer != c.pointer {
+			t.Errorf("%s: Decode error = %v, want %s at %q", c.name, err, c.kind, c.pointer)
+		}
+	}
+}
+
 func TestValidateProblems(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -87,13 +126,8 @@ func TestValidateProblems(t *testing.T) {
 				{Code: DoseRuleNoMinimum, Severity: Reject, Path: "/series/0/plans/0/doses/0"},
 				{Code: FirstDoseHasInterval, Severity: Reject, Path: "/series/0/plans/0/doses/0/minInterval"},
 			}},
-		{"missing offset", `"recommended": {"from": "birth", "offset": "2m"}`, `"recommended": {"from": "birth"}`,
-			[]Problem{{Code: Required, Severity: Reject, Path: "/series/0/plans/0/doses/0/recommended/offset"}}},
-		{"missing recommended", `, "recommended": {"from": "birth", "offset": "2m"}`, ``,
-			[]Problem{
-				{Code: Required, Severity: Reject, Path: "/series/0/plans/0/doses/0/recommended/from"},
-				{Code: Required, Severity: Reject, Path: "/series/0/plans/0/doses/0/recommended/offset"},
-			}},
+		{"empty anchor", `"from": "previousDose"`, `"from": ""`,
+			[]Problem{{Code: Required, Severity: Reject, Path: "/series/0/plans/0/doses/1/recommended/from"}}},
 		{"first dose anchor", `"from": "birth"`, `"from": "firstDose"`,
 			[]Problem{{Code: FirstDoseAnchorNotBirth, Severity: Reject, Path: "/series/0/plans/0/doses/0/recommended/from"}}},
 	}
@@ -119,6 +153,19 @@ func TestValidateSeriesWithoutPlans(t *testing.T) {
 	want := []Problem{{Code: Empty, Severity: Reject, Path: "/series/0/plans"}}
 	if got := Validate(mustDecode(t, in)); !reflect.DeepEqual(got, want) {
 		t.Errorf("Validate =\n  %v\nwant\n  %v", got, want)
+	}
+}
+
+// A snapshot without diseases would load and silently assess nothing.
+// testdata/validate holds shape-valid snapshots only, so this case is inline.
+func TestValidateSnapshotWithoutDiseases(t *testing.T) {
+	t.Parallel()
+	want := []Problem{{Code: Empty, Severity: Reject, Path: "/diseases"}}
+	if got := Validate(mustDecode(t, `{"version": "v1", "diseases": [], "series": []}`)); !reflect.DeepEqual(got, want) {
+		t.Errorf("Validate =\n  %v\nwant\n  %v", got, want)
+	}
+	if got := Validate(&Snapshot{Version: "v1"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("Validate(Go-built) =\n  %v\nwant\n  %v", got, want)
 	}
 }
 
@@ -171,6 +218,15 @@ func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
 			[]Problem{invalid(dose+"1/buffer", Span{N: 14, Unit: 'x'})}},
 		{"offset too long", func(d0, _ *DoseRule) { d0.Recommended.Offset = Span{N: 1000, Unit: Days} },
 			[]Problem{invalid(dose+"0/recommended/offset", Span{N: 1000, Unit: Days})}},
+		// Decode rejects a missing offset or milestone; a Go-built snapshot
+		// can still leave them zero.
+		{"zero offset", func(d0, _ *DoseRule) { d0.Recommended.Offset = Span{} },
+			[]Problem{{Code: Required, Severity: Reject, Path: dose + "0/recommended/offset"}}},
+		{"zero milestone", func(d0, _ *DoseRule) { d0.Recommended = Milestone{} },
+			[]Problem{
+				{Code: Required, Severity: Reject, Path: dose + "0/recommended/from"},
+				{Code: Required, Severity: Reject, Path: dose + "0/recommended/offset"},
+			}},
 		{"spans at the cap", func(d0, d1 *DoseRule) {
 			d0.MinAge = &Span{N: MaxSpanN, Unit: Years}
 			d1.MinInterval = &Span{N: 0, Unit: Days}

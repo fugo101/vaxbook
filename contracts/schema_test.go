@@ -19,6 +19,7 @@ import (
 
 	"github.com/fugo101/vaxbook/engine"
 	"github.com/fugo101/vaxbook/ruleset"
+	"github.com/fugo101/vaxbook/ruleset/contractjson"
 )
 
 const schemaFile = "ruleset.schema.json"
@@ -177,8 +178,8 @@ func TestDatePatternMatchesParseDate(t *testing.T) {
 }
 
 // TestSchemaMatchesStructs: for every object $def, the schema's members are
-// the Go struct's JSON members, and its required list is the members without
-// omitempty or omitzero.
+// the Go struct's JSON members, and its required list is the members the
+// decoders require (contractjson.Members: no omitempty or omitzero).
 func TestSchemaMatchesStructs(t *testing.T) {
 	t.Parallel()
 	types := map[string]reflect.Type{
@@ -216,7 +217,13 @@ func TestSchemaMatchesStructs(t *testing.T) {
 		for _, r := range asSlice(def["required"]) {
 			required = append(required, r.(string))
 		}
-		members, mandatory := jsonMembers(typ)
+		var members, mandatory []string
+		for _, m := range contractjson.Members(typ) {
+			members = append(members, m.Name)
+			if m.Required {
+				mandatory = append(mandatory, m.Name)
+			}
+		}
 		if got, want := slices.Sorted(maps.Keys(props)), slices.Sorted(slices.Values(members)); !slices.Equal(got, want) {
 			t.Errorf("$defs/%s properties %v, Go %s members %v", name, got, typ, want)
 		}
@@ -285,33 +292,4 @@ func schemaDefs(t *testing.T) map[string]map[string]any {
 func asSlice(v any) []any {
 	s, _ := v.([]any)
 	return s
-}
-
-// jsonMembers returns the JSON member names of a struct and those that are
-// always present (no omitempty or omitzero).
-func jsonMembers(typ reflect.Type) (all, mandatory []string) {
-	for f := range typ.Fields() {
-		if !f.IsExported() {
-			continue
-		}
-		tag := f.Tag.Get("json")
-		name, opts, _ := strings.Cut(tag, ",")
-		if name == "-" {
-			continue
-		}
-		if name == "" {
-			name = f.Name
-		}
-		all = append(all, name)
-		optional := false
-		for o := range strings.SplitSeq(opts, ",") {
-			if o == "omitempty" || o == "omitzero" {
-				optional = true
-			}
-		}
-		if !optional {
-			mandatory = append(mandatory, name)
-		}
-	}
-	return all, mandatory
 }

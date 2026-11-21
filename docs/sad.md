@@ -148,8 +148,9 @@ A single process, routed by `Host`. Each module in `internal/` has a small inter
 ### 5.1 Contract
 
 ```
-Validate(Input) → []Problem         // input checks; run by the server and by guest import before Evaluate
-Evaluate(Input) → (Output, error)   // pure: no clock reads, no I/O; never coerces input values
+Engine = New(snapshot)              // rejects a rule set that ruleset.Validate rejects
+engine.Validate(Input) → []Problem  // input checks; run by the server and by guest import before Evaluate
+engine.Evaluate(Input) → (Output, error) // pure: no clock reads, no I/O; never coerces input values
 Input  = { today, profile{birth(RecalledDate), sex, historyStatus, historyStatusAt, pregnancy…},
            doses[{id, diseases[], product?, freeProduct?, date(RecalledDate), doseNumber{disease→n}}],
            declarations[{disease, kind, createdAt, until?}], suspensions[…] }
@@ -664,7 +665,7 @@ Items 1–4 were applied in spec v1.1 (Appendix B); item 5 was applied in spec v
 2. ~~An "engine semantics" grilling session to settle §5.6 B1–B13, then bump the spec to v1.2.~~ Done 2026-11-11 (spec v1.2).
 3. **Next:** split the work (GitHub Issues) in this order. On 2026-11-21 the owner moved the BE skeleton ahead of the engine, so later features have a source shape to grow into:
    - (b) repo skeleton and CI, with a thin identity slice (email OTP → session → `/me`): issue #5;
-   - (a) engine, `ruleset` and golden cases (table A in §5.6, the spec v1.2 F13.2 cases and the §5.7 property tests): issue #11 (slices S1–S8);
+   - (a) engine, `ruleset` and golden cases (table A in §5.6, the spec v1.2 F13.2 cases and the §5.7 property tests): parent issue #11 (slices S1–S8 = issues #12–#19);
    - (c) the rest of identity (Resend, Turnstile, per-IP/per-email rate limits, email change), profiles, consent;
    - (d) guest web with WASM;
    - (e) editorial with MCP;

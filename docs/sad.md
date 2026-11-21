@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Version** | 1.1 — 2026-11-11: engine semantics (§5.6 B1–B13) settled in spec v1.2; v1.0 approved by the project owner on 2026-11-10 |
-| **Date** | 2026-11-11 |
+| **Version** | 1.2 — 2026-11-21: BE skeleton decisions (§3, §8, §12, §18; issue #3). 1.1 — 2026-11-11: engine semantics (§5.6 B1–B13) settled in spec v1.2; v1.0 approved by the project owner on 2026-11-10 |
+| **Date** | 2026-11-21 |
 | **Inputs** | [`feature-spec-mvp.md`](feature-spec-mvp.md) v1.0 and v1.2 (engine semantics EQ1–EQ27, Appendix C), [`research/2026-11-10-feature-research.md`](research/2026-11-10-feature-research.md), SAD grilling session (Q1–Q34), engine prototype (`engine-prototype/`) |
 | **Hard-to-reverse decisions** | [`docs/adr/`](adr/) — ADR-0001 → 0011 |
 | **Terminology** | [`GLOSSARY.md`](../GLOSSARY.md) |
@@ -81,6 +81,9 @@ Single-level subdomains are used because Cloudflare's free SSL certificate cover
 vaxbook/
 ├── Taskfile.yml                 # build, gen, test, dev, release
 ├── go.mod                       # one Go module for the whole repo
+├── go.tool.mod                  # dev tools (oapi-codegen, ent, task) pinned apart from app deps
+├── compose.dev.yaml             # local Postgres for `task run`
+├── Dockerfile                   # single static binary on distroless, non-root
 ├── engine/                      # recommendation engine — pure Go, stdlib only, no I/O
 │   ├── testdata/golden/         # test cases as golden files (JSON input + output)
 │   └── wasm/                    # js/wasm entry point (build tag)
@@ -90,7 +93,8 @@ vaxbook/
 │   │   ├── cmd/vaxbook/         # main: HTTP (3 hosts), scheduler, migrations at startup
 │   │   └── internal/            # identity, profiles, consent, guestimport, reminders,
 │   │                            # notifications, feedback, editorial, admin, mcp, audit,
-│   │                            # httpapi (oapi-codegen code), store (ent + migrations)
+│   │                            # httpapi (oapi-codegen code), store (ent + migrations),
+│   │                            # platform (config, logging, middleware, clock, problem)
 │   └── web/                     # Vite + React; src/app (user), src/admin (separate chunk)
 ├── contracts/
 │   ├── openapi.yaml             # OpenAPI 3.1 — source of truth for the API
@@ -107,7 +111,9 @@ vaxbook/
   - `build`: builds the web app, embeds it in the binary with `go:embed`, producing a single binary.
   - `test`: Go tests (including golden) and Vitest.
   - `e2e`: Playwright.
-  - `migrate:diff`: runs Atlas, generates migration files in goose format.
+  - `migrate:diff`: generates migration files in goose format with the Atlas Go library (through ent's `NamedDiff`), against a throwaway Postgres started by testcontainers; no Atlas CLI or local database needed.
+  - `gen:check`: CI drift check for generated code, migrations and `atlas.sum`.
+- **Tools** are pinned with `tool` directives in `go.tool.mod` and run as `go tool -modfile=go.tool.mod …`, so tool dependencies never bump app dependencies. golangci-lint is the exception (its project advises against `go tool`): `task lint` uses `go run …@<version>`, CI uses the official action at the same version.
 
 ---
 
@@ -511,7 +517,9 @@ sequenceDiagram
 
 ## 8. API
 
-- **OpenAPI 3.1** in `contracts/openapi.yaml`, written first, then code is generated. Go uses the oapi-codegen 2.8 strict server (target `std-http-server`) with middleware that validates requests against the spec. TS uses openapi-typescript 7 + openapi-fetch.
+- **OpenAPI 3.1** in `contracts/openapi.yaml`, written first, then code is generated. Go uses the oapi-codegen 2.8 strict server (target `std-http-server`) on the standard library `net/http` `ServeMux`, **no web framework**. TS uses openapi-typescript 7 + openapi-fetch.
+- **Per-operation middleware** looks the operation up in the embedded spec by `r.Pattern`: if the operation declares `security`, it requires a live session; then it validates the request against the spec with kin-openapi. oapi-codegen does not expose `security` itself, so the spec stays the single place that says which operations need a session.
+- **Middleware order:** recover (outermost) → request id → access log → host routing → CSRF (app host) → body limit → per-operation middleware.
 - **Route groups:**
   - `/api/v1`: auth, me, profiles, doses, declarations, pregnancy, consents, guest-import, export, notifications, feedback, ruleset.
   - `/admin/api/v1`: catalog (reads the snapshot), changesets, revisions, findings, versions, publish, rollback, suspensions, feedback-queue, stats.
@@ -576,18 +584,18 @@ sequenceDiagram
 
 ---
 
-## 12. Technology and versions (checked 2026-11-10)
+## 12. Technology and versions (checked 2026-11-10, Go/DB rows rechecked 2026-11-21)
 
 | Part | Choice |
 |---|---|
-| Go | **1.27.3**, `net/http` + `ServeMux` |
-| API | OpenAPI 3.1, **oapi-codegen 2.8.2** |
-| DB | **PostgreSQL 19** (GA expected 19/11/2026; if not yet released, 18.6), **pgx 5.12**, **ent 0.14.6**, **Atlas 1.3** (dev only), goose |
+| Go | **1.27.4**, `net/http` + `ServeMux`, no web framework |
+| API | OpenAPI 3.1, **oapi-codegen 2.8.2**, **kin-openapi 0.153** (request validation) |
+| DB | **PostgreSQL 19** (GA 2026-11-19), **pgx 5.13**, **ent 0.14.6**, Atlas as a Go library at the version ent requires (dev only, `task migrate:diff`), **goose 3.30** |
 | MCP | **modelcontextprotocol/go-sdk 1.8.0** |
 | Email | **resend-go v4.12** |
 | Web | **React 19.3.1**, **Vite 8.3**, **React Router 8.5** (Data mode), **TanStack Query 5.107**, **openapi-typescript 7.13 + openapi-fetch 0.17**, **vite-plugin-pwa 2.0**, `idb`, **Tailwind CSS 4 + shadcn/ui** |
-| Testing | Go `testing` + golden files; Vitest; Playwright |
-| Build | Node 26 (build only), Taskfile, GitHub Actions, GHCR, release-please |
+| Testing | Go `testing` + golden files, **testcontainers-go 0.45** (real Postgres: one migrated template database, one database per test); Vitest; Playwright |
+| Build | Node 26 (build only), **Taskfile 3.54** (pinned in `go.tool.mod`), **golangci-lint 2.15**, GitHub Actions, GHCR, release-please |
 
 ---
 
@@ -617,6 +625,7 @@ sequenceDiagram
 | WASM ~0.9 MB on weak mobile networks | Low | Load after the disclaimer step, cache with a service worker, serve brotli |
 | Resend Free 100 emails/day | Low during the beta | Monitor, upgrade to the Pro plan |
 | Cloudflare Access service token on the Free plan (UNVERIFIED) | Low | Fallback: use only the app's bearer token |
+| One ent client for the whole graph: once editorial tables exist, an import-graph test alone cannot stop `editorial`/`mcp`/`admin` from querying user tables (§4) | Medium | Decide when editorial is built: two ent graphs (user data / editorial data) or another enforcement; moving the schema is still cheap then |
 
 ## 16. ADR index
 
@@ -648,10 +657,10 @@ Items 1–4 were applied in spec v1.1 (Appendix B); item 5 was applied in spec v
 
 1. ~~The project owner reviews this SAD together with ADR-0001 → 0011.~~ Done 2026-11-10.
 2. ~~An "engine semantics" grilling session to settle §5.6 B1–B13, then bump the spec to v1.2.~~ Done 2026-11-11 (spec v1.2).
-3. **Next:** split the work (issues in `.scratch/`) in order of risk:
+3. **Next:** split the work (GitHub Issues) in this order. On 2026-11-21 the owner moved the BE skeleton ahead of the engine, so later features have a source shape to grow into:
+   - (b) repo skeleton and CI, with a thin identity slice (email OTP → session → `/me`): issue #3;
    - (a) engine, `ruleset` and golden cases (table A in §5.6, the spec v1.2 F13.2 cases and the §5.7 property tests);
-   - (b) repo skeleton and CI;
-   - (c) identity, profiles, consent;
+   - (c) the rest of identity (Resend, Turnstile, per-IP/per-email rate limits, email change), profiles, consent;
    - (d) guest web with WASM;
    - (e) editorial with MCP;
    - (f) reminders.

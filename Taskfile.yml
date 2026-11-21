@@ -1,0 +1,76 @@
+# Build orchestration (ADR-0001). Tools are pinned in go.tool.mod; run
+# `go tool -modfile=go.tool.mod task <name>` if task is not installed.
+version: "3"
+
+vars:
+  TOOL: go tool -modfile=go.tool.mod
+  GOLANGCI_LINT_VERSION: v2.15.0
+  IMAGE: vaxbook:dev
+
+env:
+  # testcontainers needs the Docker socket. Docker contexts that do not use
+  # /var/run/docker.sock (OrbStack, Colima, rootless) are picked up here.
+  DOCKER_HOST:
+    sh: echo "${DOCKER_HOST:-$(docker context inspect --format '{{"{{"}}.Endpoints.docker.Host{{"}}"}}' 2>/dev/null)}"
+
+tasks:
+  default:
+    cmds: ["{{.TASK_EXE}} --list"]
+    silent: true
+
+  gen:
+    desc: Regenerate code from contracts/openapi.yaml and the ent schema
+    cmds:
+      - go generate ./apps/api/internal/httpapi/ ./apps/api/internal/store/ent/
+
+  migrate:diff:
+    desc: Write a goose migration for ent schema changes (task migrate:diff NAME=add_profiles)
+    requires:
+      vars: [NAME]
+    cmds:
+      - go run ./apps/api/internal/store/migrategen -name {{.NAME}}
+
+  gen:check:
+    desc: Fail if generated code or migrations are out of date (CI)
+    cmds:
+      - task: gen
+      - git diff --exit-code --stat -- apps/ contracts/ go.mod go.sum
+      - test -z "$(git status --porcelain -- apps/ contracts/)" || (git status --porcelain -- apps/ contracts/; echo "untracked generated files"; exit 1)
+      - go run ./apps/api/internal/store/migrategen -check
+
+  test:
+    desc: Run Go tests (needs Docker for Postgres)
+    cmds:
+      - go test -race -count=1 ./apps/... {{.CLI_ARGS}}
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}} run ./apps/...
+
+  build:
+    desc: Build the vaxbook binary into dist/
+    cmds:
+      - CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/vaxbook ./apps/api/cmd/vaxbook
+
+  db:up:
+    desc: Start the local dev Postgres
+    cmds:
+      - docker compose -f compose.dev.yaml up -d --wait
+
+  db:down:
+    desc: Stop the local dev Postgres (keeps data; add -- -v to drop it)
+    cmds:
+      - docker compose -f compose.dev.yaml down {{.CLI_ARGS}}
+
+  run:
+    desc: Run the server against the dev Postgres, with settings from .env.dev
+    deps: [db:up]
+    dotenv: [.env.dev]
+    cmds:
+      - go run ./apps/api/cmd/vaxbook
+
+  docker:build:
+    desc: Build the container image
+    cmds:
+      - docker build -t {{.IMAGE}} .

@@ -625,6 +625,8 @@ sequenceDiagram
 | WASM ~0.9 MB on weak mobile networks | Low | Load after the disclaimer step, cache with a service worker, serve brotli |
 | Resend Free 100 emails/day | Low during the beta | Monitor, upgrade to the Pro plan |
 | Cloudflare Access service token on the Free plan (UNVERIFIED) | Low | Fallback: use only the app's bearer token |
+| OTP abuse until per-IP/per-email limits and Turnstile land: an attacker gets 5 guesses per email per 60 s (the resend wait survives a killed challenge), bounded overall by the mail quota; anyone can also kill a victim's pending code with 5 wrong guesses | Medium before public launch | Follow-up identity hardening: attempt budgets bound to IP/device as well as email, a per-email failure budget with backoff, Turnstile (§9) |
+| Expired OTP challenges and sessions are never purged until the scheduler exists | Low | Purge in the daily job (§7.2) |
 | One ent client for the whole graph: once editorial tables exist, an import-graph test alone cannot stop `editorial`/`mcp`/`admin` from querying user tables (§4) | Medium | Decide when editorial is built: two ent graphs (user data / editorial data) or another enforcement; moving the schema is still cheap then |
 
 ## 16. ADR index

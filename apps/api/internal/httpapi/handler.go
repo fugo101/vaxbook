@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/fugo101/vaxbook/apps/api/internal/identity"
@@ -79,7 +81,25 @@ func NewHandler(o Options) (http.Handler, error) {
 	root.Handle(o.AppHost+"/", middleware.CSRF(app))
 	root.Handle("/", notFound())
 
-	return middleware.Chain(root, o.Logger), nil
+	return middleware.Chain(normalizeHost(root), o.Logger), nil
+}
+
+// normalizeHost lowercases the Host and drops a trailing dot, so host routing
+// treats "VaxBook.Example." like "vaxbook.example". Host names are
+// case-insensitive; ServeMux matching is not.
+func normalizeHost(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, port := r.Host, ""
+		if h, p, err := net.SplitHostPort(r.Host); err == nil {
+			host, port = h, p
+		}
+		host = strings.ToLower(strings.TrimSuffix(host, "."))
+		if port != "" {
+			host = net.JoinHostPort(host, port)
+		}
+		r.Host = host
+		next.ServeHTTP(w, r)
+	})
 }
 
 func notFound() http.Handler {

@@ -18,6 +18,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	atlasmigrate "ariga.io/atlas/sql/migrate"
@@ -94,35 +95,73 @@ func run(name string, check bool) error {
 			return err
 		}
 	}
-	before, err := countSQL(target)
+	wrote, err := diff(ctx, url, dir, target, name, false)
 	if err != nil {
 		return err
 	}
+	switch {
+	case wrote && check:
+		return errors.New("migrategen: the ent schema has changes with no migration; run `task migrate:diff NAME=<change>`")
+	case wrote:
+		fmt.Println("migrategen: wrote a new migration in", target)
+		return nil
+	case !check:
+		fmt.Println("migrategen: schema and migrations are in sync")
+		return nil
+	}
 
+	// Generated migrations never drop columns or indexes (expand only, SAD §10), so
+	// a schema that removes one diffs as "no change". Catch that narrowing here:
+	// it needs a deliberate, hand-written contract migration in a later release.
+	narrowDir, err := copyDir(dirPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(narrowDir) }()
+	nd, err := sqltool.NewGooseDir(narrowDir)
+	if err != nil {
+		return err
+	}
+	if sum, err := nd.Checksum(); err != nil {
+		return err
+	} else if err := atlasmigrate.WriteSumFile(nd, sum); err != nil {
+		return err
+	}
+	if code, _, err := ctr.Exec(ctx, []string{"createdb", "-U", "postgres", "migrategen_narrow"}); err != nil || code != 0 {
+		return fmt.Errorf("create scratch database: exit %d: %w", code, err)
+	}
+	narrowURL := strings.Replace(url, "/migrategen?", "/migrategen_narrow?", 1)
+	narrowed, err := diff(ctx, narrowURL, nd, narrowDir, "narrow_check", true)
+	if err != nil {
+		return err
+	}
+	if narrowed {
+		return errors.New("migrategen: the ent schema drops a column or an index; generated migrations are expand-only, so write the contract migration by hand (SAD §10)")
+	}
+	fmt.Println("migrategen: schema and migrations are in sync")
+	return nil
+}
+
+// diff writes a migration for the gap between dir and the ent schema into path
+// and reports whether it wrote one. drops allows DROP COLUMN / DROP INDEX.
+func diff(ctx context.Context, url string, dir *sqltool.GooseDir, path, name string, drops bool) (bool, error) {
+	before, err := countSQL(path)
+	if err != nil {
+		return false, err
+	}
 	err = migrate.NamedDiff(ctx, url, name,
 		schema.WithDir(dir),
 		schema.WithMigrationMode(schema.ModeReplay),
 		schema.WithDialect(dialect.Postgres),
 		schema.WithFormatter(sqltool.GooseFormatter),
-		schema.WithDropColumn(false),
-		schema.WithDropIndex(false),
+		schema.WithDropColumn(drops),
+		schema.WithDropIndex(drops),
 	)
 	if err != nil && !errors.Is(err, atlasmigrate.ErrNoPlan) {
-		return fmt.Errorf("diff: %w", err)
+		return false, fmt.Errorf("diff: %w", err)
 	}
-	after, err := countSQL(target)
-	if err != nil {
-		return err
-	}
-	switch {
-	case after == before:
-		fmt.Println("migrategen: schema and migrations are in sync")
-	case check:
-		return errors.New("migrategen: the ent schema has changes with no migration; run `task migrate:diff NAME=<change>`")
-	default:
-		fmt.Println("migrategen: wrote a new migration in", target)
-	}
-	return nil
+	after, err := countSQL(path)
+	return after > before, err
 }
 
 // countSQL counts the migration files in dir.

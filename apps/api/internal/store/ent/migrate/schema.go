@@ -63,6 +63,11 @@ var (
 				Unique:  false,
 				Columns: []*schema.Column{SessionsColumns[3]},
 			},
+			{
+				Name:    "session_account_id",
+				Unique:  false,
+				Columns: []*schema.Column{SessionsColumns[4]},
+			},
 		},
 	}
 	// Tables holds all the tables in the schema.

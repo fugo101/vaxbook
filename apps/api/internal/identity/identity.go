@@ -188,15 +188,16 @@ func (s *Service) VerifyOTP(ctx context.Context, rawEmail, code string) (Account
 		if err != nil {
 			return err
 		}
+		// A dead challenge (expired, or out of attempts) is kept, not deleted: its
+		// resend_after is what makes RequestOTP answer 429. Deleting it would let a
+		// caller buy a fresh code and five fresh guesses with no wait at all.
+		// RequestOTP replaces it once resend_after has passed.
 		if !now.Before(c.ExpiresAt) || c.Attempts >= MaxWrongAttempts {
 			wrong = true
-			return tx.OtpChallenge.DeleteOne(c).Exec(ctx)
+			return nil
 		}
 		if !hmac.Equal(c.CodeHash, codeHash) {
 			wrong = true
-			if c.Attempts+1 >= MaxWrongAttempts {
-				return tx.OtpChallenge.DeleteOne(c).Exec(ctx)
-			}
 			return tx.OtpChallenge.UpdateOne(c).AddAttempts(1).Exec(ctx)
 		}
 

@@ -35,6 +35,7 @@ func Chain(h http.Handler, logger *slog.Logger) http.Handler {
 
 // Recover turns a panic into a 500 problem response and logs the stack trace.
 // The log line carries the request id but nothing from the request itself.
+// If the response had already started, it aborts the connection instead.
 // http.ErrAbortHandler is re-raised, as net/http expects.
 func Recover(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -52,9 +53,12 @@ func Recover(logger *slog.Logger) func(http.Handler) http.Handler {
 					slog.String("request_id", w.Header().Get(RequestIDHeader)),
 					slog.String("panic", fmt.Sprint(v)),
 					slog.String("stack", string(debug.Stack())))
-				if !sw.wroteHeader {
-					problem.Write(sw, http.StatusInternalServerError, "")
+				if sw.wroteHeader {
+					// Too late for a 500: abort the connection so the client sees a
+					// broken response instead of a silently truncated success.
+					panic(http.ErrAbortHandler)
 				}
+				problem.Write(sw, http.StatusInternalServerError, "")
 			}()
 			next.ServeHTTP(sw, r)
 		})
@@ -83,8 +87,13 @@ func AccessLog(logger *slog.Logger) func(http.Handler) http.Handler {
 			defer func() {
 				status := sw.status
 				v := recover()
+				aborted := false
 				if v != nil {
-					status = http.StatusInternalServerError
+					if sw.wroteHeader {
+						aborted = true // Recover will abort the connection
+					} else {
+						status = http.StatusInternalServerError
+					}
 				}
 				route := r.Pattern
 				if route == "" {
@@ -94,6 +103,7 @@ func AccessLog(logger *slog.Logger) func(http.Handler) http.Handler {
 					slog.String("method", r.Method),
 					slog.String("route", route),
 					slog.Int("status", status),
+					slog.Bool("aborted", aborted),
 					slog.Duration("duration", time.Since(start)))
 				if v != nil {
 					panic(v)

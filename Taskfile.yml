@@ -55,11 +55,13 @@ tasks:
 
   db:up:
     desc: Start the local dev Postgres
+    dotenv: [.env.dev] # VAXBOOK_DEV_DB_PORT; task-level dotenv does not reach deps
     cmds:
       - docker compose -f compose.dev.yaml up -d --wait
 
   db:down:
     desc: Stop the local dev Postgres (keeps data; add -- -v to drop it)
+    dotenv: [.env.dev]
     cmds:
       - docker compose -f compose.dev.yaml down {{.CLI_ARGS}}
 

@@ -83,7 +83,8 @@ func run() error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
-		BaseContext:       func(net.Listener) context.Context { return ctx },
+		// No BaseContext from the signal context: SIGTERM must let in-flight
+		// requests finish (Shutdown drains them), not cancel their DB work.
 	}
 
 	errc := make(chan error, 1)

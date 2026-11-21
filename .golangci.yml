@@ -20,9 +20,7 @@ linters:
         - name: exported
           disabled: true
   exclusions:
-    generated: lax
-    paths:
-      - apps/api/internal/store/ent
+    generated: lax # skips ent's and oapi-codegen's "DO NOT EDIT" files; ent/schema stays linted
     rules:
       - path: _test\.go
         linters: [gosec, noctx]

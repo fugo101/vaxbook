@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -52,16 +53,52 @@ func TestPanicBecomesProblem500(t *testing.T) {
 	}
 }
 
-func TestPanicAfterWritingKeepsTheResponse(t *testing.T) {
-	logger, _ := newLogger()
+func TestPanicAfterWritingAbortsTheConnection(t *testing.T) {
+	logger, logs := newLogger()
 	h := middleware.Chain(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusAccepted)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"partial":`))
 		panic("late")
 	}), logger)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if rec.Code != http.StatusAccepted || rec.Body.Len() != 0 {
-		t.Fatalf("got %d %q, want the original 202 with no body appended", rec.Code, rec.Body)
+
+	func() {
+		defer func() {
+			if err, ok := recover().(error); !ok || !errors.Is(err, http.ErrAbortHandler) {
+				t.Fatalf("recovered %v, want http.ErrAbortHandler so net/http drops the connection", err)
+			}
+		}()
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	}()
+
+	out := logs.String()
+	for _, want := range []string{`"panic":"late"`, `"status":200`, `"aborted":true`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("logs missing %s:\n%s", want, out)
+		}
+	}
+}
+
+// Through a real server the client must see an error, not a truncated 200.
+func TestPanicAfterWritingIsVisibleToTheClient(t *testing.T) {
+	logger, _ := newLogger()
+	srv := httptest.NewServer(middleware.Chain(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"partial":`))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		panic("late")
+	}), logger))
+	defer srv.Close()
+
+	resp, err := srv.Client().Get(srv.URL)
+	if err == nil {
+		_, err = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+	}
+	if err == nil {
+		t.Fatal("client read a complete response; want a broken connection")
 	}
 }
 

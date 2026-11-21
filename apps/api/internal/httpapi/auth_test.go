@@ -143,6 +143,42 @@ func TestFifthWrongAttemptKillsTheChallenge(t *testing.T) {
 	requireProblem(t, h.verify("a@example.com", code), http.StatusBadRequest)
 }
 
+// Regression: killing a challenge must not reset the resend wait, or a caller gets
+// a fresh code and five fresh guesses with no wait at all.
+func TestKilledChallengeStillEnforcesTheResendWait(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.requestOTP("a@example.com")
+	code := h.mailer.code(t, "a@example.com")
+	for range 5 {
+		h.verify("a@example.com", wrongCode(code))
+	}
+
+	requireProblem(t, h.requestOTP("a@example.com"), http.StatusTooManyRequests)
+	if h.mailer.sent != 1 {
+		t.Fatalf("sent %d codes, want 1", h.mailer.sent)
+	}
+
+	h.clock.Advance(60 * time.Second)
+	if rec := h.requestOTP("a@example.com"); rec.Code != http.StatusAccepted {
+		t.Fatalf("after the wait: %d %s", rec.Code, rec.Body)
+	}
+	if rec := h.verify("a@example.com", h.mailer.code(t, "a@example.com")); rec.Code != http.StatusOK {
+		t.Fatalf("new code after the wait: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestExpiredChallengeCanBeReplaced(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.requestOTP("a@example.com")
+	h.clock.Advance(10 * time.Minute)
+	requireProblem(t, h.verify("a@example.com", h.mailer.code(t, "a@example.com")), http.StatusBadRequest)
+	if rec := h.requestOTP("a@example.com"); rec.Code != http.StatusAccepted {
+		t.Fatalf("request after expiry: %d %s", rec.Code, rec.Body)
+	}
+}
+
 func TestConcurrentWrongAttemptsCannotExceedTheLimit(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -342,5 +378,13 @@ func TestLogsHoldNoEmailOrCode(t *testing.T) {
 	}
 	if !strings.Contains(logs, `"route":"POST /api/v1/auth/otp"`) {
 		t.Errorf("access log does not name the route:\n%s", logs)
+	}
+}
+
+func TestHostMatchingIgnoresCaseAndTrailingDot(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	for _, host := range []string{"VAXBOOK.TEST", "vaxbook.test.", "Vaxbook.Test:8443"} {
+		requireProblem(t, h.do(req{method: http.MethodGet, path: "/api/v1/me", host: host}), http.StatusUnauthorized)
 	}
 }

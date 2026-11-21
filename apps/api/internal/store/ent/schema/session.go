@@ -42,5 +42,8 @@ func (Session) Edges() []ent.Edge {
 func (Session) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("expires_at"),
+		// Account deletion cascades to sessions (F01.4); without this index each
+		// cascade scans the table.
+		index.Fields("account_id"),
 	}
 }

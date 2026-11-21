@@ -9,12 +9,16 @@ CREATE TABLE "otp_challenges" ("id" uuid NOT NULL, "created_at" timestamptz NOT 
 CREATE UNIQUE INDEX "otp_challenges_email_hash_key" ON "otp_challenges" ("email_hash");
 -- create "sessions" table
 CREATE TABLE "sessions" ("id" character varying NOT NULL, "created_at" timestamptz NOT NULL, "last_seen_at" timestamptz NOT NULL, "expires_at" timestamptz NOT NULL, "account_id" uuid NOT NULL, PRIMARY KEY ("id"), CONSTRAINT "sessions_accounts_sessions" FOREIGN KEY ("account_id") REFERENCES "accounts" ("id") ON UPDATE NO ACTION ON DELETE CASCADE);
+-- create index "session_account_id" to table: "sessions"
+CREATE INDEX "session_account_id" ON "sessions" ("account_id");
 -- create index "session_expires_at" to table: "sessions"
 CREATE INDEX "session_expires_at" ON "sessions" ("expires_at");
 
 -- +goose Down
 -- reverse: create index "session_expires_at" to table: "sessions"
 DROP INDEX "session_expires_at";
+-- reverse: create index "session_account_id" to table: "sessions"
+DROP INDEX "session_account_id";
 -- reverse: create "sessions" table
 DROP TABLE "sessions";
 -- reverse: create index "otp_challenges_email_hash_key" to table: "otp_challenges"

@@ -29,6 +29,12 @@ import (
 
 const templateDB = "vaxbook_template"
 
+// dockerHint explains the usual cause of "rootless Docker not found" and similar
+// errors: a Docker context that does not use /var/run/docker.sock.
+const dockerHint = `storetest needs Docker. If Docker is running but not found (OrbStack, Colima, rootless):
+  run the tests with "task test", which sets DOCKER_HOST from the current Docker context, or
+  export DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}')`
+
 // Server is a running Postgres container with a migrated template database.
 type Server struct {
 	ctr     *postgres.PostgresContainer
@@ -63,7 +69,7 @@ func start(ctx context.Context) (*Server, error) {
 		testcontainers.WithCmd("postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("start postgres: %w", err)
+		return nil, fmt.Errorf("start postgres: %w\n%s", err, dockerHint)
 	}
 	s := &Server{ctr: ctr}
 	if err := s.init(ctx); err != nil {

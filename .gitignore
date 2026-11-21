@@ -1,7 +1,9 @@
-# Build output
+# Build output (`task build` writes to dist/; a bare `go build ./<cmd>` at the root drops the binary here)
 engine-prototype/dist/
 dist/
 node_modules/
+/migrategen
+/vaxbook
 
 # Local secrets and deployment values (operator domain, tokens, etc.)
 .env
@@ -10,6 +12,9 @@ node_modules/
 
 # Local scratch space for agent skills (issues live in GitHub Issues; see docs/agents/issue-tracker.md)
 .scratch/
+
+# Per-machine Claude Code settings (hooks, local permissions)
+.claude/settings.local.json
 
 # Tool artifacts
 .playwright-mcp/

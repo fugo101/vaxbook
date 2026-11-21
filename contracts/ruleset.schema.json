@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VaxBook rule set snapshot and engine contract",
+  "description": "Hand-written next to the Go structs in ruleset/ and engine/, which are the source (SAD §3). The root is a rule set snapshot; $defs Input and Output are the engine's input and output. Engine slice S1 subset; members are added additively. Semantic checks (A7, EQ5, references) live in ruleset.Validate, not here.",
+  "$ref": "#/$defs/Snapshot",
+  "$defs": {
+    "Id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "Span": {
+      "description": "An age, interval, offset or buffer: <n><unit>, n in 0..999 without leading zeros, unit d (days), w (weeks = 7 days), m (months, day of month clamped to the month end) or y (years = 12 months).",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,2})[dwmy]$"
+    },
+    "Date": {
+      "description": "A civil date YYYY-MM-DD.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "format": "date"
+    },
+    "Snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "diseases", "series"],
+      "properties": {
+        "version": {"type": "string", "minLength": 1},
+        "note": {"type": "string"},
+        "diseases": {"type": "array", "items": {"$ref": "#/$defs/Disease"}},
+        "series": {"type": "array", "items": {"$ref": "#/$defs/Series"}}
+      }
+    },
+    "Disease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"},
+        "name": {"type": "string", "minLength": 1}
+      }
+    },
+    "Series": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "disease", "stage", "plans"],
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"},
+        "disease": {"$ref": "#/$defs/Id"},
+        "stage": {"enum": ["childhood", "adult"]},
+        "plans": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/Plan"}}
+      }
+    },
+    "Plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "doses"],
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"},
+        "doses": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/DoseRule"}}
+      }
+    },
+    "DoseRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recommended"],
+      "properties": {
+        "minAge": {"$ref": "#/$defs/Span"},
+        "minInterval": {"$ref": "#/$defs/Span"},
+        "recommended": {"$ref": "#/$defs/Milestone"},
+        "buffer": {"$ref": "#/$defs/Span"}
+      }
+    },
+    "Milestone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "offset"],
+      "properties": {
+        "from": {"enum": ["birth", "firstDose", "previousDose"]},
+        "offset": {"$ref": "#/$defs/Span"}
+      }
+    },
+    "Input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["today", "profile", "doses"],
+      "properties": {
+        "today": {"$ref": "#/$defs/Date"},
+        "profile": {"$ref": "#/$defs/Profile"},
+        "doses": {"type": "array", "items": {"$ref": "#/$defs/DoseRecord"}}
+      }
+    },
+    "Profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["birth"],
+      "properties": {
+        "birth": {"$ref": "#/$defs/RecalledDate"}
+      }
+    },
+    "RecalledDate": {
+      "description": "A date as the user remembers it. The value pattern checks the shape only, so a calendar-invalid value reaches the engine, which reports it (A9).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["precision"],
+      "properties": {
+        "value": {"type": "string", "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"},
+        "precision": {"enum": ["day", "month", "year", "unknown", "none"]}
+      }
+    },
+    "DoseRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "diseases", "date"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "diseases": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/Id"}},
+        "date": {"$ref": "#/$defs/RecalledDate"}
+      }
+    },
+    "Output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ruleSetVersion", "today", "assessments"],
+      "properties": {
+        "ruleSetVersion": {"type": "string", "minLength": 1},
+        "today": {"$ref": "#/$defs/Date"},
+        "assessments": {"type": "array", "items": {"$ref": "#/$defs/Assessment"}}
+      }
+    },
+    "Assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disease"],
+      "oneOf": [
+        {"required": ["bucket"]},
+        {"required": ["block"]}
+      ],
+      "properties": {
+        "disease": {"$ref": "#/$defs/Id"},
+        "bucket": {"enum": ["overdue", "due", "upcoming", "unknown", "complete"]},
+        "block": {"enum": ["notYetScheduled"]},
+        "nextDose": {"$ref": "#/$defs/NextDose"},
+        "reasons": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/Reason"}}
+      }
+    },
+    "NextDose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "earliest", "due", "overdue"],
+      "properties": {
+        "number": {"type": "integer", "minimum": 1},
+        "earliest": {"$ref": "#/$defs/Date"},
+        "due": {"$ref": "#/$defs/Date"},
+        "overdue": {"$ref": "#/$defs/Date"}
+      }
+    },
+    "Reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": {"enum": ["INVALID_DATE", "DOSE_INVALID", "ALTERNATIVE_PLANS", "COMPLETE", "ON_TRACK"]},
+        "params": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string"}}
+      }
+    }
+  }
+}

@@ -58,17 +58,21 @@
           {
             "code": "DOSE_INVALID",
             "params": {
-              "check": "minInterval",
+              "checks": [
+                "minInterval"
+              ],
               "dose": "r2",
-              "number": "2"
+              "number": 2
             }
           },
           {
             "code": "DOSE_INVALID",
             "params": {
-              "check": "minInterval",
+              "checks": [
+                "minInterval"
+              ],
               "dose": "r3",
-              "number": "2"
+              "number": 2
             }
           }
         ]

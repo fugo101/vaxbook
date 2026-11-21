@@ -126,7 +126,14 @@ func TestSchemaRejects(t *testing.T) {
 		"leap day, 1900":           {"Date", `"1900-02-29"`},
 		"dose number zero":         {"NextDose", `{"number": 0, "earliest": "2026-01-01", "due": "2026-01-01", "overdue": "2026-01-08"}`},
 		"unknown reason code":      {"Reason", `{"code": "NOPE"}`},
-		"numeric param":            {"Reason", `{"code": "DOSE_INVALID", "params": {"number": 2}}`},
+		"string count param":       {"Reason", `{"code": "DOSE_INVALID", "params": {"checks": ["minAge"], "dose": "r1", "number": "2"}}`},
+		"comma-joined checks":      {"Reason", `{"code": "DOSE_INVALID", "params": {"checks": "minAge,minInterval", "dose": "r1", "number": 2}}`},
+		"unknown check":            {"ReasonParams", `{"checks": ["maxAge"]}`},
+		"repeated check":           {"ReasonParams", `{"checks": ["minAge", "minAge"]}`},
+		"no checks":                {"ReasonParams", `{"checks": []}`},
+		"empty params":             {"Reason", `{"code": "COMPLETE", "params": {}}`},
+		"unknown param":            {"ReasonParams", `{"disease": "a"}`},
+		"param number zero":        {"ReasonParams", `{"number": 0}`},
 		"duplicate disease":        {"DoseRecord", `{"id": "r", "diseases": ["a", "a"], "date": {"value": "2026-01-01", "precision": "day"}}`},
 		"bad precision":            {"RecalledDate", `{"value": "2026", "precision": "decade"}`},
 		"null date value":          {"RecalledDate", `{"value": null, "precision": "day"}`},
@@ -242,6 +249,7 @@ func TestSchemaMatchesStructs(t *testing.T) {
 		"Assessment":   reflect.TypeFor[engine.Assessment](),
 		"NextDose":     reflect.TypeFor[engine.NextDose](),
 		"Reason":       reflect.TypeFor[engine.Reason](),
+		"ReasonParams": reflect.TypeFor[engine.ReasonParams](),
 	}
 	defs := schemaDefs(t)
 	for name, def := range defs {
@@ -290,6 +298,9 @@ func TestSchemaEnumsMatchConstants(t *testing.T) {
 	enum := func(def, member string) []string {
 		props, _ := defs[def]["properties"].(map[string]any)
 		m, _ := props[member].(map[string]any)
+		if m["type"] == "array" {
+			m, _ = m["items"].(map[string]any)
+		}
 		var out []string
 		for _, v := range asSlice(m["enum"]) {
 			out = append(out, v.(string))
@@ -315,6 +326,7 @@ func TestSchemaEnumsMatchConstants(t *testing.T) {
 		{"Assessment", "bucket", str(engine.BucketOverdue, engine.BucketDue, engine.BucketUpcoming, engine.BucketUnknown, engine.BucketComplete)},
 		{"Assessment", "block", str(engine.BlockNotYetScheduled)},
 		{"Reason", "code", str(engine.ReasonInvalidDate, engine.ReasonDoseInvalid, engine.ReasonAlternativePlans, engine.ReasonComplete, engine.ReasonOnTrack)},
+		{"ReasonParams", "checks", str(engine.CheckMinAge, engine.CheckMinInterval)},
 	}
 	for _, c := range cases {
 		if got := enum(c.def, c.member); !slices.Equal(got, c.want) {

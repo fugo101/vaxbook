@@ -161,6 +161,7 @@ func TestPropertyNextDoseBounds(t *testing.T) {
 			out, _ := evaluate(t, fx.engine, in)
 			birth := mustDate(t, in.Profile.Birth.Value)
 			for _, a := range out.Assessments {
+				checkReasonParams(t, a)
 				if (a.Bucket == "") == (a.Block == "") {
 					t.Fatalf("%s %s: bucket %q, block %q", fx.name, a.Disease, a.Bucket, a.Block)
 				}

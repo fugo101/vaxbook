@@ -164,7 +164,7 @@ func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
 		slices.Sort(bad)
 		a.Bucket = BucketUnknown
 		for _, id := range bad {
-			a.Reasons = append(a.Reasons, Reason{Code: ReasonInvalidDate, Params: map[string]string{"dose": id}})
+			a.Reasons = append(a.Reasons, Reason{Code: ReasonInvalidDate, Params: ReasonParams{Dose: id}})
 		}
 		return a
 	}
@@ -201,7 +201,7 @@ func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
 	nd := dz.series.next(birth, doses, counted)
 	a.NextDose = &nd
 	if len(dz.series.plans) > 1 {
-		a.Reasons = append(a.Reasons, Reason{Code: ReasonAlternativePlans, Params: map[string]string{"series": dz.series.id}})
+		a.Reasons = append(a.Reasons, Reason{Code: ReasonAlternativePlans, Params: ReasonParams{Series: dz.series.id}})
 	}
 
 	// Step 9: bucket; step 10: layer 7 masks it, its reasons stay.

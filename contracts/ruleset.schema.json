@@ -164,7 +164,19 @@
       "required": ["code"],
       "properties": {
         "code": {"enum": ["INVALID_DATE", "DOSE_INVALID", "ALTERNATIVE_PLANS", "COMPLETE", "ON_TRACK"]},
-        "params": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string"}}
+        "params": {"$ref": "#/$defs/ReasonParams"}
+      }
+    },
+    "ReasonParams": {
+      "description": "Every reason parameter; each code uses the members SAD §5.4 lists for it. Typed: IDs and enums are strings, counts are integers, lists are arrays; no booleans. Members are added additively.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "checks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["minAge", "minInterval"]}},
+        "dose": {"type": "string", "minLength": 1},
+        "number": {"type": "integer", "minimum": 1},
+        "series": {"$ref": "#/$defs/Id"}
       }
     }
   }

@@ -19,15 +19,15 @@ func (e *Engine) Validate(in Input) []Problem {
 	todayOK := false
 	switch {
 	case in.Today.IsZero():
-		v.add(Required, "/today", nil)
+		v.add(Required, "/today", ProblemParams{})
 	case !inInputRange(in.Today):
-		v.add(OutOfRange, "/today", nil)
+		v.add(OutOfRange, "/today", ProblemParams{})
 	default:
 		todayOK = true
 	}
 	birth, birthOK := v.recalled("/profile/birth", in.Profile.Birth, true)
 	if birthOK && todayOK && birth.Lo.After(in.Today) {
-		v.add(DateInFuture, "/profile/birth/value", nil)
+		v.add(DateInFuture, "/profile/birth/value", ProblemParams{})
 		birthOK = false
 	}
 	ids := make(map[string]bool, len(in.Doses))
@@ -35,22 +35,22 @@ func (e *Engine) Validate(in Input) []Problem {
 		p := "/doses/" + strconv.Itoa(i)
 		switch {
 		case r.ID == "":
-			v.add(Required, p+"/id", nil)
+			v.add(Required, p+"/id", ProblemParams{})
 		case ids[r.ID]:
-			v.add(DuplicateID, p+"/id", map[string]string{"id": r.ID})
+			v.add(DuplicateID, p+"/id", ProblemParams{ID: r.ID})
 		}
 		ids[r.ID] = true
 		if len(r.Diseases) == 0 {
-			v.add(Required, p+"/diseases", nil)
+			v.add(Required, p+"/diseases", ProblemParams{})
 		}
 		seen := make(map[string]bool, len(r.Diseases))
 		for j, dz := range r.Diseases {
 			dp := p + "/diseases/" + strconv.Itoa(j)
 			switch {
 			case !e.known[dz]:
-				v.add(UnknownDisease, dp, map[string]string{"disease": dz})
+				v.add(UnknownDisease, dp, ProblemParams{Disease: dz})
 			case seen[dz]:
-				v.add(DuplicateValue, dp, map[string]string{"disease": dz})
+				v.add(DuplicateValue, dp, ProblemParams{Disease: dz})
 			}
 			seen[dz] = true
 		}
@@ -58,9 +58,9 @@ func (e *Engine) Validate(in Input) []Problem {
 		switch {
 		case !ok:
 		case todayOK && date.Lo.After(in.Today):
-			v.add(DateInFuture, p+"/date/value", nil)
+			v.add(DateInFuture, p+"/date/value", ProblemParams{})
 		case birthOK && date.Hi.Before(birth.Lo):
-			v.add(DateBeforeBirth, p+"/date/value", nil)
+			v.add(DateBeforeBirth, p+"/date/value", ProblemParams{})
 		}
 	}
 	return v
@@ -68,7 +68,7 @@ func (e *Engine) Validate(in Input) []Problem {
 
 type problems []Problem
 
-func (v *problems) add(code ProblemCode, path string, params map[string]string) {
+func (v *problems) add(code ProblemCode, path string, params ProblemParams) {
 	*v = append(*v, Problem{Code: code, Path: path, Params: params})
 }
 
@@ -77,10 +77,10 @@ func (v *problems) recalled(path string, r RecalledDate, birth bool) (Range, boo
 	switch r.Precision {
 	case Day:
 	case "":
-		v.add(Required, path+"/precision", nil)
+		v.add(Required, path+"/precision", ProblemParams{})
 		return Range{}, false
 	case Month, Year:
-		v.add(UnsupportedPrecision, path+"/precision", map[string]string{"precision": string(r.Precision)})
+		v.add(UnsupportedPrecision, path+"/precision", ProblemParams{Precision: string(r.Precision)})
 		return Range{}, false
 	case Unknown, None:
 		// Level 4 differs by field (F03, GLOSSARY "Date precision"): a dose
@@ -88,22 +88,22 @@ func (v *problems) recalled(path string, r RecalledDate, birth bool) (Range, boo
 		// has "none" for not entered. The other field's value is invalid in
 		// every engine version, not merely unsupported yet.
 		if (r.Precision == None) != birth {
-			v.add(InvalidValue, path+"/precision", map[string]string{"value": string(r.Precision)})
+			v.add(InvalidValue, path+"/precision", ProblemParams{Value: string(r.Precision)})
 			return Range{}, false
 		}
-		v.add(UnsupportedPrecision, path+"/precision", map[string]string{"precision": string(r.Precision)})
+		v.add(UnsupportedPrecision, path+"/precision", ProblemParams{Precision: string(r.Precision)})
 		return Range{}, false
 	default:
-		v.add(InvalidValue, path+"/precision", map[string]string{"value": string(r.Precision)})
+		v.add(InvalidValue, path+"/precision", ProblemParams{Value: string(r.Precision)})
 		return Range{}, false
 	}
 	rng, err := r.Range()
 	if err != nil {
-		v.add(InvalidDate, path+"/value", nil)
+		v.add(InvalidDate, path+"/value", ProblemParams{})
 		return Range{}, false
 	}
 	if !inInputRange(rng.Lo) || !inInputRange(rng.Hi) {
-		v.add(OutOfRange, path+"/value", nil)
+		v.add(OutOfRange, path+"/value", ProblemParams{})
 		return Range{}, false
 	}
 	return rng, true

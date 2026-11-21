@@ -38,11 +38,11 @@ Each file is `{ "ruleset": "<fixture name>", "input": Input, "output": Output }`
 
 ### minimal-single (birth 2026-01-10; dose 1 min age 6w = 02-21, at 2m = 03-10; dose 2 min interval 4w, at 4m = 05-10)
 
-- `f13-dose-before-min-age`: today 02-20, r1 02-14 < 02-21 → `DOSE_INVALID{check: minAge, dose: r1, number: 1}`, not counted. Dose 1 again: E = 02-21, Du = 03-10, O = 03-17 → unknown.
-- `f13-dose-before-min-interval`: today 04-01, r1 03-10 counted; r2 03-31 < 03-10 + 28d = 04-07 → `DOSE_INVALID{minInterval, r2, 2}`. Dose 2: E = r2 03-31 + 28d = 04-28 (latest dose in time, even though uncounted), Du = 05-10, O = 05-17 → unknown.
+- `f13-dose-before-min-age`: today 02-20, r1 02-14 < 02-21 → `DOSE_INVALID{checks: [minAge], dose: r1, number: 1}`, not counted. Dose 1 again: E = 02-21, Du = 03-10, O = 03-17 → unknown.
+- `f13-dose-before-min-interval`: today 04-01, r1 03-10 counted; r2 03-31 < 03-10 + 28d = 04-07 → `DOSE_INVALID{checks: [minInterval], dose: r2, number: 2}`. Dose 2: E = r2 03-31 + 28d = 04-28 (latest dose in time, even though uncounted), Du = 05-10, O = 05-17 → unknown.
 - `a4-interval-to-adjacent-dose`: today 04-15. The input lists the doses out of time order (r3, r1, r2); the engine walks them in time order (SAD §5.3 step 2). r1 03-10 counted. r2 03-24 < 04-07 → invalid. r3 04-14 < r2 03-24 + 28d = 04-21 → invalid (measured to the adjacent r2; against r1 it would pass and complete the series). Dose 2: E = 04-14 + 28d = 05-12, Du = max(05-12, 05-10) = 05-12, O = 05-19 → unknown, two `DOSE_INVALID` reasons in dose time order.
 - `complete`: today 06-01, r1 03-10 counted, r2 05-10 ≥ 04-07 counted → complete, `COMPLETE`.
-- `boundary-dose-on-min-interval-counted`: today 04-10, r1 03-10 counted, r2 04-07 = r1 + 28d exactly → the minimum interval is met on the day it is reached, counted → complete, `COMPLETE`. (An exclusive check would give unknown, `DOSE_INVALID{minInterval, r2, 2}`.)
+- `boundary-dose-on-min-interval-counted`: today 04-10, r1 03-10 counted, r2 04-07 = r1 + 28d exactly → the minimum interval is met on the day it is reached, counted → complete, `COMPLETE`. (An exclusive check would give unknown, `DOSE_INVALID{checks: [minInterval], dose: r2, number: 2}`.)
 - `boundary-due-on-earliest-date`: no doses, today 02-21 = E, Du 03-10 ≤ T30 = 03-23, today < O 03-17 → due (the 🟠 condition today ≥ E is inclusive; today 02-20 would be upcoming).
 - `f13-buffer0-due-on-due-date`: no doses, today 03-10 = Du: today ≥ E 02-21, Du ≤ T30, today < O 03-17 → due.
 - `buffer0-due-day-before-overdue`: today 03-16 < O 03-17 → due.
@@ -52,7 +52,7 @@ Each file is `{ "ruleset": "<fixture name>", "input": Input, "output": Output }`
 
 - `a7-earliest-from-earliest-due-plan`: today 03-20. fast E = 04-07, Du = 04-10, O = 04-17; slow E = 03-10 + 56d = 05-05, Du = 05-10, O = 05-17. Merged E 04-07 (from fast, not the latest E 05-05), Du 04-10, O 05-17. today < E, Du ≤ T30 = 04-19 → upcoming, `ALTERNATIVE_PLANS`.
 - `alt-plans-dose-valid-under-one-plan`: today 04-20, r2 04-14 ≥ 04-07 (fast) though < 05-05 (slow) → counted → complete, `COMPLETE` (no step 7, so no `ALTERNATIVE_PLANS`).
-- `alt-plans-dose-invalid-under-every-plan`: today 04-01, r2 03-31 < 04-07 and < 05-05 → `DOSE_INVALID{minInterval, r2, 2}`. Dose 2 from r2: fast E = 04-28, Du = max(04-28, 04-10) = 04-28, O = 05-05; slow E = 05-26, Du = max(05-26, 05-10) = 05-26, O = 06-02. Merged E 04-28, Du 04-28, O 06-02 → unknown, `DOSE_INVALID` then `ALTERNATIVE_PLANS`.
+- `alt-plans-dose-invalid-under-every-plan`: today 04-01, r2 03-31 < 04-07 and < 05-05 → `DOSE_INVALID{checks: [minInterval], dose: r2, number: 2}`. Dose 2 from r2: fast E = 04-28, Du = max(04-28, 04-10) = 04-28, O = 05-05; slow E = 05-26, Du = max(05-26, 05-10) = 05-26, O = 06-02. Merged E 04-28, Du 04-28, O 06-02 → unknown, `DOSE_INVALID` then `ALTERNATIVE_PLANS`.
 
 ### minimal-buffer (buffer 14d: O = Du + 14d)
 
@@ -74,7 +74,7 @@ Each file is `{ "ruleset": "<fixture name>", "input": Input, "output": Output }`
 ### minimal-anchors (dose 1 min age 9y; birth 2015-03-31, so 9y = 2024-03-31, unless a case states otherwise)
 
 - `anchor-first-dose-clamped`: r1 2024-12-31 ≥ 2024-03-31 counted; today 2025-02-10. Dose 2: E = 12-31 + 28d = 2025-01-28; Du = max(E, firstDose + 2m = 2025-02-31 → 2025-02-28) = 2025-02-28; O = 2025-03-07. today ≥ E, Du ≤ T30 = 2025-03-12 → due. (For dose 2 the first and previous dose are both r1; `anchor-first-dose-for-dose-3` separates them.)
-- `boundary-min-age-in-years-clamped`: birth 2016-02-29, r1 2025-02-27, today 2025-03-05. Min age 9y = 108m = 2025-02-29 → clamped to 2025-02-28 > r1 → `DOSE_INVALID{minAge, r1, 1}`, not counted. Dose 1 again: E = Du = 2025-02-28, O = 2025-03-07 → unknown. (9 × 365 days gives 2025-02-26 and would count r1; a non-clamping year gives 2025-03-01.)
+- `boundary-min-age-in-years-clamped`: birth 2016-02-29, r1 2025-02-27, today 2025-03-05. Min age 9y = 108m = 2025-02-29 → clamped to 2025-02-28 > r1 → `DOSE_INVALID{checks: [minAge], dose: r1, number: 1}`, not counted. Dose 1 again: E = Du = 2025-02-28, O = 2025-03-07 → unknown. (9 × 365 days gives 2025-02-26 and would count r1; a non-clamping year gives 2025-03-01.)
 - `anchor-previous-dose`: r1 2024-12-31, r2 2025-03-03 ≥ 2025-01-28 counted; today 2025-03-10. Dose 3: E = 03-03 + 84d = 2025-05-26; Du = max(E, previousDose + 4m = 2025-07-03) = 2025-07-03; O = 2025-07-10. T30 = 2025-04-09 < Du ≤ T6m = 2025-09-10 → upcoming.
 
 ### minimal-short-buffer (one dose, min age 6w at 2m, buffer 3d)

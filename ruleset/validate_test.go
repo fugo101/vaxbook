@@ -108,19 +108,19 @@ func TestValidateProblems(t *testing.T) {
 			[]Problem{{Code: Required, Severity: Reject, Path: "/version"}}},
 		{"disease id shape", `{"id": "d", "name": "D"}`, `{"id": "D!", "name": "D"}`,
 			[]Problem{
-				{Code: InvalidValue, Severity: Reject, Path: "/diseases/0/id", Params: map[string]string{"value": "D!"}},
-				{Code: UnknownReference, Severity: Reject, Path: "/series/0/disease", Params: map[string]string{"disease": "d"}},
+				{Code: InvalidValue, Severity: Reject, Path: "/diseases/0/id", Params: ProblemParams{Value: "D!"}},
+				{Code: UnknownReference, Severity: Reject, Path: "/series/0/disease", Params: ProblemParams{Disease: "d"}},
 			}},
 		{"missing disease name", `"name": "D"`, `"name": ""`,
 			[]Problem{{Code: Required, Severity: Reject, Path: "/diseases/0/name"}}},
 		{"duplicate disease id", `{"id": "d", "name": "D"}`, `{"id": "d", "name": "D"}, {"id": "d", "name": "E"}`,
-			[]Problem{{Code: DuplicateID, Severity: Reject, Path: "/diseases/1/id", Params: map[string]string{"id": "d"}}}},
+			[]Problem{{Code: DuplicateID, Severity: Reject, Path: "/diseases/1/id", Params: ProblemParams{ID: "d"}}}},
 		{"unknown disease", `"disease": "d"`, `"disease": "x"`,
-			[]Problem{{Code: UnknownReference, Severity: Reject, Path: "/series/0/disease", Params: map[string]string{"disease": "x"}}}},
+			[]Problem{{Code: UnknownReference, Severity: Reject, Path: "/series/0/disease", Params: ProblemParams{Disease: "x"}}}},
 		{"bad stage", `"stage": "childhood"`, `"stage": "teen"`,
-			[]Problem{{Code: InvalidValue, Severity: Reject, Path: "/series/0/stage", Params: map[string]string{"value": "teen"}}}},
+			[]Problem{{Code: InvalidValue, Severity: Reject, Path: "/series/0/stage", Params: ProblemParams{Value: "teen"}}}},
 		{"bad anchor", `"from": "previousDose"`, `"from": "lastDose"`,
-			[]Problem{{Code: InvalidValue, Severity: Reject, Path: "/series/0/plans/0/doses/1/recommended/from", Params: map[string]string{"value": "lastDose"}}}},
+			[]Problem{{Code: InvalidValue, Severity: Reject, Path: "/series/0/plans/0/doses/1/recommended/from", Params: ProblemParams{Value: "lastDose"}}}},
 		{"first dose interval", `{"minAge": "P6W", "recommended"`, `{"minAge": "P6W", "minInterval": "P1W", "recommended"`,
 			[]Problem{{Code: FirstDoseHasInterval, Severity: Reject, Path: "/series/0/plans/0/doses/0/minInterval"}}},
 		{"first dose without min age", `{"minAge": "P6W", "recommended"`, `{"minInterval": "P1W", "recommended"`,
@@ -185,9 +185,9 @@ func TestValidateDuplicateSeriesAndPlanIDs(t *testing.T) {
 	  ]}`
 	want := []Problem{
 		{Code: PlanDoseCountMismatch, Severity: Reject, Path: "/series/0/plans/1"},
-		{Code: DuplicateID, Severity: Reject, Path: "/series/0/plans/1/id", Params: map[string]string{"id": "p"}},
+		{Code: DuplicateID, Severity: Reject, Path: "/series/0/plans/1/id", Params: ProblemParams{ID: "p"}},
 		{Code: Empty, Severity: Reject, Path: "/series/0/plans/1/doses"},
-		{Code: DuplicateID, Severity: Reject, Path: "/series/1/id", Params: map[string]string{"id": "s"}},
+		{Code: DuplicateID, Severity: Reject, Path: "/series/1/id", Params: ProblemParams{ID: "s"}},
 	}
 	if got := Validate(mustDecode(t, in)); !reflect.DeepEqual(got, want) {
 		t.Errorf("Validate =\n  %v\nwant\n  %v", got, want)
@@ -201,7 +201,7 @@ func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
 	t.Parallel()
 	const dose = "/series/0/plans/0/doses/"
 	invalid := func(path string, s Span) Problem {
-		return Problem{Code: InvalidValue, Severity: Reject, Path: path, Params: map[string]string{"value": s.String()}}
+		return Problem{Code: InvalidValue, Severity: Reject, Path: path, Params: ProblemParams{Value: s.String()}}
 	}
 	cases := []struct {
 		name   string

@@ -320,6 +320,8 @@ Added by the engine semantics decisions (spec v1.2):
 
 Codes without wording here get their text when the web app and email templates are written; the wording is not part of the engine contract.
 
+**Params are typed members** (`reasons[].params`, and likewise the `params` of input and rule set problems). IDs and enums are strings, counts are integers, dates are `Date` strings, lists are arrays, and there are no booleans. Each code uses a fixed set of members, documented with the code in Go. Example: `DOSE_INVALID {checks: ["minAge"], dose: "r1", number: 1}`.
+
 Adding a new code does not break compatibility. Changing the meaning of an existing code requires bumping `engineContractVersion`.
 
 ### 5.5 Prototype results (2026-11-10)

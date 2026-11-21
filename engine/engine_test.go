@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -68,17 +69,17 @@ func TestValidateReportsEveryProblem(t *testing.T) {
 	}
 	want := []Problem{
 		{Code: Required, Path: "/today"},
-		{Code: UnsupportedPrecision, Path: "/profile/birth/precision", Params: map[string]string{"precision": "year"}},
+		{Code: UnsupportedPrecision, Path: "/profile/birth/precision", Params: ProblemParams{Precision: "year"}},
 		{Code: Required, Path: "/doses/0/id"},
 		{Code: Required, Path: "/doses/0/diseases"},
 		{Code: Required, Path: "/doses/0/date/precision"},
-		{Code: UnknownDisease, Path: "/doses/1/diseases/1", Params: map[string]string{"disease": "zz"}},
-		{Code: DuplicateValue, Path: "/doses/1/diseases/2", Params: map[string]string{"disease": "a"}},
-		{Code: InvalidValue, Path: "/doses/1/date/precision", Params: map[string]string{"value": "decade"}},
-		{Code: DuplicateID, Path: "/doses/2/id", Params: map[string]string{"id": "x"}},
+		{Code: UnknownDisease, Path: "/doses/1/diseases/1", Params: ProblemParams{Disease: "zz"}},
+		{Code: DuplicateValue, Path: "/doses/1/diseases/2", Params: ProblemParams{Disease: "a"}},
+		{Code: InvalidValue, Path: "/doses/1/date/precision", Params: ProblemParams{Value: "decade"}},
+		{Code: DuplicateID, Path: "/doses/2/id", Params: ProblemParams{ID: "x"}},
 		{Code: InvalidDate, Path: "/doses/2/date/value"},
-		{Code: InvalidValue, Path: "/doses/3/date/precision", Params: map[string]string{"value": "none"}},
-		{Code: UnsupportedPrecision, Path: "/doses/4/date/precision", Params: map[string]string{"precision": "month"}},
+		{Code: InvalidValue, Path: "/doses/3/date/precision", Params: ProblemParams{Value: "none"}},
+		{Code: UnsupportedPrecision, Path: "/doses/4/date/precision", Params: ProblemParams{Precision: "month"}},
 	}
 	if got := e.Validate(in); !reflect.DeepEqual(got, want) {
 		t.Errorf("Validate =\n  %v\nwant\n  %v", got, want)
@@ -115,16 +116,16 @@ func TestValidateDates(t *testing.T) {
 		// "unknown" is a dose-record level only (F03, GLOSSARY "Date
 		// precision"): no engine version evaluates it for a birth date.
 		{"birth precision unknown", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Precision: Unknown}}},
-			[]Problem{{Code: InvalidValue, Path: "/profile/birth/precision", Params: map[string]string{"value": "unknown"}}}},
+			[]Problem{{Code: InvalidValue, Path: "/profile/birth/precision", Params: ProblemParams{Value: "unknown"}}}},
 		// Each field's own level 4 is reserved for S2, so it is unsupported
 		// rather than invalid.
 		{"birth precision none", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Precision: None}}},
-			[]Problem{{Code: UnsupportedPrecision, Path: "/profile/birth/precision", Params: map[string]string{"precision": "none"}}}},
+			[]Problem{{Code: UnsupportedPrecision, Path: "/profile/birth/precision", Params: ProblemParams{Precision: "none"}}}},
 		{"dose precision unknown", input(t, "2026-04-01", "2026-01-10",
 			DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: RecalledDate{Precision: Unknown}}),
-			[]Problem{{Code: UnsupportedPrecision, Path: "/doses/0/date/precision", Params: map[string]string{"precision": "unknown"}}}},
+			[]Problem{{Code: UnsupportedPrecision, Path: "/doses/0/date/precision", Params: ProblemParams{Precision: "unknown"}}}},
 		{"birth precision month", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026-01", Precision: Month}}},
-			[]Problem{{Code: UnsupportedPrecision, Path: "/profile/birth/precision", Params: map[string]string{"precision": "month"}}}},
+			[]Problem{{Code: UnsupportedPrecision, Path: "/profile/birth/precision", Params: ProblemParams{Precision: "month"}}}},
 	}
 	for _, c := range cases {
 		if got := e.Validate(c.in); !reflect.DeepEqual(got, c.want) {
@@ -177,7 +178,7 @@ func TestEvaluateGarbageDoseDateIsInvalidDate(t *testing.T) {
 			t.Errorf("dose date %q: Evaluate error %v, want ⚪ INVALID_DATE", v, err)
 			continue
 		}
-		want := []Reason{{Code: ReasonInvalidDate, Params: map[string]string{"dose": "r1"}}}
+		want := []Reason{{Code: ReasonInvalidDate, Params: ReasonParams{Dose: "r1"}}}
 		if a := out.Assessments[0]; a.Bucket != BucketUnknown || a.NextDose != nil || !reflect.DeepEqual(a.Reasons, want) {
 			t.Errorf("dose date %q: assessment = %+v", v, a)
 		}
@@ -193,8 +194,8 @@ func TestEvaluateGarbageDoseDateIsInvalidDate(t *testing.T) {
 	}
 	a := out.Assessments[0]
 	want := []Reason{
-		{Code: ReasonInvalidDate, Params: map[string]string{"dose": "r0"}},
-		{Code: ReasonInvalidDate, Params: map[string]string{"dose": "r1"}},
+		{Code: ReasonInvalidDate, Params: ReasonParams{Dose: "r0"}},
+		{Code: ReasonInvalidDate, Params: ReasonParams{Dose: "r1"}},
 	}
 	if a.Bucket != BucketUnknown || a.NextDose != nil || !reflect.DeepEqual(a.Reasons, want) {
 		t.Errorf("assessment = %+v", a)
@@ -227,28 +228,28 @@ func TestMinimumsAreInclusive(t *testing.T) {
 	e := testEngine(t)
 	cases := []struct {
 		doses   []DoseRecord
-		invalid string
+		invalid []Check
 	}{
-		{[]DoseRecord{dose("r1", "2026-02-21", "b")}, ""},
-		{[]DoseRecord{dose("r1", "2026-02-20", "b")}, "minAge"},
-		{[]DoseRecord{dose("r1", "2026-02-21", "a"), dose("r2", "2026-03-21", "a")}, ""},
-		{[]DoseRecord{dose("r1", "2026-02-21", "a"), dose("r2", "2026-03-20", "a")}, "minInterval"},
+		{[]DoseRecord{dose("r1", "2026-02-21", "b")}, nil},
+		{[]DoseRecord{dose("r1", "2026-02-20", "b")}, []Check{CheckMinAge}},
+		{[]DoseRecord{dose("r1", "2026-02-21", "a"), dose("r2", "2026-03-21", "a")}, nil},
+		{[]DoseRecord{dose("r1", "2026-02-21", "a"), dose("r2", "2026-03-20", "a")}, []Check{CheckMinInterval}},
 	}
 	for i, c := range cases {
 		out, err := e.Evaluate(input(t, "2026-06-01", "2026-01-10", c.doses...))
 		if err != nil {
 			t.Fatal(err)
 		}
-		var check string
+		var checks []Check
 		for _, a := range out.Assessments {
 			for _, r := range a.Reasons {
 				if r.Code == ReasonDoseInvalid {
-					check = r.Params["check"]
+					checks = r.Params.Checks
 				}
 			}
 		}
-		if check != c.invalid {
-			t.Errorf("case %d: DOSE_INVALID check = %q, want %q", i, check, c.invalid)
+		if !slices.Equal(checks, c.invalid) {
+			t.Errorf("case %d: DOSE_INVALID checks = %v, want %v", i, checks, c.invalid)
 		}
 	}
 }

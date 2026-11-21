@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -111,6 +113,9 @@ func TestGolden(t *testing.T) {
 			got, err := engine.EncodeOutput(out)
 			if err != nil {
 				t.Fatal(err)
+			}
+			for _, a := range out.Assessments {
+				checkReasonParams(t, a)
 			}
 			canonical, d, err := compareGolden(g.Output, got)
 			if err != nil {
@@ -224,7 +229,7 @@ func TestCompareGolden(t *testing.T) {
 	t.Parallel()
 	const got = `{"ruleSetVersion":"v","today":"2026-04-01","assessments":[{"disease":"a","bucket":"unknown",` +
 		`"nextDose":{"number":1,"earliest":"2026-02-21","due":"2026-03-10","overdue":"2026-03-17"},` +
-		`"reasons":[{"code":"DOSE_INVALID","params":{"check":"minAge","dose":"r1","number":"1"}},{"code":"ALTERNATIVE_PLANS","params":{"series":"s"}}]}]}`
+		`"reasons":[{"code":"DOSE_INVALID","params":{"checks":["minAge"],"dose":"r1","number":1}},{"code":"ALTERNATIVE_PLANS","params":{"series":"s"}}]}]}`
 	edit := func(old, new string) string {
 		s := strings.Replace(got, old, new, 1)
 		if s == got {
@@ -241,16 +246,17 @@ func TestCompareGolden(t *testing.T) {
 		{"identical", got, goldenSame, false},
 		{"indented", indent([]byte(got)), goldenSame, false},
 		{"reordered members", edit(`"ruleSetVersion":"v","today":"2026-04-01"`, `"today":"2026-04-01","ruleSetVersion":"v"`), goldenFormat, false},
-		{"reordered params", edit(`{"check":"minAge","dose":"r1","number":"1"}`, `{"number":"1","dose":"r1","check":"minAge"}`), goldenFormat, false},
+		{"reordered params", edit(`{"checks":["minAge"],"dose":"r1","number":1}`, `{"number":1,"dose":"r1","checks":["minAge"]}`), goldenFormat, false},
 		{"due date plus one day", edit(`"due":"2026-03-10"`, `"due":"2026-03-11"`), goldenValues, false},
 		{"changed bucket", edit(`"bucket":"unknown"`, `"bucket":"due"`), goldenValues, false},
-		{"swapped reasons", edit(`{"code":"DOSE_INVALID","params":{"check":"minAge","dose":"r1","number":"1"}},{"code":"ALTERNATIVE_PLANS","params":{"series":"s"}}`,
-			`{"code":"ALTERNATIVE_PLANS","params":{"series":"s"}},{"code":"DOSE_INVALID","params":{"check":"minAge","dose":"r1","number":"1"}}`), goldenValues, false},
+		{"swapped reasons", edit(`{"code":"DOSE_INVALID","params":{"checks":["minAge"],"dose":"r1","number":1}},{"code":"ALTERNATIVE_PLANS","params":{"series":"s"}}`,
+			`{"code":"ALTERNATIVE_PLANS","params":{"series":"s"}},{"code":"DOSE_INVALID","params":{"checks":["minAge"],"dose":"r1","number":1}}`), goldenValues, false},
 		{"renamed member", edit(`"due":`, `"dueDate":`), 0, true},
 		{"extra member", edit(`"disease":"a",`, `"disease":"a","zz":1,`), 0, true},
 		{"null member", edit(`"today":"2026-04-01"`, `"today":null`), 0, true},
 		{"missing member", edit(`"disease":"a",`, ``), 0, true},
-		{"wrong type", edit(`"number":1`, `"number":"1"`), 0, true},
+		{"wrong type", edit(`"number":1,"earliest"`, `"number":"1","earliest"`), 0, true},
+		{"S1 string params", edit(`{"checks":["minAge"],"dose":"r1","number":1}`, `{"check":"minAge","dose":"r1","number":"1"}`), 0, true},
 		{"bad date", edit(`"due":"2026-03-10"`, `"due":"2026-02-30"`), 0, true},
 	}
 	for _, c := range cases {
@@ -267,6 +273,50 @@ func TestCompareGolden(t *testing.T) {
 		}
 		if d == goldenFormat && string(canonical) != got {
 			t.Errorf("%s: canonical = %s, want the engine's bytes", c.name, canonical)
+		}
+	}
+}
+
+// reasonParams lists the params members each reason code carries, all of
+// them required (SAD §5.4). The schema does not tie params to codes yet, so
+// this table checks every reason of the goldens and the property tests.
+var reasonParams = map[engine.ReasonCode][]string{
+	engine.ReasonInvalidDate:      {"dose"},
+	engine.ReasonDoseInvalid:      {"checks", "dose", "number"},
+	engine.ReasonAlternativePlans: {"series"},
+	engine.ReasonComplete:         nil,
+	engine.ReasonOnTrack:          nil,
+}
+
+// checkReasonParams fails when a reason of a carries params other than
+// those its code lists.
+func checkReasonParams(t testing.TB, a engine.Assessment) {
+	t.Helper()
+	typ := reflect.TypeFor[engine.ReasonParams]()
+	members := contractjson.Members(typ)
+	if len(members) != typ.NumField() {
+		t.Fatalf("ReasonParams has fields that are not JSON members")
+	}
+	for _, r := range a.Reasons {
+		want, ok := reasonParams[r.Code]
+		if !ok {
+			t.Errorf("%s: reason code %s has no row in reasonParams", a.Disease, r.Code)
+			continue
+		}
+		v := reflect.ValueOf(r.Params)
+		var got []string
+		for i, m := range members {
+			if !v.Field(i).IsZero() {
+				got = append(got, m.Name)
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: %s params %v, want exactly %v", a.Disease, r.Code, got, want)
+		}
+		for _, c := range r.Params.Checks {
+			if c != engine.CheckMinAge && c != engine.CheckMinInterval {
+				t.Errorf("%s: %s has unknown check %q", a.Disease, r.Code, c)
+			}
 		}
 	}
 }

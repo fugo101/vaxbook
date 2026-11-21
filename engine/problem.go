@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -41,17 +42,38 @@ const (
 // Problem is one input problem. Path is a JSON pointer (RFC 6901) into the
 // Input.
 type Problem struct {
-	Code   ProblemCode       `json:"code"`
-	Path   string            `json:"path"`
-	Params map[string]string `json:"params,omitempty"`
+	Code   ProblemCode   `json:"code"`
+	Path   string        `json:"path"`
+	Params ProblemParams `json:"params,omitzero"`
+}
+
+// ProblemParams holds every problem parameter; each code uses the members
+// its doc lists. Like ReasonParams, members are typed, in alphabetical
+// JSON-name order and omitzero, and the struct grows additively.
+type ProblemParams struct {
+	Disease   string `json:"disease,omitzero"`
+	ID        string `json:"id,omitzero"`
+	Precision string `json:"precision,omitzero"`
+	Value     string `json:"value,omitzero"`
 }
 
 func (p Problem) String() string {
 	s := fmt.Sprintf("%s at %s", p.Code, p.Path)
-	if len(p.Params) > 0 {
-		s += fmt.Sprintf(" %v", p.Params)
+	if p.Params != (ProblemParams{}) {
+		s += " " + paramString("disease", p.Params.Disease, "id", p.Params.ID, "precision", p.Params.Precision, "value", p.Params.Value)
 	}
 	return s
+}
+
+// paramString formats name/value pairs, skipping empty values.
+func paramString(pairs ...string) string {
+	var parts []string
+	for i := 0; i+1 < len(pairs); i += 2 {
+		if pairs[i+1] != "" {
+			parts = append(parts, pairs[i]+"="+strconv.Quote(pairs[i+1]))
+		}
+	}
+	return "{" + strings.Join(parts, " ") + "}"
 }
 
 // InputError is returned by Evaluate for an input it cannot assess. It holds

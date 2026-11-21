@@ -8,7 +8,7 @@ node_modules/
 .env.*
 !.env.example
 
-# Local-only issue tracker (kept out of git by choice; see docs/agents/issue-tracker.md)
+# Local scratch space for agent skills (issues live in GitHub Issues; see docs/agents/issue-tracker.md)
 .scratch/
 
 # Tool artifacts

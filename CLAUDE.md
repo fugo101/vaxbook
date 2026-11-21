@@ -7,6 +7,10 @@
 - Product UI is Vietnamese-only. Inside English docs, quote UI and email strings in Vietnamese exactly as users see them, followed by an English gloss.
 - Never commit personal identifiers: the operator's domain, server IPs, host paths, usernames or the names of other projects. In docs, use placeholders such as `<operator-domain>`, `<stacks-dir>` and `<proxy-network>`. Real values live only in deployment `.env` files, which are never committed.
 
+## Backend checks
+
+Run `go tool -modfile=go.tool.mod task gen:check lint test` (works without Task installed; `task test` also finds the Docker socket). Commands and setup: README › Backend development. Review rules: `CODING_STANDARDS.md`.
+
 ## Agent skills
 
 ### Issue tracker

@@ -157,8 +157,9 @@ func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
 	a := Assessment{Disease: dz.id}
 
 	// Step 1: a dose record whose date is unparseable, out of range, after
-	// today or before birth makes the disease ⚪ (A9, EQ27). Its reasons are
-	// sorted by record ID.
+	// today or before birth makes the disease ⚪ (A9, EQ27). The remaining
+	// steps are skipped, so the record reasons, sorted by record ID, are the
+	// only reasons (SAD §5.3 step 1).
 	var bad []givenDose
 	for _, g := range doses {
 		if g.problem != "" {

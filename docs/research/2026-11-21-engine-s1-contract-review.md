@@ -236,7 +236,7 @@ Reason: `note` is not in the SAD, and free text cannot be checked by a machine. 
 Reason: the spec is silent on dates for ⚪. A ⚪ date is a guessed branch (P1). Most later ⚪ reasons have no single date anyway. Adding the member later is additive, while removing it later breaks consumers.
 
 **Q3 and the whole-profile failure: CHANGE.**
-- On `/doses/{i}/date/value`, the problems `INVALID_DATE`, `OUT_OF_RANGE`, `DATE_IN_FUTURE` and `DATE_BEFORE_BIRTH` are **record-scoped**. Every rule-set disease of that record becomes ⚪ with no `nextDose`. The reason code equals the problem code (the `INVALID_DATE` precedent), with `params {dose}`. Reasons are sorted by record ID.
+- On `/doses/{i}/date/value`, the problems `INVALID_DATE`, `OUT_OF_RANGE`, `DATE_IN_FUTURE` and `DATE_BEFORE_BIRTH` are **record-scoped**. Every rule-set disease of that record becomes ⚪ with no `nextDose`. The reason code equals the problem code (the `INVALID_DATE` precedent), with `params {dose}`. Reasons are sorted by record ID. The ⚪ is a data ⚪ (F05.11 layer 7): steps 2–9 are skipped, but precedence layers 1–5 still win over it and keep the record reasons as masked reasons (F04.6, A8).
 - Every other problem stops evaluation: all `/today` and `/profile/birth` problems, plus `REQUIRED`, `DUPLICATE_ID`, `DUPLICATE_VALUE`, `INVALID_VALUE`, `UNSUPPORTED_PRECISION` and **`UNKNOWN_DISEASE`**.
 - Mechanism:
   - add `type Scope string` with `ScopeInput` and `ScopeRecord`;

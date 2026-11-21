@@ -157,9 +157,11 @@ func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
 	a := Assessment{Disease: dz.id}
 
 	// Step 1: a dose record whose date is unparseable, out of range, after
-	// today or before birth makes the disease ⚪ (A9, EQ27). The remaining
-	// steps are skipped, so the record reasons, sorted by record ID, are the
-	// only reasons (SAD §5.3 step 1).
+	// today or before birth makes the disease ⚪ (A9, EQ27). Steps 2–9 are
+	// skipped. The ⚪ is a data ⚪ (step 10 layer 7) with the record reasons,
+	// sorted by record ID; S1 has no higher layer, so it returns here. A slice
+	// that adds layers 1–5 must let them win over it and keep these reasons as
+	// masked reasons (SAD §5.3 steps 1 and 10).
 	var bad []givenDose
 	for _, g := range doses {
 		if g.problem != "" {

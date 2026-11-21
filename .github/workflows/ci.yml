@@ -26,7 +26,7 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
-          args: ./apps/...
+          args: ./...
       - name: Test
         run: go tool -modfile=go.tool.mod task test
 

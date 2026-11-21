@@ -5,7 +5,9 @@ linters:
   default: standard
   enable:
     - bodyclose
+    - depguard
     - errorlint
+    - forbidigo
     - gosec
     - misspell
     - nilerr
@@ -15,6 +17,31 @@ linters:
     - unconvert
     - usestdlibvars
   settings:
+    depguard:
+      # engine/ and ruleset/ run natively and as WASM: standard library only
+      # (SAD §3, ADR-0002). Test files are covered too.
+      rules:
+        engine:
+          list-mode: strict
+          files: ["**/engine/*.go", "**/engine/**/*.go"]
+          allow:
+            - $gostd
+            - github.com/fugo101/vaxbook/engine
+            - github.com/fugo101/vaxbook/ruleset
+        ruleset:
+          list-mode: strict
+          files: ["**/ruleset/*.go", "**/ruleset/**/*.go"]
+          allow:
+            - $gostd
+            - github.com/fugo101/vaxbook/ruleset
+    forbidigo:
+      # The engine is pure: no clock reads, no I/O (SAD §5.1). Applied to
+      # non-test files of engine/ and ruleset/ only (see exclusions).
+      forbid:
+        - pattern: ^time\.(Now|Since|Until)$
+          msg: the engine takes "today" from its input; never read the clock
+        - pattern: ^os\.
+          msg: the engine and ruleset do no I/O
     revive:
       rules:
         - name: exported
@@ -23,7 +50,9 @@ linters:
     generated: lax # skips ent's and oapi-codegen's "DO NOT EDIT" files; ent/schema stays linted
     rules:
       - path: _test\.go
-        linters: [gosec, noctx]
+        linters: [gosec, noctx, forbidigo]
+      - path-except: ^(engine|ruleset)/
+        linters: [forbidigo]
       # Dev-only codegen tool working on repo paths it computes itself.
       - path: apps/api/internal/store/migrategen/
         linters: [gosec]

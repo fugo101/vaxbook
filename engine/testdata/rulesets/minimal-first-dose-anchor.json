@@ -1,6 +1,6 @@
 {
   "version": "minimal-first-dose-anchor-s1",
-  "note": "Illustrative, not medically verified",
+  "illustrative": true,
   "diseases": [
     {
       "id": "firstanchored",
@@ -17,24 +17,24 @@
           "id": "main",
           "doses": [
             {
-              "minAge": "9y",
+              "minAge": "P9Y",
               "recommended": {
                 "from": "birth",
-                "offset": "9y"
+                "offset": "P9Y"
               }
             },
             {
-              "minInterval": "4w",
+              "minInterval": "P4W",
               "recommended": {
                 "from": "firstDose",
-                "offset": "2m"
+                "offset": "P2M"
               }
             },
             {
-              "minInterval": "12w",
+              "minInterval": "P12W",
               "recommended": {
                 "from": "firstDose",
-                "offset": "6m"
+                "offset": "P6M"
               }
             }
           ]

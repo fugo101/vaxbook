@@ -4,11 +4,11 @@ package ruleset
 // Fields are added additively by later slices.
 type Snapshot struct {
 	Version string `json:"version"`
-	// Note is free text for humans. Fixture rule sets carry
-	// "Illustrative, not medically verified" here.
-	Note     string    `json:"note,omitempty"`
-	Diseases []Disease `json:"diseases"`
-	Series   []Series  `json:"series"`
+	// Illustrative marks a fixture or demo rule set, not medically verified;
+	// the publish path never sets it.
+	Illustrative bool      `json:"illustrative,omitzero"`
+	Diseases     []Disease `json:"diseases"`
+	Series       []Series  `json:"series"`
 }
 
 // Disease is a disease the engine assesses, in display order.

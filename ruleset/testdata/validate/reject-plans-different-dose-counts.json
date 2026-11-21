@@ -1,7 +1,7 @@
 {
   "snapshot": {
     "version": "validate-eq5",
-    "note": "Illustrative, not medically verified",
+    "illustrative": true,
     "diseases": [
       {
         "id": "v",
@@ -18,24 +18,24 @@
             "id": "three",
             "doses": [
               {
-                "minAge": "6w",
+                "minAge": "P6W",
                 "recommended": {
                   "from": "birth",
-                  "offset": "2m"
+                  "offset": "P2M"
                 }
               },
               {
-                "minInterval": "4w",
+                "minInterval": "P4W",
                 "recommended": {
                   "from": "birth",
-                  "offset": "3m"
+                  "offset": "P3M"
                 }
               },
               {
-                "minInterval": "4w",
+                "minInterval": "P4W",
                 "recommended": {
                   "from": "birth",
-                  "offset": "4m"
+                  "offset": "P4M"
                 }
               }
             ]
@@ -44,17 +44,17 @@
             "id": "two",
             "doses": [
               {
-                "minAge": "6w",
+                "minAge": "P6W",
                 "recommended": {
                   "from": "birth",
-                  "offset": "2m"
+                  "offset": "P2M"
                 }
               },
               {
-                "minInterval": "4w",
+                "minInterval": "P4W",
                 "recommended": {
                   "from": "birth",
-                  "offset": "4m"
+                  "offset": "P4M"
                 }
               }
             ]

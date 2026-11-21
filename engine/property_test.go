@@ -51,7 +51,8 @@ func daysBetween(a, b engine.Date) int {
 
 // randomInput draws a birth date, a today on or after it, and 0–6 dose
 // records dated in [birth, today] for random non-empty subsets of the
-// diseases. About one record in 25 has an impossible date (A9).
+// diseases. About one record in 25 has an impossible date (A9), and about
+// one in 25 is dated after today or before birth (record-scoped, ⚪).
 func randomInput(t testing.TB, rng *rand.Rand, s *ruleset.Snapshot) engine.Input {
 	t.Helper()
 	base := mustDate(t, "1990-01-01")
@@ -76,8 +77,13 @@ func randomInput(t testing.TB, rng *rand.Rand, s *ruleset.Snapshot) engine.Input
 			diseases = []string{s.Diseases[rng.IntN(len(s.Diseases))].ID}
 		}
 		value := birth.AddDays(rng.IntN(span + 1)).String()
-		if rng.IntN(25) == 0 {
+		switch rng.IntN(50) {
+		case 0, 1:
 			value = value[:8] + "32"
+		case 2:
+			value = today.AddDays(1 + rng.IntN(30)).String()
+		case 3:
+			value = birth.AddDays(-1 - rng.IntN(30)).String()
 		}
 		in.Doses = append(in.Doses, engine.DoseRecord{
 			ID:       fmt.Sprintf("r%d", i),
@@ -151,7 +157,8 @@ func reasonsWith(a engine.Assessment, code engine.ReasonCode) []engine.Reason {
 //     from (some plan satisfies both);
 //   - due ≥ earliest and overdue ≥ due + 7 days;
 //   - exactly one of bucket and block; a next dose unless the series is
-//     complete or a date is invalid.
+//     complete or the bucket is ⚪ unknown (a ⚪ assessment never carries a
+//     next dose, SAD §5.1).
 func TestPropertyNextDoseBounds(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
@@ -161,10 +168,14 @@ func TestPropertyNextDoseBounds(t *testing.T) {
 			out, _ := evaluate(t, fx.engine, in)
 			birth := mustDate(t, in.Profile.Birth.Value)
 			for _, a := range out.Assessments {
+				checkReasonParams(t, a)
 				if (a.Bucket == "") == (a.Block == "") {
 					t.Fatalf("%s %s: bucket %q, block %q", fx.name, a.Disease, a.Bucket, a.Block)
 				}
-				noNext := len(reasonsWith(a, engine.ReasonComplete)) > 0 || len(reasonsWith(a, engine.ReasonInvalidDate)) > 0
+				if a.Bucket == engine.BucketUnknown && a.NextDose != nil {
+					t.Fatalf("%s %s: ⚪ assessment with nextDose %+v", fx.name, a.Disease, *a.NextDose)
+				}
+				noNext := len(reasonsWith(a, engine.ReasonComplete)) > 0 || a.Bucket == engine.BucketUnknown
 				if noNext != (a.NextDose == nil) {
 					t.Fatalf("%s %s: nextDose %v with reasons %v", fx.name, a.Disease, a.NextDose, a.Reasons)
 				}

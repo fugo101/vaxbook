@@ -2,6 +2,7 @@ package ruleset
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -39,23 +40,40 @@ const (
 	// UnknownReference: a series names a disease that does not exist.
 	// Params: disease.
 	UnknownReference ProblemCode = "UNKNOWN_REFERENCE"
-	// Empty: a series has no plans or a plan has no doses.
+	// Empty: a snapshot has no diseases, a series has no plans or a plan has
+	// no doses.
 	Empty ProblemCode = "EMPTY"
 )
 
 // Problem is one finding of Validate. Path is a JSON pointer (RFC 6901)
 // into the snapshot.
 type Problem struct {
-	Code     ProblemCode       `json:"code"`
-	Severity Severity          `json:"severity"`
-	Path     string            `json:"path"`
-	Params   map[string]string `json:"params,omitempty"`
+	Code     ProblemCode   `json:"code"`
+	Severity Severity      `json:"severity"`
+	Path     string        `json:"path"`
+	Params   ProblemParams `json:"params,omitzero"`
+}
+
+// ProblemParams holds every problem parameter; each code uses the members
+// its doc lists. Members are typed (IDs and values are strings), in
+// alphabetical JSON-name order and omitzero, and the struct grows
+// additively.
+type ProblemParams struct {
+	Disease string `json:"disease,omitzero"`
+	ID      string `json:"id,omitzero"`
+	Value   string `json:"value,omitzero"`
 }
 
 func (p Problem) String() string {
 	s := fmt.Sprintf("%s %s at %s", p.Severity, p.Code, p.Path)
-	if len(p.Params) > 0 {
-		s += fmt.Sprintf(" %v", p.Params)
+	var parts []string
+	for _, kv := range [][2]string{{"disease", p.Params.Disease}, {"id", p.Params.ID}, {"value", p.Params.Value}} {
+		if kv[1] != "" {
+			parts = append(parts, kv[0]+"="+strconv.Quote(kv[1]))
+		}
+	}
+	if len(parts) > 0 {
+		s += " {" + strings.Join(parts, " ") + "}"
 	}
 	return s
 }

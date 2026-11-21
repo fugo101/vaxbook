@@ -3,11 +3,14 @@ package ruleset
 import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/fugo101/vaxbook/ruleset/contractjson"
 )
 
 // validCase is a well-formed one-series snapshot that individual cases break.
@@ -17,8 +20,8 @@ const validCase = `{
   "series": [{
     "id": "s", "disease": "d", "stage": "childhood",
     "plans": [{"id": "p", "doses": [
-      {"minAge": "6w", "recommended": {"from": "birth", "offset": "2m"}},
-      {"minInterval": "4w", "recommended": {"from": "previousDose", "offset": "2m"}, "buffer": "14d"}
+      {"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}},
+      {"minInterval": "P4W", "recommended": {"from": "previousDose", "offset": "P2M"}, "buffer": "P14D"}
     ]}]
   }]
 }`
@@ -45,12 +48,50 @@ func TestDecodeIsStrict(t *testing.T) {
 		"unknown member":   strings.Replace(validCase, `"version"`, `"extra": 1, "version"`, 1),
 		"wrong case":       strings.Replace(validCase, `"version"`, `"Version"`, 1),
 		"duplicate member": strings.Replace(validCase, `"version": "v1"`, `"version": "v1", "version": "v2"`, 1),
-		"bad span":         strings.Replace(validCase, `"6w"`, `"6 weeks"`, 1),
+		"bad span":         strings.Replace(validCase, `"P6W"`, `"6 weeks"`, 1),
+		"S1 compact span":  strings.Replace(validCase, `"P6W"`, `"6w"`, 1),
+		"compound span":    strings.Replace(validCase, `"P6W"`, `"P1M2W"`, 1),
 		"trailing data":    validCase + `{}`,
 	}
 	for name, in := range bad {
 		if _, err := Decode([]byte(in)); err == nil {
 			t.Errorf("%s: Decode succeeded, want error", name)
+		}
+	}
+}
+
+// TestDecodeShape: Decode agrees with contracts/ruleset.schema.json on
+// required members and null, so a truncated snapshot never loads as one with
+// no assessments.
+func TestDecodeShape(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, doc string
+		kind      contractjson.Kind
+		pointer   string
+	}{
+		{"truncated snapshot", `{"version": "x"}`, contractjson.KindMissing, "/diseases"},
+		{"missing series", `{"version": "v1", "diseases": [{"id": "d", "name": "D"}]}`, contractjson.KindMissing, "/series"},
+		{"missing offset", strings.Replace(validCase, `"recommended": {"from": "birth", "offset": "P2M"}`, `"recommended": {"from": "birth"}`, 1),
+			contractjson.KindMissing, "/series/0/plans/0/doses/0/recommended/offset"},
+		{"missing recommended", strings.Replace(validCase, `, "recommended": {"from": "birth", "offset": "P2M"}`, ``, 1),
+			contractjson.KindMissing, "/series/0/plans/0/doses/0/recommended"},
+		{"missing plan doses", `{"version": "v1", "diseases": [], "series": [{"id": "s", "disease": "d", "stage": "adult", "plans": [{"id": "p"}]}]}`,
+			contractjson.KindMissing, "/series/0/plans/0/doses"},
+		{"null version", strings.Replace(validCase, `"version": "v1"`, `"version": null`, 1), contractjson.KindNull, "/version"},
+		{"null min interval", strings.Replace(validCase, `"minInterval": "P4W"`, `"minInterval": null`, 1),
+			contractjson.KindNull, "/series/0/plans/0/doses/1/minInterval"},
+		{"null buffer", strings.Replace(validCase, `"buffer": "P14D"`, `"buffer": null`, 1),
+			contractjson.KindNull, "/series/0/plans/0/doses/1/buffer"},
+		{"null disease", strings.Replace(validCase, `[{"id": "d", "name": "D"}]`, `[{"id": "d", "name": "D"}, null]`, 1),
+			contractjson.KindNull, "/diseases/1"},
+		{"null root", `null`, contractjson.KindNull, ""},
+	}
+	for _, c := range cases {
+		_, err := Decode([]byte(c.doc))
+		var se *contractjson.Error
+		if !errors.As(err, &se) || se.Kind != c.kind || se.Pointer != c.pointer {
+			t.Errorf("%s: Decode error = %v, want %s at %q", c.name, err, c.kind, c.pointer)
 		}
 	}
 }
@@ -67,33 +108,28 @@ func TestValidateProblems(t *testing.T) {
 			[]Problem{{Code: Required, Severity: Reject, Path: "/version"}}},
 		{"disease id shape", `{"id": "d", "name": "D"}`, `{"id": "D!", "name": "D"}`,
 			[]Problem{
-				{Code: InvalidValue, Severity: Reject, Path: "/diseases/0/id", Params: map[string]string{"value": "D!"}},
-				{Code: UnknownReference, Severity: Reject, Path: "/series/0/disease", Params: map[string]string{"disease": "d"}},
+				{Code: InvalidValue, Severity: Reject, Path: "/diseases/0/id", Params: ProblemParams{Value: "D!"}},
+				{Code: UnknownReference, Severity: Reject, Path: "/series/0/disease", Params: ProblemParams{Disease: "d"}},
 			}},
 		{"missing disease name", `"name": "D"`, `"name": ""`,
 			[]Problem{{Code: Required, Severity: Reject, Path: "/diseases/0/name"}}},
 		{"duplicate disease id", `{"id": "d", "name": "D"}`, `{"id": "d", "name": "D"}, {"id": "d", "name": "E"}`,
-			[]Problem{{Code: DuplicateID, Severity: Reject, Path: "/diseases/1/id", Params: map[string]string{"id": "d"}}}},
+			[]Problem{{Code: DuplicateID, Severity: Reject, Path: "/diseases/1/id", Params: ProblemParams{ID: "d"}}}},
 		{"unknown disease", `"disease": "d"`, `"disease": "x"`,
-			[]Problem{{Code: UnknownReference, Severity: Reject, Path: "/series/0/disease", Params: map[string]string{"disease": "x"}}}},
+			[]Problem{{Code: UnknownReference, Severity: Reject, Path: "/series/0/disease", Params: ProblemParams{Disease: "x"}}}},
 		{"bad stage", `"stage": "childhood"`, `"stage": "teen"`,
-			[]Problem{{Code: InvalidValue, Severity: Reject, Path: "/series/0/stage", Params: map[string]string{"value": "teen"}}}},
+			[]Problem{{Code: InvalidValue, Severity: Reject, Path: "/series/0/stage", Params: ProblemParams{Value: "teen"}}}},
 		{"bad anchor", `"from": "previousDose"`, `"from": "lastDose"`,
-			[]Problem{{Code: InvalidValue, Severity: Reject, Path: "/series/0/plans/0/doses/1/recommended/from", Params: map[string]string{"value": "lastDose"}}}},
-		{"first dose interval", `{"minAge": "6w", "recommended"`, `{"minAge": "6w", "minInterval": "1w", "recommended"`,
+			[]Problem{{Code: InvalidValue, Severity: Reject, Path: "/series/0/plans/0/doses/1/recommended/from", Params: ProblemParams{Value: "lastDose"}}}},
+		{"first dose interval", `{"minAge": "P6W", "recommended"`, `{"minAge": "P6W", "minInterval": "P1W", "recommended"`,
 			[]Problem{{Code: FirstDoseHasInterval, Severity: Reject, Path: "/series/0/plans/0/doses/0/minInterval"}}},
-		{"first dose without min age", `{"minAge": "6w", "recommended"`, `{"minInterval": "1w", "recommended"`,
+		{"first dose without min age", `{"minAge": "P6W", "recommended"`, `{"minInterval": "P1W", "recommended"`,
 			[]Problem{
 				{Code: DoseRuleNoMinimum, Severity: Reject, Path: "/series/0/plans/0/doses/0"},
 				{Code: FirstDoseHasInterval, Severity: Reject, Path: "/series/0/plans/0/doses/0/minInterval"},
 			}},
-		{"missing offset", `"recommended": {"from": "birth", "offset": "2m"}`, `"recommended": {"from": "birth"}`,
-			[]Problem{{Code: Required, Severity: Reject, Path: "/series/0/plans/0/doses/0/recommended/offset"}}},
-		{"missing recommended", `, "recommended": {"from": "birth", "offset": "2m"}`, ``,
-			[]Problem{
-				{Code: Required, Severity: Reject, Path: "/series/0/plans/0/doses/0/recommended/from"},
-				{Code: Required, Severity: Reject, Path: "/series/0/plans/0/doses/0/recommended/offset"},
-			}},
+		{"empty anchor", `"from": "previousDose"`, `"from": ""`,
+			[]Problem{{Code: Required, Severity: Reject, Path: "/series/0/plans/0/doses/1/recommended/from"}}},
 		{"first dose anchor", `"from": "birth"`, `"from": "firstDose"`,
 			[]Problem{{Code: FirstDoseAnchorNotBirth, Severity: Reject, Path: "/series/0/plans/0/doses/0/recommended/from"}}},
 	}
@@ -122,23 +158,36 @@ func TestValidateSeriesWithoutPlans(t *testing.T) {
 	}
 }
 
+// A snapshot without diseases would load and silently assess nothing.
+// testdata/validate holds shape-valid snapshots only, so this case is inline.
+func TestValidateSnapshotWithoutDiseases(t *testing.T) {
+	t.Parallel()
+	want := []Problem{{Code: Empty, Severity: Reject, Path: "/diseases"}}
+	if got := Validate(mustDecode(t, `{"version": "v1", "diseases": [], "series": []}`)); !reflect.DeepEqual(got, want) {
+		t.Errorf("Validate =\n  %v\nwant\n  %v", got, want)
+	}
+	if got := Validate(&Snapshot{Version: "v1"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("Validate(Go-built) =\n  %v\nwant\n  %v", got, want)
+	}
+}
+
 func TestValidateDuplicateSeriesAndPlanIDs(t *testing.T) {
 	t.Parallel()
 	in := `{"version": "v1", "diseases": [{"id": "d", "name": "D"}],
 	  "series": [
 	    {"id": "s", "disease": "d", "stage": "adult", "plans": [
-	      {"id": "p", "doses": [{"minAge": "0d", "recommended": {"from": "birth", "offset": "0d"}}]},
+	      {"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]},
 	      {"id": "p", "doses": []}
 	    ]},
 	    {"id": "s", "disease": "d", "stage": "adult", "plans": [
-	      {"id": "p", "doses": [{"minAge": "0d", "recommended": {"from": "birth", "offset": "0d"}}]}
+	      {"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]}
 	    ]}
 	  ]}`
 	want := []Problem{
 		{Code: PlanDoseCountMismatch, Severity: Reject, Path: "/series/0/plans/1"},
-		{Code: DuplicateID, Severity: Reject, Path: "/series/0/plans/1/id", Params: map[string]string{"id": "p"}},
+		{Code: DuplicateID, Severity: Reject, Path: "/series/0/plans/1/id", Params: ProblemParams{ID: "p"}},
 		{Code: Empty, Severity: Reject, Path: "/series/0/plans/1/doses"},
-		{Code: DuplicateID, Severity: Reject, Path: "/series/1/id", Params: map[string]string{"id": "s"}},
+		{Code: DuplicateID, Severity: Reject, Path: "/series/1/id", Params: ProblemParams{ID: "s"}},
 	}
 	if got := Validate(mustDecode(t, in)); !reflect.DeepEqual(got, want) {
 		t.Errorf("Validate =\n  %v\nwant\n  %v", got, want)
@@ -152,7 +201,7 @@ func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
 	t.Parallel()
 	const dose = "/series/0/plans/0/doses/"
 	invalid := func(path string, s Span) Problem {
-		return Problem{Code: InvalidValue, Severity: Reject, Path: path, Params: map[string]string{"value": s.String()}}
+		return Problem{Code: InvalidValue, Severity: Reject, Path: path, Params: ProblemParams{Value: s.String()}}
 	}
 	cases := []struct {
 		name   string
@@ -171,6 +220,15 @@ func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
 			[]Problem{invalid(dose+"1/buffer", Span{N: 14, Unit: 'x'})}},
 		{"offset too long", func(d0, _ *DoseRule) { d0.Recommended.Offset = Span{N: 1000, Unit: Days} },
 			[]Problem{invalid(dose+"0/recommended/offset", Span{N: 1000, Unit: Days})}},
+		// Decode rejects a missing offset or milestone; a Go-built snapshot
+		// can still leave them zero.
+		{"zero offset", func(d0, _ *DoseRule) { d0.Recommended.Offset = Span{} },
+			[]Problem{{Code: Required, Severity: Reject, Path: dose + "0/recommended/offset"}}},
+		{"zero milestone", func(d0, _ *DoseRule) { d0.Recommended = Milestone{} },
+			[]Problem{
+				{Code: Required, Severity: Reject, Path: dose + "0/recommended/from"},
+				{Code: Required, Severity: Reject, Path: dose + "0/recommended/offset"},
+			}},
 		{"spans at the cap", func(d0, d1 *DoseRule) {
 			d0.MinAge = &Span{N: MaxSpanN, Unit: Years}
 			d1.MinInterval = &Span{N: 0, Unit: Days}
@@ -218,8 +276,8 @@ func TestValidateTestdata(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode snapshot: %v", err)
 			}
-			if snap.Note != "Illustrative, not medically verified" {
-				t.Errorf("note = %q, want the illustrative marker", snap.Note)
+			if !snap.Illustrative {
+				t.Error("illustrative is not set; every validate case is illustrative, not medically verified")
 			}
 			got := Validate(snap)
 			if !reflect.DeepEqual(got, c.Problems) {

@@ -105,23 +105,24 @@ func compileSeries(sr ruleset.Series) seriesModel {
 type givenDose struct {
 	id      string
 	date    Range
-	invalid bool // the date cannot be parsed (A9)
+	problem ReasonCode // the record's date problem (ScopeRecord), if any
 }
 
 // Evaluate assesses every disease of the rule set for one profile, in the
 // rule set's disease order. It is pure: no clock reads, no I/O, and it never
 // coerces input values.
 //
-// An input with any problem from Validate gives an *InputError holding those
-// problems, except an unparseable dose date: that record's diseases become
-// ⚪ INVALID_DATE instead (A9).
+// It returns an *InputError holding the ScopeInput problems of Validate when
+// there are any. A ScopeRecord problem (a dose date that is unparseable, out
+// of range, after today or before birth) makes every disease of that record
+// ⚪ with a reason of the same code instead (A9, EQ27).
 func (e *Engine) Evaluate(in Input) (Output, error) {
+	v := e.validate(in)
 	var fatal []Problem
-	for _, p := range e.Validate(in) {
-		if p.Code == InvalidDate && strings.HasPrefix(p.Path, "/doses/") && strings.HasSuffix(p.Path, "/date/value") {
-			continue
+	for _, p := range v.problems {
+		if p.Scope == ScopeInput {
+			fatal = append(fatal, p)
 		}
-		fatal = append(fatal, p)
 	}
 	if len(fatal) > 0 {
 		return Output{}, &InputError{Problems: fatal}
@@ -131,10 +132,12 @@ func (e *Engine) Evaluate(in Input) (Output, error) {
 		return Output{}, fmt.Errorf("engine: birth date passed validation but has no range: %w", err)
 	}
 	byDisease := make(map[string][]givenDose, len(e.diseases))
-	for _, r := range in.Doses {
+	for i, r := range in.Doses {
 		g := givenDose{id: r.ID}
-		if g.date, err = r.Date.Range(); err != nil {
-			g.invalid = true
+		if code, ok := v.records[i]; ok {
+			g.problem = ReasonCode(code)
+		} else if g.date, err = r.Date.Range(); err != nil {
+			return Output{}, fmt.Errorf("engine: dose date passed validation but has no range: %w", err)
 		}
 		for _, dz := range r.Diseases {
 			byDisease[dz] = append(byDisease[dz], g)
@@ -153,18 +156,23 @@ func (e *Engine) Evaluate(in Input) (Output, error) {
 func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
 	a := Assessment{Disease: dz.id}
 
-	// Step 1: an unparseable dose date makes the disease ⚪ (A9).
-	var bad []string
+	// Step 1: a dose record whose date is unparseable, out of range, after
+	// today or before birth makes the disease ⚪ (A9, EQ27). Steps 2–9 are
+	// skipped. The ⚪ is a data ⚪ (step 10 layer 7) with the record reasons,
+	// sorted by record ID; S1 has no higher layer, so it returns here. A slice
+	// that adds layers 1–5 must let them win over it and keep these reasons as
+	// masked reasons (SAD §5.3 steps 1 and 10).
+	var bad []givenDose
 	for _, g := range doses {
-		if g.invalid {
-			bad = append(bad, g.id)
+		if g.problem != "" {
+			bad = append(bad, g)
 		}
 	}
 	if len(bad) > 0 {
-		slices.Sort(bad)
+		slices.SortFunc(bad, func(x, y givenDose) int { return strings.Compare(x.id, y.id) })
 		a.Bucket = BucketUnknown
-		for _, id := range bad {
-			a.Reasons = append(a.Reasons, Reason{Code: ReasonInvalidDate, Params: map[string]string{"dose": id}})
+		for _, g := range bad {
+			a.Reasons = append(a.Reasons, Reason{Code: g.problem, Params: ReasonParams{Dose: g.id}})
 		}
 		return a
 	}
@@ -197,11 +205,11 @@ func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
 		return a
 	}
 
-	// Step 7: next dose, merged over alternative plans.
+	// Step 7: next dose, merged over alternative plans. A ⚪ assessment does
+	// not emit it (SAD §5.1): the dates still decide the masked bucket.
 	nd := dz.series.next(birth, doses, counted)
-	a.NextDose = &nd
 	if len(dz.series.plans) > 1 {
-		a.Reasons = append(a.Reasons, Reason{Code: ReasonAlternativePlans, Params: map[string]string{"series": dz.series.id}})
+		a.Reasons = append(a.Reasons, Reason{Code: ReasonAlternativePlans, Params: ReasonParams{Series: dz.series.id}})
 	}
 
 	// Step 9: bucket; step 10: layer 7 masks it, its reasons stay.
@@ -213,6 +221,6 @@ func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
 		a.Bucket = BucketUnknown
 		return a
 	}
-	a.Bucket, a.Block = bucket, block
+	a.Bucket, a.Block, a.NextDose = bucket, block, &nd
 	return a
 }

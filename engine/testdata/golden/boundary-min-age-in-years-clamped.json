@@ -28,19 +28,15 @@
       {
         "disease": "anchored",
         "bucket": "unknown",
-        "nextDose": {
-          "number": 1,
-          "earliest": "2025-02-28",
-          "due": "2025-02-28",
-          "overdue": "2025-03-07"
-        },
         "reasons": [
           {
             "code": "DOSE_INVALID",
             "params": {
-              "check": "minAge",
+              "checks": [
+                "minAge"
+              ],
               "dose": "r1",
-              "number": "1"
+              "number": 1
             }
           }
         ]

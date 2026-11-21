@@ -1,6 +1,6 @@
 {
   "version": "minimal-late-start-s1",
-  "note": "Illustrative, not medically verified",
+  "illustrative": true,
   "diseases": [
     {
       "id": "late",
@@ -17,12 +17,12 @@
           "id": "main",
           "doses": [
             {
-              "minAge": "9m",
+              "minAge": "P9M",
               "recommended": {
                 "from": "birth",
-                "offset": "9m"
+                "offset": "P9M"
               },
-              "buffer": "14d"
+              "buffer": "P14D"
             }
           ]
         }

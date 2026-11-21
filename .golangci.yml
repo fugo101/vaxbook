@@ -37,11 +37,19 @@ linters:
     forbidigo:
       # The engine is pure: no clock reads, no I/O (SAD §5.1). Applied to
       # non-test files of engine/ and ruleset/ only (see exclusions).
+      # analyze-types matches by package, not by the import name, so an
+      # aliased import (jsonv2 "encoding/json/v2") cannot bypass a rule.
+      analyze-types: true
       forbid:
         - pattern: ^time\.(Now|Since|Until)$
+          pkg: ^time$
           msg: the engine takes "today" from its input; never read the clock
         - pattern: ^os\.
+          pkg: ^os$
           msg: the engine and ruleset do no I/O
+        - pattern: ^(json\.(Unmarshal(Read|Decode)?|NewDecoder|Decoder\..*)|jsontext\.(NewDecoder|Decoder\..*))$
+          pkg: ^encoding/json(/v2|/jsontext)?$
+          msg: decode contract JSON with contractjson.Unmarshal, which adds the schema's shape rules (required members, no null)
     revive:
       rules:
         - name: exported

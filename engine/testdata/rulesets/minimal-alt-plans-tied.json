@@ -1,0 +1,57 @@
+{
+  "version": "minimal-alt-plans-tied-s1",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "tied",
+      "name": "Bệnh minh hoạ hai phác đồ cùng hạn"
+    }
+  ],
+  "series": [
+    {
+      "id": "tied-series",
+      "disease": "tied",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "short",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            }
+          ]
+        },
+        {
+          "id": "long",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

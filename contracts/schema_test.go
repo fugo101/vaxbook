@@ -19,6 +19,7 @@ import (
 
 	"github.com/fugo101/vaxbook/engine"
 	"github.com/fugo101/vaxbook/ruleset"
+	"github.com/fugo101/vaxbook/ruleset/contractjson"
 )
 
 const schemaFile = "ruleset.schema.json"
@@ -112,9 +113,12 @@ func TestSchemaRejects(t *testing.T) {
 	cases := map[string]struct{ def, doc string }{
 		"bucket and block":         {"Assessment", `{"disease": "a", "bucket": "due", "block": "notYetScheduled"}`},
 		"neither bucket nor block": {"Assessment", `{"disease": "a"}`},
+		"unknown with next dose":   {"Assessment", `{"disease": "a", "bucket": "unknown", "nextDose": {"number": 1, "earliest": "2026-01-01", "due": "2026-01-01", "overdue": "2026-01-08"}}`},
 		"unknown member":           {"Disease", `{"id": "a", "name": "A", "extra": 1}`},
-		"span with leading zero":   {"Span", `"06w"`},
-		"span without unit":        {"Span", `"6"`},
+		"span with leading zero":   {"Span", `"P06W"`},
+		"span without unit":        {"Span", `"P6"`},
+		"compact S1 span":          {"Span", `"6w"`},
+		"compound span":            {"Span", `"P1Y6M"`},
 		"impossible date":          {"Date", `"2026-02-30"`},
 		"year zero":                {"Date", `"0000-01-01"`},
 		"month thirteen":           {"Date", `"2026-13-01"`},
@@ -123,9 +127,18 @@ func TestSchemaRejects(t *testing.T) {
 		"leap day, 1900":           {"Date", `"1900-02-29"`},
 		"dose number zero":         {"NextDose", `{"number": 0, "earliest": "2026-01-01", "due": "2026-01-01", "overdue": "2026-01-08"}`},
 		"unknown reason code":      {"Reason", `{"code": "NOPE"}`},
-		"numeric param":            {"Reason", `{"code": "DOSE_INVALID", "params": {"number": 2}}`},
+		"string count param":       {"Reason", `{"code": "DOSE_INVALID", "params": {"checks": ["minAge"], "dose": "r1", "number": "2"}}`},
+		"comma-joined checks":      {"Reason", `{"code": "DOSE_INVALID", "params": {"checks": "minAge,minInterval", "dose": "r1", "number": 2}}`},
+		"unknown check":            {"ReasonParams", `{"checks": ["maxAge"]}`},
+		"repeated check":           {"ReasonParams", `{"checks": ["minAge", "minAge"]}`},
+		"no checks":                {"ReasonParams", `{"checks": []}`},
+		"empty params":             {"Reason", `{"code": "COMPLETE", "params": {}}`},
+		"unknown param":            {"ReasonParams", `{"disease": "a"}`},
+		"param number zero":        {"ReasonParams", `{"number": 0}`},
 		"duplicate disease":        {"DoseRecord", `{"id": "r", "diseases": ["a", "a"], "date": {"value": "2026-01-01", "precision": "day"}}`},
 		"bad precision":            {"RecalledDate", `{"value": "2026", "precision": "decade"}`},
+		"null date value":          {"RecalledDate", `{"value": null, "precision": "day"}`},
+		"numeric date value":       {"RecalledDate", `{"value": 20260210, "precision": "day"}`},
 		"uppercase id":             {"Id", `"Ab"`},
 	}
 	for name, c := range cases {
@@ -137,10 +150,23 @@ func TestSchemaRejects(t *testing.T) {
 			t.Errorf("%s: %s accepted %s", name, c.def, c.doc)
 		}
 	}
-	// A calendar-invalid recalled date is shape-valid: the engine reports it (A9).
-	v, _ := jsonschema.UnmarshalJSON(strings.NewReader(`{"value": "2026-02-30", "precision": "day"}`))
-	if err := compile(t, "RecalledDate").Validate(v); err != nil {
-		t.Errorf("RecalledDate rejected a shape-valid value: %v", err)
+}
+
+// TestRecalledDateAcceptsAnyString: engine.Validate reports a recalled date
+// value that does not parse as INVALID_DATE, and on a dose record Evaluate
+// still assesses the profile (⚪, A9). So the schema accepts every string,
+// or a client validating against it would reject the record instead.
+func TestRecalledDateAcceptsAnyString(t *testing.T) {
+	t.Parallel()
+	recalled := compile(t, "RecalledDate")
+	for _, value := range []string{
+		"2026-02-30", "10/02/2026", "2026-1-5", "", " 2026-01-01", "2026-01-01T00:00:00Z",
+		"２０２６-０１-０１", "2026-01", "2026", strings.Repeat("9", 200),
+	} {
+		doc := map[string]any{"value": value, "precision": "day"}
+		if err := recalled.Validate(doc); err != nil {
+			t.Errorf("RecalledDate rejected value %q: %v", value, err)
+		}
 	}
 }
 
@@ -176,9 +202,37 @@ func TestDatePatternMatchesParseDate(t *testing.T) {
 	}
 }
 
+// TestSpanPatternMatchesParseSpan: $defs/Span's pattern accepts exactly the
+// strings ruleset.ParseSpan accepts, over every count up to past the cap,
+// every designator letter in both cases, and leading zeros.
+func TestSpanPatternMatchesParseSpan(t *testing.T) {
+	t.Parallel()
+	pattern, _ := schemaDefs(t)["Span"]["pattern"].(string)
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		t.Fatalf("$defs/Span pattern %q: %v", pattern, err)
+	}
+	check := func(s string) {
+		_, perr := ruleset.ParseSpan(s)
+		if got, want := re.MatchString(s), perr == nil; got != want {
+			t.Errorf("%q: pattern match %v, ParseSpan ok %v", s, got, want)
+		}
+	}
+	for n := range 1201 {
+		for _, u := range "DWMYdwmyHST" {
+			for _, form := range []string{"P%d%c", "P0%d%c", "P%03d%c", "p%d%c", "%d%c", "PT%d%c", "P%d%cP"} {
+				check(fmt.Sprintf(form, n, u))
+			}
+		}
+	}
+	for _, s := range []string{"", "P", "PD", "P-1D", "P1Y6M", "P14W6D", " P1D", "P1D "} {
+		check(s)
+	}
+}
+
 // TestSchemaMatchesStructs: for every object $def, the schema's members are
-// the Go struct's JSON members, and its required list is the members without
-// omitempty or omitzero.
+// the Go struct's JSON members, and its required list is the members the
+// decoders require (contractjson.Members: no omitempty or omitzero).
 func TestSchemaMatchesStructs(t *testing.T) {
 	t.Parallel()
 	types := map[string]reflect.Type{
@@ -196,6 +250,7 @@ func TestSchemaMatchesStructs(t *testing.T) {
 		"Assessment":   reflect.TypeFor[engine.Assessment](),
 		"NextDose":     reflect.TypeFor[engine.NextDose](),
 		"Reason":       reflect.TypeFor[engine.Reason](),
+		"ReasonParams": reflect.TypeFor[engine.ReasonParams](),
 	}
 	defs := schemaDefs(t)
 	for name, def := range defs {
@@ -216,7 +271,13 @@ func TestSchemaMatchesStructs(t *testing.T) {
 		for _, r := range asSlice(def["required"]) {
 			required = append(required, r.(string))
 		}
-		members, mandatory := jsonMembers(typ)
+		var members, mandatory []string
+		for _, m := range contractjson.Members(typ) {
+			members = append(members, m.Name)
+			if m.Required {
+				mandatory = append(mandatory, m.Name)
+			}
+		}
 		if got, want := slices.Sorted(maps.Keys(props)), slices.Sorted(slices.Values(members)); !slices.Equal(got, want) {
 			t.Errorf("$defs/%s properties %v, Go %s members %v", name, got, typ, want)
 		}
@@ -238,6 +299,9 @@ func TestSchemaEnumsMatchConstants(t *testing.T) {
 	enum := func(def, member string) []string {
 		props, _ := defs[def]["properties"].(map[string]any)
 		m, _ := props[member].(map[string]any)
+		if m["type"] == "array" {
+			m, _ = m["items"].(map[string]any)
+		}
 		var out []string
 		for _, v := range asSlice(m["enum"]) {
 			out = append(out, v.(string))
@@ -262,7 +326,8 @@ func TestSchemaEnumsMatchConstants(t *testing.T) {
 		{"RecalledDate", "precision", str(engine.Day, engine.Month, engine.Year, engine.Unknown, engine.None)},
 		{"Assessment", "bucket", str(engine.BucketOverdue, engine.BucketDue, engine.BucketUpcoming, engine.BucketUnknown, engine.BucketComplete)},
 		{"Assessment", "block", str(engine.BlockNotYetScheduled)},
-		{"Reason", "code", str(engine.ReasonInvalidDate, engine.ReasonDoseInvalid, engine.ReasonAlternativePlans, engine.ReasonComplete, engine.ReasonOnTrack)},
+		{"Reason", "code", str(engine.ReasonInvalidDate, engine.ReasonOutOfRange, engine.ReasonDateInFuture, engine.ReasonDateBeforeBirth, engine.ReasonDoseInvalid, engine.ReasonAlternativePlans, engine.ReasonComplete, engine.ReasonOnTrack)},
+		{"ReasonParams", "checks", str(engine.CheckMinAge, engine.CheckMinInterval)},
 	}
 	for _, c := range cases {
 		if got := enum(c.def, c.member); !slices.Equal(got, c.want) {
@@ -285,33 +350,4 @@ func schemaDefs(t *testing.T) map[string]map[string]any {
 func asSlice(v any) []any {
 	s, _ := v.([]any)
 	return s
-}
-
-// jsonMembers returns the JSON member names of a struct and those that are
-// always present (no omitempty or omitzero).
-func jsonMembers(typ reflect.Type) (all, mandatory []string) {
-	for f := range typ.Fields() {
-		if !f.IsExported() {
-			continue
-		}
-		tag := f.Tag.Get("json")
-		name, opts, _ := strings.Cut(tag, ",")
-		if name == "-" {
-			continue
-		}
-		if name == "" {
-			name = f.Name
-		}
-		all = append(all, name)
-		optional := false
-		for o := range strings.SplitSeq(opts, ",") {
-			if o == "omitempty" || o == "omitzero" {
-				optional = true
-			}
-		}
-		if !optional {
-			mandatory = append(mandatory, name)
-		}
-	}
-	return all, mandatory
 }

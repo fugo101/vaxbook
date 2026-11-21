@@ -20,9 +20,11 @@ const (
 )
 
 // RecalledDate is a date as the user remembers it (GLOSSARY: Recalled date).
-// Value is "YYYY-MM-DD", "YYYY-MM" or "YYYY" depending on Precision, and is
-// kept as raw text so that an unparseable value can reach the engine and be
-// reported (A9).
+// Value is "YYYY-MM-DD" for precision Day ("YYYY-MM" and "YYYY" arrive with
+// Month and Year in S2). It is kept as raw text and any string decodes, so an
+// unparseable value reaches the engine and is reported as INVALID_DATE (A9):
+// ⚪ on a dose record, an input error on the birth date. An absent value is
+// the empty string. JSON null and non-string values are decode errors.
 type RecalledDate struct {
 	Value     string    `json:"value,omitempty"`
 	Precision Precision `json:"precision"`

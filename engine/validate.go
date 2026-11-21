@@ -13,21 +13,32 @@ func inInputRange(d Date) bool { return !d.Before(minInputDate) && !d.After(maxI
 
 // Validate reports every problem in an input, in traversal order: /today,
 // /profile/birth, then each dose record in index order. The server and guest
-// import run it before Evaluate; an empty result means Evaluate succeeds.
-func (e *Engine) Validate(in Input) []Problem {
-	var v problems
+// import run it before Evaluate, and saving a record (F04.4) is blocked by
+// any problem. Evaluate succeeds iff no problem has ScopeInput; a
+// ScopeRecord problem makes its record's diseases ⚪ instead.
+func (e *Engine) Validate(in Input) []Problem { return e.validate(in).problems }
+
+// validation is the result of validate: every problem, and the code of the
+// record-scoped problem of each dose record that has one.
+type validation struct {
+	problems []Problem
+	records  map[int]ProblemCode // dose record index → its ScopeRecord problem
+}
+
+func (e *Engine) validate(in Input) validation {
+	v := validation{records: map[int]ProblemCode{}}
 	todayOK := false
 	switch {
 	case in.Today.IsZero():
-		v.add(Required, "/today", nil)
+		v.add(Required, "/today", ProblemParams{})
 	case !inInputRange(in.Today):
-		v.add(OutOfRange, "/today", nil)
+		v.add(OutOfRange, "/today", ProblemParams{})
 	default:
 		todayOK = true
 	}
-	birth, birthOK := v.recalled("/profile/birth", in.Profile.Birth, true)
+	birth, birthOK := v.recalled(-1, "/profile/birth", in.Profile.Birth)
 	if birthOK && todayOK && birth.Lo.After(in.Today) {
-		v.add(DateInFuture, "/profile/birth/value", nil)
+		v.add(DateInFuture, "/profile/birth/value", ProblemParams{})
 		birthOK = false
 	}
 	ids := make(map[string]bool, len(in.Doses))
@@ -35,52 +46,65 @@ func (e *Engine) Validate(in Input) []Problem {
 		p := "/doses/" + strconv.Itoa(i)
 		switch {
 		case r.ID == "":
-			v.add(Required, p+"/id", nil)
+			v.add(Required, p+"/id", ProblemParams{})
 		case ids[r.ID]:
-			v.add(DuplicateID, p+"/id", map[string]string{"id": r.ID})
+			v.add(DuplicateID, p+"/id", ProblemParams{ID: r.ID})
 		}
 		ids[r.ID] = true
 		if len(r.Diseases) == 0 {
-			v.add(Required, p+"/diseases", nil)
+			v.add(Required, p+"/diseases", ProblemParams{})
 		}
 		seen := make(map[string]bool, len(r.Diseases))
 		for j, dz := range r.Diseases {
 			dp := p + "/diseases/" + strconv.Itoa(j)
 			switch {
 			case !e.known[dz]:
-				v.add(UnknownDisease, dp, map[string]string{"disease": dz})
+				v.add(UnknownDisease, dp, ProblemParams{Disease: dz})
 			case seen[dz]:
-				v.add(DuplicateValue, dp, map[string]string{"disease": dz})
+				v.add(DuplicateValue, dp, ProblemParams{Disease: dz})
 			}
 			seen[dz] = true
 		}
-		date, ok := v.recalled(p+"/date", r.Date, false)
+		date, ok := v.recalled(i, p+"/date", r.Date)
 		switch {
 		case !ok:
 		case todayOK && date.Lo.After(in.Today):
-			v.add(DateInFuture, p+"/date/value", nil)
+			v.value(i, DateInFuture, p+"/date/value")
 		case birthOK && date.Hi.Before(birth.Lo):
-			v.add(DateBeforeBirth, p+"/date/value", nil)
+			v.value(i, DateBeforeBirth, p+"/date/value")
 		}
 	}
 	return v
 }
 
-type problems []Problem
-
-func (v *problems) add(code ProblemCode, path string, params map[string]string) {
-	*v = append(*v, Problem{Code: code, Path: path, Params: params})
+// add records a problem that stops evaluation.
+func (v *validation) add(code ProblemCode, path string, params ProblemParams) {
+	v.problems = append(v.problems, Problem{Code: code, Path: path, Params: params, Scope: ScopeInput})
 }
 
-// recalled checks a RecalledDate at path and returns its range when usable.
-func (v *problems) recalled(path string, r RecalledDate, birth bool) (Range, bool) {
+// value records a problem with the date value of dose record i, or of the
+// birth date for i < 0. On a dose record it is record-scoped (at most one
+// per record): Evaluate makes that record's diseases ⚪.
+func (v *validation) value(i int, code ProblemCode, path string) {
+	if i < 0 {
+		v.add(code, path, ProblemParams{})
+		return
+	}
+	v.problems = append(v.problems, Problem{Code: code, Path: path, Scope: ScopeRecord})
+	v.records[i] = code
+}
+
+// recalled checks the RecalledDate at path, of dose record i or of the birth
+// date for i < 0, and returns its range when usable.
+func (v *validation) recalled(i int, path string, r RecalledDate) (Range, bool) {
+	birth := i < 0
 	switch r.Precision {
 	case Day:
 	case "":
-		v.add(Required, path+"/precision", nil)
+		v.add(Required, path+"/precision", ProblemParams{})
 		return Range{}, false
 	case Month, Year:
-		v.add(UnsupportedPrecision, path+"/precision", map[string]string{"precision": string(r.Precision)})
+		v.add(UnsupportedPrecision, path+"/precision", ProblemParams{Precision: string(r.Precision)})
 		return Range{}, false
 	case Unknown, None:
 		// Level 4 differs by field (F03, GLOSSARY "Date precision"): a dose
@@ -88,22 +112,22 @@ func (v *problems) recalled(path string, r RecalledDate, birth bool) (Range, boo
 		// has "none" for not entered. The other field's value is invalid in
 		// every engine version, not merely unsupported yet.
 		if (r.Precision == None) != birth {
-			v.add(InvalidValue, path+"/precision", map[string]string{"value": string(r.Precision)})
+			v.add(InvalidValue, path+"/precision", ProblemParams{Value: string(r.Precision)})
 			return Range{}, false
 		}
-		v.add(UnsupportedPrecision, path+"/precision", map[string]string{"precision": string(r.Precision)})
+		v.add(UnsupportedPrecision, path+"/precision", ProblemParams{Precision: string(r.Precision)})
 		return Range{}, false
 	default:
-		v.add(InvalidValue, path+"/precision", map[string]string{"value": string(r.Precision)})
+		v.add(InvalidValue, path+"/precision", ProblemParams{Value: string(r.Precision)})
 		return Range{}, false
 	}
 	rng, err := r.Range()
 	if err != nil {
-		v.add(InvalidDate, path+"/value", nil)
+		v.value(i, InvalidDate, path+"/value")
 		return Range{}, false
 	}
 	if !inInputRange(rng.Lo) || !inInputRange(rng.Hi) {
-		v.add(OutOfRange, path+"/value", nil)
+		v.value(i, OutOfRange, path+"/value")
 		return Range{}, false
 	}
 	return rng, true

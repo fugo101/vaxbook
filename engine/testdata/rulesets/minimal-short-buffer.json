@@ -1,6 +1,6 @@
 {
   "version": "minimal-short-buffer-s1",
-  "note": "Illustrative, not medically verified",
+  "illustrative": true,
   "diseases": [
     {
       "id": "shortbuf",
@@ -17,12 +17,12 @@
           "id": "main",
           "doses": [
             {
-              "minAge": "6w",
+              "minAge": "P6W",
               "recommended": {
                 "from": "birth",
-                "offset": "2m"
+                "offset": "P2M"
               },
-              "buffer": "3d"
+              "buffer": "P3D"
             }
           ]
         }

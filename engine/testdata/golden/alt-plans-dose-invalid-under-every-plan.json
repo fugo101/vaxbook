@@ -38,19 +38,15 @@
       {
         "disease": "alt",
         "bucket": "unknown",
-        "nextDose": {
-          "number": 2,
-          "earliest": "2026-04-28",
-          "due": "2026-04-28",
-          "overdue": "2026-06-02"
-        },
         "reasons": [
           {
             "code": "DOSE_INVALID",
             "params": {
-              "check": "minInterval",
+              "checks": [
+                "minInterval"
+              ],
               "dose": "r2",
-              "number": "2"
+              "number": 2
             }
           },
           {

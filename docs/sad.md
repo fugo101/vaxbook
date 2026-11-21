@@ -113,7 +113,7 @@ vaxbook/
   - `e2e`: Playwright.
   - `migrate:diff`: generates migration files in goose format with the Atlas Go library (through ent's `NamedDiff`), against a throwaway Postgres started by testcontainers; no Atlas CLI or local database needed.
   - `gen:check`: CI drift check for generated code, migrations and `atlas.sum`.
-- **Tools** are pinned with `tool` directives in `go.tool.mod` and run as `go tool -modfile=go.tool.mod …`, so tool dependencies never bump app dependencies. golangci-lint is the exception (its project advises against `go tool`): `task lint` uses `go run …@<version>`, CI uses the official action at the same version.
+- **Tools** are pinned with `tool` directives in `go.tool.mod` and run as `go tool -modfile=go.tool.mod …`, so tool dependencies never bump app dependencies. golangci-lint is the exception (its project advises against `go tool`): `task lint` uses `go run …@<version>`, CI uses the official action at the same version. Lint loads only one platform's files, so both also lint `engine/` and `ruleset/` a second time as js/wasm, which puts the js-tagged WASM entry point under the stdlib-only rule.
 
 ---
 

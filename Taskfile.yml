@@ -58,7 +58,8 @@ tasks:
       - sh: command -v node
         msg: test:wasm needs Node 26 on PATH (README › Backend development)
     cmds:
-      # The entry point is js-tagged, so the native lint and vet never see it.
+      # The entry point is js-tagged, so the native vet never sees it (lint:wasm
+      # covers lint).
       - go vet ./engine/wasm/...
       - go test -count=1 -exec="{{.WASM_EXEC}}" ./engine/... ./ruleset/...
       # Built outside the repo so gen:check never sees a stray file.
@@ -73,9 +74,18 @@ tasks:
         if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$line" >> "$GITHUB_STEP_SUMMARY"; fi
 
   lint:
-    desc: Run golangci-lint
+    desc: Run golangci-lint natively, then on engine/ and ruleset/ as js/wasm
     cmds:
       - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}} run ./...
+      - task: lint:wasm
+
+  lint:wasm:
+    desc: Run golangci-lint on engine/ and ruleset/ as js/wasm (CI runs the same pass through the action)
+    cmds:
+      # golangci-lint loads only the files of the platform it runs for, so the
+      # js-tagged entry point needs its own pass for depguard's stdlib-only
+      # rule. -exec gives the target to the linter, not to the build of it.
+      - go run -exec "env GOOS=js GOARCH=wasm" github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}} run ./engine/... ./ruleset/...
 
   build:
     desc: Build the vaxbook binary into dist/

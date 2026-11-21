@@ -27,6 +27,16 @@ jobs:
         with:
           version: v2.15.0
           args: ./...
+      - name: golangci-lint (engine and ruleset as js/wasm)
+        # Lint sees only the host platform's files; this pass covers the
+        # js-tagged WASM entry point (Taskfile lint:wasm).
+        uses: golangci/golangci-lint-action@v9
+        env:
+          GOOS: js
+          GOARCH: wasm
+        with:
+          version: v2.15.0
+          args: ./engine/... ./ruleset/...
       - uses: actions/setup-node@v7 # task test ends with the WASM engine run under Node
         with:
           node-version: '26'

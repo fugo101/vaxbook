@@ -8,7 +8,7 @@ You need Go 1.27 or later (`GOTOOLCHAIN=auto` fetches the exact version), Docker
 
 ```sh
 task test                     # Go tests against a throwaway Postgres (testcontainers), then the WASM engine run
-task lint                     # golangci-lint
+task lint                     # golangci-lint, plus engine/ and ruleset/ as js/wasm
 task gen                      # regenerate code from contracts/openapi.yaml and the ent schema
 task migrate:diff NAME=foo    # write a goose migration for ent schema changes
 task gen:check                # what CI runs: generated code and migrations are up to date

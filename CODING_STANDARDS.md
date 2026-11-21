@@ -20,7 +20,7 @@ Logs hold internal identifiers, route patterns, statuses and durations, never em
 
 Rule set snapshots, engine inputs and engine outputs (SAD §5.1) are stored and published: snapshot versions are immutable, and clients validate against `contracts/ruleset.schema.json`. So:
 
-- A member added after S1 is optional (`omitzero`) unless every stored document is migrated in the same change.
+- A member added after S1 is optional (`omitzero`) unless every stored document is migrated in the same change. `TestRequiredMembersAreFrozen` (`contracts/required_test.go`) holds the S1 list of required snapshot and Input members, so a forgotten `omitzero` fails there instead of slipping through with migrated fixtures.
 - `null` is never valid. An optional member is omitted; a future three-state value uses an enum, never null.
 - A field with neither `omitempty` nor `omitzero` is required. The decoders (`ruleset/contractjson`) and the schema test read this from the struct tag, so the tag is the decision.
 - A contract migration (a rename or a type change) is its own commit. It changes the Go types, the schema and the fixture and golden files, and no decision logic, so the unchanged engine checks the migrated files byte for byte.

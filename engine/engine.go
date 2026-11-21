@@ -197,9 +197,9 @@ func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
 		return a
 	}
 
-	// Step 7: next dose, merged over alternative plans.
+	// Step 7: next dose, merged over alternative plans. A ⚪ assessment does
+	// not emit it (SAD §5.1): the dates still decide the masked bucket.
 	nd := dz.series.next(birth, doses, counted)
-	a.NextDose = &nd
 	if len(dz.series.plans) > 1 {
 		a.Reasons = append(a.Reasons, Reason{Code: ReasonAlternativePlans, Params: ReasonParams{Series: dz.series.id}})
 	}
@@ -213,6 +213,6 @@ func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
 		a.Bucket = BucketUnknown
 		return a
 	}
-	a.Bucket, a.Block = bucket, block
+	a.Bucket, a.Block, a.NextDose = bucket, block, &nd
 	return a
 }

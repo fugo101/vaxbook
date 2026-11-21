@@ -46,6 +46,8 @@ type Output struct {
 }
 
 // Assessment is the result for one disease: exactly one of Bucket or Block.
+// NextDose is absent when the series is complete and whenever Bucket is
+// BucketUnknown: a ⚪ assessment never carries dates (SAD §5.1).
 type Assessment struct {
 	Disease  string    `json:"disease"`
 	Bucket   Bucket    `json:"bucket,omitempty"`

@@ -1,0 +1,98 @@
+{
+  "ruleset": "illustrative-vn",
+  "input": {
+    "today": "2025-11-01",
+    "profile": {
+      "birth": {
+        "value": "2025-01-15",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "p1",
+        "diseases": [
+          "pertussis"
+        ],
+        "date": {
+          "value": "2025-03-15",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "p2",
+        "diseases": [
+          "pertussis"
+        ],
+        "date": {
+          "value": "2025-04-15",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "p3",
+        "diseases": [
+          "pertussis"
+        ],
+        "date": {
+          "value": "2025-05-15",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "m1",
+        "diseases": [
+          "measles"
+        ],
+        "date": {
+          "value": "2025-10-15",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "m2",
+        "diseases": [
+          "measles"
+        ],
+        "date": {
+          "value": "2025-10-20",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-vn-s1",
+    "today": "2025-11-01",
+    "assessments": [
+      {
+        "disease": "pertussis",
+        "bucket": "complete",
+        "reasons": [
+          {
+            "code": "COMPLETE"
+          }
+        ]
+      },
+      {
+        "disease": "measles",
+        "bucket": "unknown",
+        "reasons": [
+          {
+            "code": "DOSE_INVALID",
+            "params": {
+              "checks": [
+                "minInterval"
+              ],
+              "dose": "m2",
+              "number": 2
+            }
+          },
+          {
+            "code": "ON_TRACK"
+          }
+        ]
+      }
+    ]
+  }
+}

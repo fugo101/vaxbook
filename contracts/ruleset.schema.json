@@ -139,6 +139,8 @@
         {"required": ["bucket"]},
         {"required": ["block"]}
       ],
+      "if": {"required": ["bucket"], "properties": {"bucket": {"const": "unknown"}}},
+      "then": {"not": {"required": ["nextDose"]}},
       "properties": {
         "disease": {"$ref": "#/$defs/Id"},
         "bucket": {"enum": ["overdue", "due", "upcoming", "unknown", "complete"]},

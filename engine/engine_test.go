@@ -221,6 +221,29 @@ func TestAlternativePlansTieTakesLatestEarliest(t *testing.T) {
 	}
 }
 
+// A ⚪ assessment emits no next dose (SAD §5.1), so no golden shows the dates
+// computed after an uncounted dose. The earliest date is measured from the
+// latest dose in time even when it is not counted, so a dose given on that
+// date always passes the interval check.
+func TestNextAfterUncountedDose(t *testing.T) {
+	t.Parallel()
+	e := testEngine(t)
+	s := e.diseases[0].series
+	birth := d(t, "2026-01-10")
+	doses := []givenDose{{id: "r1", date: Exact(d(t, "2026-03-10"))}, {id: "r2", date: Exact(d(t, "2026-03-31"))}}
+	counted, reasons := s.walk(birth, doses)
+	if len(counted) != 1 || len(reasons) != 1 {
+		t.Fatalf("walk = %v, %v; want r1 counted and r2 invalid", counted, reasons)
+	}
+	// short: E = r2 03-31 + 4w = 04-28, Du = max(E, 05-10) = 05-10, O = 05-17;
+	// long: E = 03-31 + 6w = 05-12, Du = 05-12, O = 05-19. Earliest-due plan
+	// short gives E and Du; O from the latest plan.
+	want := NextDose{Number: 2, Earliest: d(t, "2026-04-28"), Due: d(t, "2026-05-10"), Overdue: d(t, "2026-05-19")}
+	if got := s.next(birth, doses, counted); got != want {
+		t.Errorf("next = %+v, want %+v", got, want)
+	}
+}
+
 // Minimums are inclusive: a dose on birth + minAge or on previous + interval
 // counts, one day earlier does not.
 func TestMinimumsAreInclusive(t *testing.T) {

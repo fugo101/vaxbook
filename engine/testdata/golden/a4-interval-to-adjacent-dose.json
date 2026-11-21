@@ -48,12 +48,6 @@
       {
         "disease": "single",
         "bucket": "unknown",
-        "nextDose": {
-          "number": 2,
-          "earliest": "2026-05-12",
-          "due": "2026-05-12",
-          "overdue": "2026-05-19"
-        },
         "reasons": [
           {
             "code": "DOSE_INVALID",

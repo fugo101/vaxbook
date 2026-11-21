@@ -151,7 +151,8 @@ func reasonsWith(a engine.Assessment, code engine.ReasonCode) []engine.Reason {
 //     from (some plan satisfies both);
 //   - due ≥ earliest and overdue ≥ due + 7 days;
 //   - exactly one of bucket and block; a next dose unless the series is
-//     complete or a date is invalid.
+//     complete or the bucket is ⚪ unknown (a ⚪ assessment never carries a
+//     next dose, SAD §5.1).
 func TestPropertyNextDoseBounds(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
@@ -165,7 +166,10 @@ func TestPropertyNextDoseBounds(t *testing.T) {
 				if (a.Bucket == "") == (a.Block == "") {
 					t.Fatalf("%s %s: bucket %q, block %q", fx.name, a.Disease, a.Bucket, a.Block)
 				}
-				noNext := len(reasonsWith(a, engine.ReasonComplete)) > 0 || len(reasonsWith(a, engine.ReasonInvalidDate)) > 0
+				if a.Bucket == engine.BucketUnknown && a.NextDose != nil {
+					t.Fatalf("%s %s: ⚪ assessment with nextDose %+v", fx.name, a.Disease, *a.NextDose)
+				}
+				noNext := len(reasonsWith(a, engine.ReasonComplete)) > 0 || a.Bucket == engine.BucketUnknown
 				if noNext != (a.NextDose == nil) {
 					t.Fatalf("%s %s: nextDose %v with reasons %v", fx.name, a.Disease, a.NextDose, a.Reasons)
 				}

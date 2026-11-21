@@ -113,6 +113,7 @@ func TestSchemaRejects(t *testing.T) {
 	cases := map[string]struct{ def, doc string }{
 		"bucket and block":         {"Assessment", `{"disease": "a", "bucket": "due", "block": "notYetScheduled"}`},
 		"neither bucket nor block": {"Assessment", `{"disease": "a"}`},
+		"unknown with next dose":   {"Assessment", `{"disease": "a", "bucket": "unknown", "nextDose": {"number": 1, "earliest": "2026-01-01", "due": "2026-01-01", "overdue": "2026-01-08"}}`},
 		"unknown member":           {"Disease", `{"id": "a", "name": "A", "extra": 1}`},
 		"span with leading zero":   {"Span", `"P06W"`},
 		"span without unit":        {"Span", `"P6"`},

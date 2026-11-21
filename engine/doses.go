@@ -9,16 +9,15 @@ package engine
 // time, counted or not, never to dose j−2 (A4). Doses past the end of the
 // series are ignored in S1.
 func (s seriesModel) walk(birth Date, doses []givenDose) (counted []givenDose, reasons []Reason) {
-	for i, g := range doses {
+	var prev *givenDose // the dose before g in time, counted or not
+	for i := range doses {
+		g, before := doses[i], prev
+		prev = &doses[i]
 		pos := len(counted) + 1
 		if pos > s.length {
 			continue
 		}
-		var prev *givenDose
-		if i > 0 {
-			prev = &doses[i-1]
-		}
-		failed := s.check(pos, birth, g.date, prev)
+		failed := s.check(pos, birth, g.date, before)
 		if len(failed) == 0 {
 			counted = append(counted, g)
 			continue

@@ -1,0 +1,45 @@
+{
+  "ruleset": "minimal-buffer",
+  "input": {
+    "today": "2026-08-27",
+    "profile": {
+      "birth": {
+        "value": "2026-02-28",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "buffered"
+        ],
+        "date": {
+          "value": "2026-04-28",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-buffer-s1",
+    "today": "2026-08-27",
+    "assessments": [
+      {
+        "disease": "buffered",
+        "bucket": "complete",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-05-26",
+          "due": "2027-02-28",
+          "overdue": "2027-03-14"
+        },
+        "reasons": [
+          {
+            "code": "ON_TRACK"
+          }
+        ]
+      }
+    ]
+  }
+}

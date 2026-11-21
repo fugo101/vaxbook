@@ -1,0 +1,29 @@
+{
+  "ruleset": "minimal-late-start",
+  "input": {
+    "today": "2026-08-31",
+    "profile": {
+      "birth": {
+        "value": "2026-06-01",
+        "precision": "day"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "minimal-late-start-s1",
+    "today": "2026-08-31",
+    "assessments": [
+      {
+        "disease": "late",
+        "block": "notYetScheduled",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2027-03-01",
+          "due": "2027-03-01",
+          "overdue": "2027-03-15"
+        }
+      }
+    ]
+  }
+}

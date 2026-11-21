@@ -1,0 +1,40 @@
+{
+  "ruleset": "minimal-anchors",
+  "input": {
+    "today": "2025-02-10",
+    "profile": {
+      "birth": {
+        "value": "2015-03-31",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "anchored"
+        ],
+        "date": {
+          "value": "2024-12-31",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-anchors-s1",
+    "today": "2025-02-10",
+    "assessments": [
+      {
+        "disease": "anchored",
+        "bucket": "due",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2025-01-28",
+          "due": "2025-02-28",
+          "overdue": "2025-03-07"
+        }
+      }
+    ]
+  }
+}

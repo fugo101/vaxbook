@@ -1,0 +1,50 @@
+{
+  "ruleset": "minimal-single",
+  "input": {
+    "today": "2026-02-20",
+    "profile": {
+      "birth": {
+        "value": "2026-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "single"
+        ],
+        "date": {
+          "value": "2026-02-14",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-single-s1",
+    "today": "2026-02-20",
+    "assessments": [
+      {
+        "disease": "single",
+        "bucket": "unknown",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2026-02-21",
+          "due": "2026-03-10",
+          "overdue": "2026-03-17"
+        },
+        "reasons": [
+          {
+            "code": "DOSE_INVALID",
+            "params": {
+              "check": "minAge",
+              "dose": "r1",
+              "number": "1"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

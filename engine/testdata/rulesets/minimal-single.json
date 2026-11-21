@@ -1,0 +1,38 @@
+{
+  "version": "minimal-single-s1",
+  "note": "Illustrative, not medically verified",
+  "diseases": [
+    {
+      "id": "single",
+      "name": "Bệnh minh hoạ một phác đồ"
+    }
+  ],
+  "series": [
+    {
+      "id": "single-series",
+      "disease": "single",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "6w",
+              "recommended": {
+                "from": "birth",
+                "offset": "2m"
+              }
+            },
+            {
+              "minInterval": "4w",
+              "recommended": {
+                "from": "birth",
+                "offset": "4m"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

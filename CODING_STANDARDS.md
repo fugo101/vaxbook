@@ -23,6 +23,7 @@ Rule set snapshots, engine inputs and engine outputs (SAD §5.1) are stored and 
 - A member added after S1 is optional (`omitzero`) unless every stored document is migrated in the same change. `TestRequiredMembersAreFrozen` (`contracts/required_test.go`) holds the S1 list of required snapshot and Input members, so a forgotten `omitzero` fails there instead of slipping through with migrated fixtures.
 - `null` is never valid. An optional member is omitted; a future three-state value uses an enum, never null.
 - A field with neither `omitempty` nor `omitzero` is required. The decoders (`ruleset/contractjson`) and the schema test read this from the struct tag, so the tag is the decision.
+- "Additive" protects newer readers of older documents only. The decoders reject unknown members, so an older engine fails closed on a document that uses a newer member, by design: silently ignoring a rule member gives wrong advice. Do not loosen `RejectUnknownMembers` to get forward compatibility; version skew is handled where snapshots are delivered (SAD §5.1).
 - A contract migration (a rename or a type change) is its own commit. It changes the Go types, the schema and the fixture and golden files, and no decision logic, so the unchanged engine checks the migrated files byte for byte.
 
 _Why:_ the S1 decoders accepted JSON null and missing members, so a truncated snapshot loaded with no assessments, and an input without `doses` showed doses the person already had as overdue (fixed in the S1 contract review).

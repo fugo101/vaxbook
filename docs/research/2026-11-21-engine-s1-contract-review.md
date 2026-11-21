@@ -358,3 +358,4 @@ The other 31 existing goldens stay byte-identical.
 - #14 (S3): `SAFEST_SERIES` params as a typed array of `{series, product?}`, and adjust the SAD §5.3 step 3 wording.
 - First consumer: per-code `Reason` `oneOf`, and serialize `Problem.Scope` if guest import needs it.
 - Editorial and server: refuse a snapshot that has `illustrative: true`.
+- Delivery (first consumer): handle version skew, since an older engine fails closed on a snapshot that uses a newer member. Options: the snapshot declares the minimum contract or engine it needs and the bridge reports `unsupported` instead of `decode`; a cached client keeps the last snapshot that loaded; a binary rollback also rolls back a rule set that uses newer members.

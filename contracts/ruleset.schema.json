@@ -14,9 +14,9 @@
       "pattern": "^(0|[1-9][0-9]{0,2})[dwmy]$"
     },
     "Date": {
-      "description": "A civil date YYYY-MM-DD.",
+      "description": "A civil date YYYY-MM-DD from 0001-01-01 to 9999-12-31 that exists in the proleptic Gregorian calendar. The pattern alone checks this, leap years included, so a validator that treats format as an annotation (the draft 2020-12 default) accepts exactly what the engine decodes.",
       "type": "string",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "pattern": "^(([0-9]{3}[1-9]|[0-9]{2}[1-9]0|[0-9][1-9]00|[1-9]000)-((0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])|(0[13-9]|1[0-2])-(29|30)|(0[13578]|1[02])-31)|([0-9]{2}(0[48]|[2468][048]|[13579][26])|(0[48]|[2468][048]|[13579][26])00)-02-29)$",
       "format": "date"
     },
     "Snapshot": {

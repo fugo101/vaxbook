@@ -5,10 +5,12 @@ package contracts_test
 
 import (
 	"bytes"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -34,7 +36,10 @@ func readJSON(t *testing.T, path string) any {
 	return v
 }
 
-// compile returns the schema at #/$defs/<def>, or the root for def "".
+// compile returns the schema at #/$defs/<def>, or the root for def "". It
+// leaves format assertion off, the draft 2020-12 default, so the tests see
+// what a consumer with default settings sees: the schema must not depend on
+// "format" to reject anything.
 func compile(t *testing.T, def string) *jsonschema.Schema {
 	t.Helper()
 	abs, err := filepath.Abs(schemaFile)
@@ -43,7 +48,6 @@ func compile(t *testing.T, def string) *jsonschema.Schema {
 	}
 	c := jsonschema.NewCompiler()
 	c.DefaultDraft(jsonschema.Draft2020)
-	c.AssertFormat()
 	if err := c.AddResource(abs, readJSON(t, schemaFile)); err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +116,11 @@ func TestSchemaRejects(t *testing.T) {
 		"span with leading zero":   {"Span", `"06w"`},
 		"span without unit":        {"Span", `"6"`},
 		"impossible date":          {"Date", `"2026-02-30"`},
+		"year zero":                {"Date", `"0000-01-01"`},
+		"month thirteen":           {"Date", `"2026-13-01"`},
+		"day 31 in a 30-day month": {"Date", `"2026-04-31"`},
+		"leap day, common year":    {"Date", `"2025-02-29"`},
+		"leap day, 1900":           {"Date", `"1900-02-29"`},
 		"dose number zero":         {"NextDose", `{"number": 0, "earliest": "2026-01-01", "due": "2026-01-01", "overdue": "2026-01-08"}`},
 		"unknown reason code":      {"Reason", `{"code": "NOPE"}`},
 		"numeric param":            {"Reason", `{"code": "DOSE_INVALID", "params": {"number": 2}}`},
@@ -132,6 +141,38 @@ func TestSchemaRejects(t *testing.T) {
 	v, _ := jsonschema.UnmarshalJSON(strings.NewReader(`{"value": "2026-02-30", "precision": "day"}`))
 	if err := compile(t, "RecalledDate").Validate(v); err != nil {
 		t.Errorf("RecalledDate rejected a shape-valid value: %v", err)
+	}
+}
+
+// TestDatePatternMatchesParseDate: $defs/Date's pattern alone accepts exactly
+// the strings engine.ParseDate accepts, so a validator that treats "format" as
+// an annotation agrees with the decoder. Every year is tried on the dates
+// where the calendar depends on the year; every month and day pair, valid or
+// not, is tried on years at the edges and at the leap-year rule's cases.
+func TestDatePatternMatchesParseDate(t *testing.T) {
+	t.Parallel()
+	pattern, _ := schemaDefs(t)["Date"]["pattern"].(string)
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		t.Fatalf("$defs/Date pattern %q: %v", pattern, err)
+	}
+	check := func(s string) {
+		_, perr := engine.ParseDate(s)
+		if got, want := re.MatchString(s), perr == nil; got != want {
+			t.Errorf("%q: pattern match %v, ParseDate ok %v", s, got, want)
+		}
+	}
+	for y := range 10000 {
+		for _, md := range []string{"01-01", "02-28", "02-29", "02-30", "12-31"} {
+			check(fmt.Sprintf("%04d-%s", y, md))
+		}
+	}
+	for _, y := range []int{0, 1, 4, 100, 400, 1900, 1999, 2000, 2023, 2024, 2100, 9999} {
+		for m := range 14 {
+			for d := range 33 {
+				check(fmt.Sprintf("%04d-%02d-%02d", y, m, d))
+			}
+		}
 	}
 }
 

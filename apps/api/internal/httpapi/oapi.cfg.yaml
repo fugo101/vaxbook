@@ -1,0 +1,8 @@
+# oapi-codegen config. Regenerate with `task gen`.
+package: httpapi
+output: oapi.gen.go
+generate:
+  std-http-server: true
+  strict-server: true
+  models: true
+  embedded-spec: true

@@ -1,0 +1,37 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - revive
+    - sqlclosecheck
+    - unconvert
+    - usestdlibvars
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
+    generated: lax # skips ent's and oapi-codegen's "DO NOT EDIT" files; ent/schema stays linted
+    rules:
+      - path: _test\.go
+        linters: [gosec, noctx]
+      # Dev-only codegen tool working on repo paths it computes itself.
+      - path: apps/api/internal/store/migrategen/
+        linters: [gosec]
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/fugo101/vaxbook

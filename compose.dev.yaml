@@ -1,0 +1,20 @@
+# Local development only. Production lives in deploy/ (SAD §10, not yet written).
+name: vaxbook-dev
+services:
+  db:
+    image: postgres:19
+    environment:
+      POSTGRES_DB: vaxbook
+      POSTGRES_USER: vaxbook
+      POSTGRES_PASSWORD: vaxbook
+    ports:
+      - "127.0.0.1:${VAXBOOK_DEV_DB_PORT:-5432}:5432"
+    volumes:
+      - db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaxbook -d vaxbook"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  db:

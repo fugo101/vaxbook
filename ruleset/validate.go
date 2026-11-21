@@ -138,7 +138,22 @@ func (v *validator) dose(p string, first bool, d DoseRule) {
 	default:
 		v.reject(InvalidValue, p+"/recommended/from", map[string]string{"value": string(d.Recommended.From)})
 	}
-	if !d.Recommended.Offset.valid() {
+	// Decode enforces span syntax, but a Snapshot built in Go skips it, and
+	// the engine's date arithmetic relies on a real unit and 0..MaxSpanN.
+	v.optionalSpan(p+"/minAge", d.MinAge)
+	v.optionalSpan(p+"/minInterval", d.MinInterval)
+	switch o := d.Recommended.Offset; {
+	case o == Span{}:
 		v.reject(Required, p+"/recommended/offset", nil)
+	case !o.valid():
+		v.reject(InvalidValue, p+"/recommended/offset", map[string]string{"value": o.String()})
+	}
+	v.optionalSpan(p+"/buffer", d.Buffer)
+}
+
+// optionalSpan reports a present span that is not valid.
+func (v *validator) optionalSpan(path string, s *Span) {
+	if s != nil && !s.valid() {
+		v.reject(InvalidValue, path, map[string]string{"value": s.String()})
 	}
 }

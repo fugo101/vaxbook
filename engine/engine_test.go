@@ -253,6 +253,29 @@ func TestNewRejectsInvalidSnapshot(t *testing.T) {
 	}
 }
 
+// A Snapshot built in Go skips ParseSpan's checks. New must still reject a
+// span the date arithmetic cannot handle, instead of Evaluate panicking or
+// emitting dates beyond four-digit years.
+func TestNewRejectsGoBuiltSnapshotWithBadSpan(t *testing.T) {
+	t.Parallel()
+	for name, bad := range map[string]ruleset.Span{
+		"zero span":     {},
+		"too long":      {N: 100000, Unit: ruleset.Years},
+		"negative span": {N: -5, Unit: ruleset.Days},
+	} {
+		s, err := ruleset.Decode([]byte(testSnapshot))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Series[0].Plans[0].Doses[0].MinAge = &bad
+		_, err = New(s)
+		var re *ruleset.RejectedError
+		if !errors.As(err, &re) {
+			t.Errorf("%s: New error = %v, want *ruleset.RejectedError", name, err)
+		}
+	}
+}
+
 func TestNewRejectsUnsupportedShapes(t *testing.T) {
 	t.Parallel()
 	for name, snap := range map[string]string{

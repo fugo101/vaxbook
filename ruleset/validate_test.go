@@ -145,6 +145,51 @@ func TestValidateDuplicateSeriesAndPlanIDs(t *testing.T) {
 	}
 }
 
+// A Snapshot built in Go skips ParseSpan, so Validate itself must hold every
+// span to a real unit and 0..MaxSpanN: the engine relies on that to compute
+// four-digit-year dates without panicking.
+func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
+	t.Parallel()
+	const dose = "/series/0/plans/0/doses/"
+	invalid := func(path string, s Span) Problem {
+		return Problem{Code: InvalidValue, Severity: Reject, Path: path, Params: map[string]string{"value": s.String()}}
+	}
+	cases := []struct {
+		name   string
+		mutate func(d0, d1 *DoseRule)
+		want   []Problem
+	}{
+		{"zero min age", func(d0, _ *DoseRule) { d0.MinAge = &Span{} },
+			[]Problem{invalid(dose+"0/minAge", Span{})}},
+		{"min age too long", func(d0, _ *DoseRule) { d0.MinAge = &Span{N: 100000, Unit: Years} },
+			[]Problem{invalid(dose+"0/minAge", Span{N: 100000, Unit: Years})}},
+		{"negative min interval", func(_, d1 *DoseRule) { d1.MinInterval = &Span{N: -1, Unit: Weeks} },
+			[]Problem{invalid(dose+"1/minInterval", Span{N: -1, Unit: Weeks})}},
+		{"negative buffer", func(_, d1 *DoseRule) { d1.Buffer = &Span{N: -5, Unit: Days} },
+			[]Problem{invalid(dose+"1/buffer", Span{N: -5, Unit: Days})}},
+		{"buffer bad unit", func(_, d1 *DoseRule) { d1.Buffer = &Span{N: 14, Unit: 'x'} },
+			[]Problem{invalid(dose+"1/buffer", Span{N: 14, Unit: 'x'})}},
+		{"offset too long", func(d0, _ *DoseRule) { d0.Recommended.Offset = Span{N: 1000, Unit: Days} },
+			[]Problem{invalid(dose+"0/recommended/offset", Span{N: 1000, Unit: Days})}},
+		{"spans at the cap", func(d0, d1 *DoseRule) {
+			d0.MinAge = &Span{N: MaxSpanN, Unit: Years}
+			d1.MinInterval = &Span{N: 0, Unit: Days}
+			d1.Buffer = &Span{N: MaxSpanN, Unit: Days}
+		}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := mustDecode(t, validCase)
+			doses := s.Series[0].Plans[0].Doses
+			tc.mutate(&doses[0], &doses[1])
+			if got := Validate(s); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Validate =\n  %v\nwant\n  %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // validateCase is one file of testdata/validate: a rejected snapshot and the
 // complete expected result of Validate, written by hand.
 type validateCase struct {

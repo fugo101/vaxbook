@@ -157,6 +157,9 @@ func (d goldenDiff) String() string {
 // whether a difference is only encoding. An expectation that does not decode
 // (an unknown, renamed, missing or null member, a wrong type, a bad date) is
 // an error and is never rewritten (SAD §5.7, R6 of the S1 contract review).
+// So is one with a member its canonical form drops: an optional member
+// written with an empty or zero value ("series": "", "number": 0,
+// "params": {}) is not an encoding of absence, and the schema rejects it.
 func compareGolden(expected jsontext.Value, got []byte) (canonical []byte, d goldenDiff, err error) {
 	var want engine.Output
 	if err := contractjson.Unmarshal(expected, &want); err != nil {
@@ -165,6 +168,12 @@ func compareGolden(expected jsontext.Value, got []byte) (canonical []byte, d gol
 	canonical, err = engine.EncodeOutput(want)
 	if err != nil {
 		return nil, 0, err
+	}
+	if dropped, err := droppedMembers(expected, canonical); err != nil {
+		return nil, 0, err
+	} else if len(dropped) > 0 {
+		return nil, 0, fmt.Errorf("optional members written with an empty or zero value (omit them instead): %s",
+			strings.Join(dropped, ", "))
 	}
 	compact := bytes.Clone(expected)
 	if err := (*jsontext.Value)(&compact).Compact(); err != nil {
@@ -177,6 +186,46 @@ func compareGolden(expected jsontext.Value, got []byte) (canonical []byte, d gol
 		return canonical, goldenFormat, nil
 	}
 	return canonical, goldenValues, nil
+}
+
+// droppedMembers lists, as JSON pointers, the members of expected that
+// canonical does not have. canonical is expected decoded and re-encoded, so it
+// can only lose members, never gain them.
+func droppedMembers(expected, canonical []byte) ([]string, error) {
+	have := map[string]bool{}
+	var walk func(v any, ptr string, add func(string))
+	walk = func(v any, ptr string, add func(string)) {
+		switch v := v.(type) {
+		case map[string]any:
+			for k, m := range v {
+				p := ptr + "/" + strings.NewReplacer("~", "~0", "/", "~1").Replace(k)
+				add(p)
+				walk(m, p, add)
+			}
+		case []any:
+			for i, m := range v {
+				p := fmt.Sprintf("%s/%d", ptr, i)
+				add(p)
+				walk(m, p, add)
+			}
+		}
+	}
+	var e, c any
+	if err := json.Unmarshal(expected, &e); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(canonical, &c); err != nil {
+		return nil, err
+	}
+	walk(c, "", func(p string) { have[p] = true })
+	var dropped []string
+	walk(e, "", func(p string) {
+		if !have[p] {
+			dropped = append(dropped, p)
+		}
+	})
+	slices.Sort(dropped)
+	return dropped, nil
 }
 
 // writeGolden rewrites the output member of a golden file with the canonical
@@ -258,6 +307,9 @@ func TestCompareGolden(t *testing.T) {
 		{"wrong type", edit(`"number":1,"earliest"`, `"number":"1","earliest"`), 0, true},
 		{"S1 string params", edit(`{"checks":["minAge"],"dose":"r1","number":1}`, `{"check":"minAge","dose":"r1","number":"1"}`), 0, true},
 		{"bad date", edit(`"due":"2026-03-10"`, `"due":"2026-02-30"`), 0, true},
+		{"explicit empty optional member", edit(`"dose":"r1","number":1}`, `"dose":"r1","number":1,"series":""}`), 0, true},
+		{"explicit zero optional member", edit(`"dose":"r1","number":1}`, `"dose":"r1","number":0}`), 0, true},
+		{"explicit empty params", edit(`"params":{"series":"s"}`, `"params":{"series":"s"}},{"code":"COMPLETE","params":{}`), 0, true},
 	}
 	for _, c := range cases {
 		canonical, d, err := compareGolden(jsontext.Value(c.expected), []byte(got))

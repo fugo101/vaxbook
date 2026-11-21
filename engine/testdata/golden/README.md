@@ -6,7 +6,7 @@ Each file is `{ "ruleset": "<fixture name>", "input": Input, "output": Output }`
 
 `TestGolden` compares compact bytes, so it enforces the canonical encoding: members of `output` in Go struct order (`ruleSetVersion`, `today`, `assessments`; `disease`, `bucket` or `block`, `nextDose`, `reasons`; `number`, `earliest`, `due`, `overdue`; `code`, `params`), `params` keys sorted, optional members omitted when empty. It decodes the expectation into an Output and re-encodes it to tell the cases apart:
 
-- the expectation does not decode (an unknown, renamed, missing or `null` member, a wrong type, a bad date): an error, never rewritten;
+- the expectation does not decode (an unknown, renamed, missing or `null` member, a wrong type, a bad date), or writes an optional member with an empty or zero value (`"series": ""`, `"number": 0`, `"params": {}`): an error, never rewritten;
 - the same values in a different encoding (member order, spacing): fails with a hint; `go test ./engine -run TestGolden -update` rewrites the `output` member with the canonical encoding of the expectation itself;
 - different values: fails with "re-derive by hand"; `-update` never writes it.
 

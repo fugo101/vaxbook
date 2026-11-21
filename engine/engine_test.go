@@ -280,7 +280,7 @@ func TestEvaluateGarbageDoseDateIsInvalidDate(t *testing.T) {
 }
 
 // Alternative plans whose due dates tie: the merged earliest date is the
-// latest of the tied plans' earliest dates (P1-conservative; SAD silent).
+// latest of the tied plans' earliest dates (P1, SAD §5.3 step 7 merge 1).
 func TestAlternativePlansTieTakesLatestEarliest(t *testing.T) {
 	t.Parallel()
 	e := testEngine(t)

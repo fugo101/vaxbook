@@ -9,8 +9,8 @@ type planDates struct {
 // next computes next dose k = counted + 1 for every plan and merges the plans
 // (SAD §5.3 step 7, EQ6 merge 1): the earliest and due dates come from the
 // plan with the earliest due date (A7), the overdue date from the latest
-// plan. Plans with the same due date resolve to the latest earliest date,
-// the conservative choice (P1; the SAD does not specify it).
+// plan. Plans with the same due date resolve to the latest earliest date
+// (SAD §5.3 step 7 merge 1, P1; golden alt-plans-due-tie-latest-earliest).
 func (s seriesModel) next(birth Date, doses, counted []givenDose) NextDose {
 	k := len(counted) + 1
 	var best planDates

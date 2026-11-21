@@ -16,7 +16,7 @@ Each file is `{ "ruleset": "<fixture name>", "input": Input, "output": Output }`
 
 - E = earliest allowed date, Du = due date, O = overdue date.
 - Per plan: E = max(birth + minAge, latest dose in time + minInterval); Du = max(E, anchor + offset); O = max(Du + buffer, Du + 7d).
-- Alternative plans: E and Du from the plan with the smallest Du (SAD §5.3 step 7 merge 1, A7), even when another plan has a smaller E; O = the latest O of all plans. Ties (two plans with the same Du but different E) are not specified by the SAD and no golden depends on them.
+- Alternative plans: E and Du from the plan with the smallest Du (SAD §5.3 step 7 merge 1, A7), even when another plan has a smaller E; O = the latest O of all plans. Plans with the same Du: E is the latest of theirs (P1, SAD §5.3 step 7 merge 1).
 - T30 = today + 30 days; T6m = today + 6 months (always added to today).
 - Bucket: today ≥ O → overdue; else today ≥ E and Du ≤ T30 → due; else Du ≤ T6m → upcoming; else ≥ 1 dose counted → complete + `ON_TRACK`; else `notYetScheduled`. `DOSE_INVALID`, or a record-scoped date problem (`INVALID_DATE`, `OUT_OF_RANGE`, `DATE_IN_FUTURE`, `DATE_BEFORE_BIRTH`) → unknown with no nextDose (SAD §5.1); the reasons of the masked bucket (`COMPLETE`, `ON_TRACK`, `ALTERNATIVE_PLANS`) stay.
 - Months keep the day of month and clamp to the month end; 1w = 7d; 1y = 12m. All doses are precision `day`.
@@ -44,6 +44,7 @@ Each file is `{ "ruleset": "<fixture name>", "input": Input, "output": Output }`
 - `f13-dose-before-min-age`: today 02-20, r1 02-14 < 02-21 → `DOSE_INVALID{checks: [minAge], dose: r1, number: 1}`, not counted → unknown, no nextDose.
 - `f13-dose-before-min-interval`: today 04-01, r1 03-10 counted; r2 03-31 < 03-10 + 28d = 04-07 → `DOSE_INVALID{checks: [minInterval], dose: r2, number: 2}` → unknown, no nextDose. (The earliest date after an uncounted dose, measured from that dose, is pinned by `TestNextAfterUncountedDose`.)
 - `a4-interval-to-adjacent-dose`: today 04-15. The input lists the doses out of time order (r3, r1, r2); the engine walks them in time order (SAD §5.3 step 2). r1 03-10 counted. r2 03-24 < 04-07 → invalid. r3 04-14 < r2 03-24 + 28d = 04-21 → invalid (measured to the adjacent r2; against r1 it would pass and complete the series) → unknown, no nextDose, two `DOSE_INVALID` reasons in dose time order.
+- `repeat-dose-1-counted-from-min-age`: today 03-01; r1 02-20 < 02-21 → `DOSE_INVALID{checks: [minAge], dose: r1, number: 1}`, not counted. r2 02-21 is checked for position 1 again: dose 1 has only a minimum age (no minimum interval in the rule model), 02-21 ≥ 02-21 → counted, although it is one day after r1. Dose 2 is still due later, so the result is unknown with `DOSE_INVALID` only, no nextDose. (Whether a repeat must be spaced from the invalid dose is open for clinical review, SAD §15.)
 - `complete`: today 06-01, r1 03-10 counted, r2 05-10 ≥ 04-07 counted → complete, `COMPLETE`.
 - `boundary-dose-on-min-interval-counted`: today 04-10, r1 03-10 counted, r2 04-07 = r1 + 28d exactly → the minimum interval is met on the day it is reached, counted → complete, `COMPLETE`. (An exclusive check would give unknown, `DOSE_INVALID{checks: [minInterval], dose: r2, number: 2}`.)
 - `boundary-due-on-earliest-date`: no doses, today 02-21 = E, Du 03-10 ≤ T30 = 03-23, today < O 03-17 → due (the 🟠 condition today ≥ E is inclusive; today 02-20 would be upcoming).
@@ -91,3 +92,7 @@ Each file is `{ "ruleset": "<fixture name>", "input": Input, "output": Output }`
 ### minimal-first-dose-anchor (birth 2015-03-31; dose 1 min age 9y at 9y; dose 2 4w at `firstDose` + 2m; dose 3 12w at `firstDose` + 6m)
 
 - `anchor-first-dose-for-dose-3`: r1 2024-12-31 ≥ 2024-03-31 counted; r2 2025-03-03 ≥ 12-31 + 28d = 2025-01-28 counted; today 2025-05-01. Dose 3: E = 03-03 + 84d = 2025-05-26; Du = max(E, firstDose + 6m = 2025-06-31 → 2025-06-30) = 2025-06-30; O = 2025-07-07. T30 = 2025-05-31 < Du ≤ T6m = 2025-11-01 → upcoming. (Reading the anchor as the previous dose would give Du = 2025-09-03.)
+
+### minimal-alt-plans-tied (birth 2026-01-10, r1 03-10 counted; dose 2: `short` 4w at 4m, `long` 6w at 4m)
+
+- `alt-plans-due-tie-latest-earliest`: today 04-15. short E = 03-10 + 28d = 04-07, Du = max(04-07, 05-10) = 05-10, O = 05-17; long E = 03-10 + 42d = 04-21, Du = 05-10, O = 05-17. Same Du, so merged E = the later 04-21, Du 05-10, O 05-17. today < E, Du ≤ T6m → upcoming, `ALTERNATIVE_PLANS{series: tied-series}`. (Taking the smaller E 04-07 would give today ≥ E and Du ≤ T30 = 05-15 → due.)

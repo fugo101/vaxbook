@@ -22,3 +22,4 @@ Rules for this folder:
 | `minimal-short-buffer.json` | one dose, min age 6w at 2m, buffer 3d | the 7-day grace is a floor, not a default (O = Du + max(buffer, 7d)) |
 | `minimal-alt-plans-crossed.json` | plans `early-due` (8w, at 3m) and `late-due` (4w, at 4m) for dose 2: the earliest-due plan has the later earliest date | earliest date from the earliest-due plan, not the smallest earliest date (A7) |
 | `minimal-first-dose-anchor.json` | dose 1 at 9y; doses 2 and 3 at `firstDose` + 2m and + 6m (HPV 0-2-6 shape) | `firstDose` anchor for a dose after dose 2 |
+| `minimal-alt-plans-tied.json` | plans `short` (4w) and `long` (6w) for dose 2, both at 4m: the plans tie on the due date | tied due dates take the latest earliest date (SAD §5.3 step 7 merge 1) |

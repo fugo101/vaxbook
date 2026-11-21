@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Version** | 1.2 — 2026-11-21: BE skeleton decisions (§3, §8, §12, §18; issue #3). 1.1 — 2026-11-11: engine semantics (§5.6 B1–B13) settled in spec v1.2; v1.0 approved by the project owner on 2026-11-10 |
+| **Version** | 1.2 — 2026-11-21: BE skeleton decisions (§3, §8, §12, §18; issue #5). 1.1 — 2026-11-11: engine semantics (§5.6 B1–B13) settled in spec v1.2; v1.0 approved by the project owner on 2026-11-10 |
 | **Date** | 2026-11-21 |
 | **Inputs** | [`feature-spec-mvp.md`](feature-spec-mvp.md) v1.0 and v1.2 (engine semantics EQ1–EQ27, Appendix C), [`research/2026-11-10-feature-research.md`](research/2026-11-10-feature-research.md), SAD grilling session (Q1–Q34), engine prototype (`engine-prototype/`) |
 | **Hard-to-reverse decisions** | [`docs/adr/`](adr/) — ADR-0001 → 0011 |
@@ -660,7 +660,7 @@ Items 1–4 were applied in spec v1.1 (Appendix B); item 5 was applied in spec v
 1. ~~The project owner reviews this SAD together with ADR-0001 → 0011.~~ Done 2026-11-10.
 2. ~~An "engine semantics" grilling session to settle §5.6 B1–B13, then bump the spec to v1.2.~~ Done 2026-11-11 (spec v1.2).
 3. **Next:** split the work (GitHub Issues) in this order. On 2026-11-21 the owner moved the BE skeleton ahead of the engine, so later features have a source shape to grow into:
-   - (b) repo skeleton and CI, with a thin identity slice (email OTP → session → `/me`): issue #3;
+   - (b) repo skeleton and CI, with a thin identity slice (email OTP → session → `/me`): issue #5;
    - (a) engine, `ruleset` and golden cases (table A in §5.6, the spec v1.2 F13.2 cases and the §5.7 property tests);
    - (c) the rest of identity (Resend, Turnstile, per-IP/per-email rate limits, email change), profiles, consent;
    - (d) guest web with WASM;

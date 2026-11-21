@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   go:
-    name: Go (gen check, lint, test)
+    name: Go (gen check, lint, test, WASM test)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -27,6 +27,9 @@ jobs:
         with:
           version: v2.15.0
           args: ./...
+      - uses: actions/setup-node@v7 # task test ends with the WASM engine run under Node
+        with:
+          node-version: '26'
       - name: Test
         run: go tool -modfile=go.tool.mod task test
 

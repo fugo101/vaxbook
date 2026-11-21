@@ -1,0 +1,101 @@
+{
+  "version": "illustrative-vn-s1",
+  "note": "Illustrative, not medically verified",
+  "diseases": [
+    {
+      "id": "pertussis",
+      "name": "Ho gà"
+    },
+    {
+      "id": "measles",
+      "name": "Sởi"
+    }
+  ],
+  "series": [
+    {
+      "id": "pertussis-primary",
+      "disease": "pertussis",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "p-2-3-4",
+          "doses": [
+            {
+              "minAge": "6w",
+              "recommended": {
+                "from": "birth",
+                "offset": "2m"
+              }
+            },
+            {
+              "minInterval": "4w",
+              "recommended": {
+                "from": "birth",
+                "offset": "3m"
+              }
+            },
+            {
+              "minInterval": "4w",
+              "recommended": {
+                "from": "birth",
+                "offset": "4m"
+              }
+            }
+          ]
+        },
+        {
+          "id": "p-2-4-6",
+          "doses": [
+            {
+              "minAge": "6w",
+              "recommended": {
+                "from": "birth",
+                "offset": "2m"
+              }
+            },
+            {
+              "minInterval": "4w",
+              "recommended": {
+                "from": "birth",
+                "offset": "4m"
+              }
+            },
+            {
+              "minInterval": "4w",
+              "recommended": {
+                "from": "birth",
+                "offset": "6m"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "measles-primary",
+      "disease": "measles",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "9m",
+              "recommended": {
+                "from": "birth",
+                "offset": "9m"
+              }
+            },
+            {
+              "minInterval": "4w",
+              "recommended": {
+                "from": "birth",
+                "offset": "18m"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

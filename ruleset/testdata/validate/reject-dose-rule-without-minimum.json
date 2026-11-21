@@ -1,0 +1,46 @@
+{
+  "snapshot": {
+    "version": "validate-a7",
+    "note": "Illustrative, not medically verified",
+    "diseases": [
+      {
+        "id": "v",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "v-series",
+        "disease": "v",
+        "stage": "childhood",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "6w",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "2m"
+                }
+              },
+              {
+                "recommended": {
+                  "from": "birth",
+                  "offset": "4m"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "DOSE_RULE_NO_MINIMUM",
+      "severity": "reject",
+      "path": "/series/0/plans/0/doses/1"
+    }
+  ]
+}

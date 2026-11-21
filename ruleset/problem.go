@@ -1,0 +1,87 @@
+package ruleset
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Severity says whether a Problem rejects the snapshot or only warns.
+type Severity string
+
+// Severities.
+const (
+	Reject Severity = "reject"
+	Warn   Severity = "warn"
+)
+
+// ProblemCode is a code from the closed catalog of rule set problems.
+type ProblemCode string
+
+// The rule set problem catalog (S1). Renaming a code is a contract change.
+const (
+	// PlanDoseCountMismatch: a plan has a different number of doses from
+	// plan 0 of its series (EQ5). Path: the plan.
+	PlanDoseCountMismatch ProblemCode = "PLAN_DOSE_COUNT_MISMATCH"
+	// DoseRuleNoMinimum: a dose rule has neither a minimum age nor a minimum
+	// interval, or dose 1 has no minimum age (A7). Path: the dose rule.
+	DoseRuleNoMinimum ProblemCode = "DOSE_RULE_NO_MINIMUM"
+	// FirstDoseHasInterval: dose 1 has a minimum interval, but there is no
+	// previous dose to measure it from.
+	FirstDoseHasInterval ProblemCode = "FIRST_DOSE_HAS_INTERVAL"
+	// FirstDoseAnchorNotBirth: dose 1's milestone counts from a dose.
+	FirstDoseAnchorNotBirth ProblemCode = "FIRST_DOSE_ANCHOR_NOT_BIRTH"
+	// Required: a required member is empty.
+	Required ProblemCode = "REQUIRED"
+	// InvalidValue: a value is outside its enum or pattern. Params: value.
+	InvalidValue ProblemCode = "INVALID_VALUE"
+	// DuplicateID: an ID is used twice in its scope. Params: id.
+	DuplicateID ProblemCode = "DUPLICATE_ID"
+	// UnknownReference: a series names a disease that does not exist.
+	// Params: disease.
+	UnknownReference ProblemCode = "UNKNOWN_REFERENCE"
+	// Empty: a series has no plans or a plan has no doses.
+	Empty ProblemCode = "EMPTY"
+)
+
+// Problem is one finding of Validate. Path is a JSON pointer (RFC 6901)
+// into the snapshot.
+type Problem struct {
+	Code     ProblemCode       `json:"code"`
+	Severity Severity          `json:"severity"`
+	Path     string            `json:"path"`
+	Params   map[string]string `json:"params,omitempty"`
+}
+
+func (p Problem) String() string {
+	s := fmt.Sprintf("%s %s at %s", p.Severity, p.Code, p.Path)
+	if len(p.Params) > 0 {
+		s += fmt.Sprintf(" %v", p.Params)
+	}
+	return s
+}
+
+// RejectedError reports a snapshot that Validate rejects.
+type RejectedError struct {
+	Problems []Problem
+}
+
+func (e *RejectedError) Error() string {
+	parts := make([]string, 0, len(e.Problems))
+	for _, p := range e.Problems {
+		if p.Severity == Reject {
+			parts = append(parts, p.String())
+		}
+	}
+	return "rule set rejected: " + strings.Join(parts, "; ")
+}
+
+// Rejects returns the problems with severity Reject.
+func Rejects(problems []Problem) []Problem {
+	var out []Problem
+	for _, p := range problems {
+		if p.Severity == Reject {
+			out = append(out, p)
+		}
+	}
+	return out
+}

@@ -1,0 +1,32 @@
+{
+  "version": "minimal-short-buffer-s1",
+  "note": "Illustrative, not medically verified",
+  "diseases": [
+    {
+      "id": "shortbuf",
+      "name": "Bệnh minh hoạ buffer ngắn"
+    }
+  ],
+  "series": [
+    {
+      "id": "shortbuf-series",
+      "disease": "shortbuf",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "6w",
+              "recommended": {
+                "from": "birth",
+                "offset": "2m"
+              },
+              "buffer": "3d"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "version": "minimal-late-start-s1",
+  "note": "Illustrative, not medically verified",
+  "diseases": [
+    {
+      "id": "late",
+      "name": "Bệnh minh hoạ tiêm muộn"
+    }
+  ],
+  "series": [
+    {
+      "id": "late-series",
+      "disease": "late",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "9m",
+              "recommended": {
+                "from": "birth",
+                "offset": "9m"
+              },
+              "buffer": "14d"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

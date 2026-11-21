@@ -1,0 +1,57 @@
+{
+  "version": "minimal-alt-plans-s1",
+  "note": "Illustrative, not medically verified",
+  "diseases": [
+    {
+      "id": "alt",
+      "name": "Bệnh minh hoạ hai phác đồ"
+    }
+  ],
+  "series": [
+    {
+      "id": "alt-series",
+      "disease": "alt",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "fast",
+          "doses": [
+            {
+              "minAge": "6w",
+              "recommended": {
+                "from": "birth",
+                "offset": "2m"
+              }
+            },
+            {
+              "minInterval": "4w",
+              "recommended": {
+                "from": "birth",
+                "offset": "3m"
+              }
+            }
+          ]
+        },
+        {
+          "id": "slow",
+          "doses": [
+            {
+              "minAge": "6w",
+              "recommended": {
+                "from": "birth",
+                "offset": "2m"
+              }
+            },
+            {
+              "minInterval": "8w",
+              "recommended": {
+                "from": "birth",
+                "offset": "4m"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

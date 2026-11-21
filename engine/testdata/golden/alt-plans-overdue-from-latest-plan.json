@@ -1,0 +1,58 @@
+{
+  "ruleset": "illustrative-vn",
+  "input": {
+    "today": "2026-05-17",
+    "profile": {
+      "birth": {
+        "value": "2026-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "p1",
+        "diseases": [
+          "pertussis"
+        ],
+        "date": {
+          "value": "2026-03-10",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-vn-s1",
+    "today": "2026-05-17",
+    "assessments": [
+      {
+        "disease": "pertussis",
+        "bucket": "overdue",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-04-07",
+          "due": "2026-04-10",
+          "overdue": "2026-05-17"
+        },
+        "reasons": [
+          {
+            "code": "ALTERNATIVE_PLANS",
+            "params": {
+              "series": "pertussis-primary"
+            }
+          }
+        ]
+      },
+      {
+        "disease": "measles",
+        "bucket": "upcoming",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2026-10-10",
+          "due": "2026-10-10",
+          "overdue": "2026-10-17"
+        }
+      }
+    ]
+  }
+}

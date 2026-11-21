@@ -1,0 +1,45 @@
+{
+  "version": "minimal-first-dose-anchor-s1",
+  "note": "Illustrative, not medically verified",
+  "diseases": [
+    {
+      "id": "firstanchored",
+      "name": "Bệnh minh hoạ mốc theo mũi đầu"
+    }
+  ],
+  "series": [
+    {
+      "id": "firstanchored-series",
+      "disease": "firstanchored",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "9y",
+              "recommended": {
+                "from": "birth",
+                "offset": "9y"
+              }
+            },
+            {
+              "minInterval": "4w",
+              "recommended": {
+                "from": "firstDose",
+                "offset": "2m"
+              }
+            },
+            {
+              "minInterval": "12w",
+              "recommended": {
+                "from": "firstDose",
+                "offset": "6m"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

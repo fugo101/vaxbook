@@ -1,0 +1,45 @@
+{
+  "version": "minimal-anchors-s1",
+  "note": "Illustrative, not medically verified",
+  "diseases": [
+    {
+      "id": "anchored",
+      "name": "Bệnh minh hoạ mốc theo mũi"
+    }
+  ],
+  "series": [
+    {
+      "id": "anchored-series",
+      "disease": "anchored",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "9y",
+              "recommended": {
+                "from": "birth",
+                "offset": "9y"
+              }
+            },
+            {
+              "minInterval": "4w",
+              "recommended": {
+                "from": "firstDose",
+                "offset": "2m"
+              }
+            },
+            {
+              "minInterval": "12w",
+              "recommended": {
+                "from": "previousDose",
+                "offset": "4m"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

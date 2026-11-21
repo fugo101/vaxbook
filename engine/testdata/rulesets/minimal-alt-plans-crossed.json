@@ -1,0 +1,57 @@
+{
+  "version": "minimal-alt-plans-crossed-s1",
+  "note": "Illustrative, not medically verified",
+  "diseases": [
+    {
+      "id": "crossed",
+      "name": "Bệnh minh hoạ hai phác đồ chéo"
+    }
+  ],
+  "series": [
+    {
+      "id": "crossed-series",
+      "disease": "crossed",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "early-due",
+          "doses": [
+            {
+              "minAge": "6w",
+              "recommended": {
+                "from": "birth",
+                "offset": "2m"
+              }
+            },
+            {
+              "minInterval": "8w",
+              "recommended": {
+                "from": "birth",
+                "offset": "3m"
+              }
+            }
+          ]
+        },
+        {
+          "id": "late-due",
+          "doses": [
+            {
+              "minAge": "6w",
+              "recommended": {
+                "from": "birth",
+                "offset": "2m"
+              }
+            },
+            {
+              "minInterval": "4w",
+              "recommended": {
+                "from": "birth",
+                "offset": "4m"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "ruleset": "minimal-single",
+  "input": {
+    "today": "2026-04-15",
+    "profile": {
+      "birth": {
+        "value": "2026-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r3",
+        "diseases": [
+          "single"
+        ],
+        "date": {
+          "value": "2026-04-14",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r1",
+        "diseases": [
+          "single"
+        ],
+        "date": {
+          "value": "2026-03-10",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "single"
+        ],
+        "date": {
+          "value": "2026-03-24",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-single-s1",
+    "today": "2026-04-15",
+    "assessments": [
+      {
+        "disease": "single",
+        "bucket": "unknown",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-05-12",
+          "due": "2026-05-12",
+          "overdue": "2026-05-19"
+        },
+        "reasons": [
+          {
+            "code": "DOSE_INVALID",
+            "params": {
+              "check": "minInterval",
+              "dose": "r2",
+              "number": "2"
+            }
+          },
+          {
+            "code": "DOSE_INVALID",
+            "params": {
+              "check": "minInterval",
+              "dose": "r3",
+              "number": "2"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

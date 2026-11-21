@@ -1,0 +1,66 @@
+{
+  "ruleset": "minimal-alt-plans",
+  "input": {
+    "today": "2026-04-01",
+    "profile": {
+      "birth": {
+        "value": "2026-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "alt"
+        ],
+        "date": {
+          "value": "2026-03-10",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "alt"
+        ],
+        "date": {
+          "value": "2026-03-31",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-alt-plans-s1",
+    "today": "2026-04-01",
+    "assessments": [
+      {
+        "disease": "alt",
+        "bucket": "unknown",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-04-28",
+          "due": "2026-04-28",
+          "overdue": "2026-06-02"
+        },
+        "reasons": [
+          {
+            "code": "DOSE_INVALID",
+            "params": {
+              "check": "minInterval",
+              "dose": "r2",
+              "number": "2"
+            }
+          },
+          {
+            "code": "ALTERNATIVE_PLANS",
+            "params": {
+              "series": "alt-series"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   go:
-    name: Go (gen check, lint, test)
+    name: Go (gen check, lint, test, WASM test)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -26,7 +26,20 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
-          args: ./apps/...
+          args: ./...
+      - name: golangci-lint (engine and ruleset as js/wasm)
+        # Lint sees only the host platform's files; this pass covers the
+        # js-tagged WASM entry point (Taskfile lint:wasm).
+        uses: golangci/golangci-lint-action@v9
+        env:
+          GOOS: js
+          GOARCH: wasm
+        with:
+          version: v2.15.0
+          args: ./engine/... ./ruleset/...
+      - uses: actions/setup-node@v7 # task test ends with the WASM engine run under Node
+        with:
+          node-version: '26'
       - name: Test
         run: go tool -modfile=go.tool.mod task test
 

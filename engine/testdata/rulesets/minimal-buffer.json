@@ -1,0 +1,40 @@
+{
+  "version": "minimal-buffer-s1",
+  "note": "Illustrative, not medically verified",
+  "diseases": [
+    {
+      "id": "buffered",
+      "name": "Bệnh minh hoạ có buffer"
+    }
+  ],
+  "series": [
+    {
+      "id": "buffered-series",
+      "disease": "buffered",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "6w",
+              "recommended": {
+                "from": "birth",
+                "offset": "2m"
+              },
+              "buffer": "14d"
+            },
+            {
+              "minInterval": "4w",
+              "recommended": {
+                "from": "birth",
+                "offset": "12m"
+              },
+              "buffer": "14d"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

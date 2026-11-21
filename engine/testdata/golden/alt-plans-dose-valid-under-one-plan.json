@@ -1,0 +1,49 @@
+{
+  "ruleset": "minimal-alt-plans",
+  "input": {
+    "today": "2026-04-20",
+    "profile": {
+      "birth": {
+        "value": "2026-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "alt"
+        ],
+        "date": {
+          "value": "2026-03-10",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "alt"
+        ],
+        "date": {
+          "value": "2026-04-14",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-alt-plans-s1",
+    "today": "2026-04-20",
+    "assessments": [
+      {
+        "disease": "alt",
+        "bucket": "complete",
+        "reasons": [
+          {
+            "code": "COMPLETE"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -39,14 +39,53 @@ tasks:
       - go run ./apps/api/internal/store/migrategen -check
 
   test:
-    desc: Run Go tests (needs Docker for Postgres)
+    desc: Run Go tests (needs Docker for Postgres), then the WASM engine run (needs Node)
     cmds:
-      - go test -race -count=1 ./apps/... {{.CLI_ARGS}}
+      - go test -race -count=1 ./... {{.CLI_ARGS}}
+      - task: test:wasm
+
+  test:wasm:
+    desc: Run the engine and ruleset tests under js/wasm with Node and log the WASM size
+    env:
+      GOOS: js
+      GOARCH: wasm
+    vars:
+      # wasm_exec caps argv plus environment at 8 KB, which a developer shell
+      # or a CI runner can exceed, so the test binary gets PATH (for Node) only.
+      WASM_EXEC:
+        sh: echo "env -i 'PATH=$(dirname "$(command -v node)"):/usr/bin:/bin' '$(go env GOROOT)/lib/wasm/go_js_wasm_exec'"
+    preconditions:
+      - sh: command -v node
+        msg: test:wasm needs Node 26 on PATH (README › Backend development)
+    cmds:
+      # The entry point is js-tagged, so the native vet never sees it (lint:wasm
+      # covers lint).
+      - go vet ./engine/wasm/...
+      - go test -count=1 -exec="{{.WASM_EXEC}}" ./engine/... ./ruleset/...
+      # Built outside the repo so gen:check never sees a stray file.
+      - |
+        dir=$(mktemp -d)
+        go build -trimpath -ldflags="-s -w" -o "$dir/engine.wasm" ./engine/wasm
+        raw=$(wc -c < "$dir/engine.wasm" | tr -d ' ')
+        gz=$(gzip -9 -c "$dir/engine.wasm" | wc -c | tr -d ' ')
+        rm -rf "$dir"
+        line="engine.wasm: $raw bytes, $gz bytes gzip"
+        echo "$line"
+        if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$line" >> "$GITHUB_STEP_SUMMARY"; fi
 
   lint:
-    desc: Run golangci-lint
+    desc: Run golangci-lint natively, then on engine/ and ruleset/ as js/wasm
     cmds:
-      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}} run ./apps/...
+      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}} run ./...
+      - task: lint:wasm
+
+  lint:wasm:
+    desc: Run golangci-lint on engine/ and ruleset/ as js/wasm (CI runs the same pass through the action)
+    cmds:
+      # golangci-lint loads only the files of the platform it runs for, so the
+      # js-tagged entry point needs its own pass for depguard's stdlib-only
+      # rule. -exec gives the target to the linter, not to the build of it.
+      - go run -exec "env GOOS=js GOARCH=wasm" github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}} run ./engine/... ./ruleset/...
 
   build:
     desc: Build the vaxbook binary into dist/

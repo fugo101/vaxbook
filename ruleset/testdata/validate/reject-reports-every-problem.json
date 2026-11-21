@@ -1,0 +1,77 @@
+{
+  "snapshot": {
+    "version": "validate-both",
+    "note": "Illustrative, not medically verified",
+    "diseases": [
+      {
+        "id": "v",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "v-series",
+        "disease": "v",
+        "stage": "childhood",
+        "plans": [
+          {
+            "id": "three",
+            "doses": [
+              {
+                "minAge": "6w",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "2m"
+                }
+              },
+              {
+                "recommended": {
+                  "from": "birth",
+                  "offset": "3m"
+                }
+              },
+              {
+                "minInterval": "4w",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "4m"
+                }
+              }
+            ]
+          },
+          {
+            "id": "two",
+            "doses": [
+              {
+                "minAge": "6w",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "2m"
+                }
+              },
+              {
+                "minInterval": "4w",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "4m"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "DOSE_RULE_NO_MINIMUM",
+      "severity": "reject",
+      "path": "/series/0/plans/0/doses/1"
+    },
+    {
+      "code": "PLAN_DOSE_COUNT_MISMATCH",
+      "severity": "reject",
+      "path": "/series/0/plans/1"
+    }
+  ]
+}

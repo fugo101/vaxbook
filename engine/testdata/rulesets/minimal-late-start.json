@@ -1,6 +1,6 @@
 {
   "version": "minimal-late-start-s1",
-  "note": "Illustrative, not medically verified",
+  "illustrative": true,
   "diseases": [
     {
       "id": "late",

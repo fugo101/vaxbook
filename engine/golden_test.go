@@ -20,8 +20,6 @@ var update = flag.Bool("update", false,
 	"rewrite golden outputs whose only difference from the engine output is encoding; "+
 		"any value difference fails and is never written")
 
-const illustrativeNote = "Illustrative, not medically verified"
-
 // golden is one file of testdata/golden.
 type golden struct {
 	RuleSet string         `json:"ruleset"`
@@ -203,8 +201,8 @@ func TestFixtureRuleSets(t *testing.T) {
 	for _, path := range fixtureFiles(t) {
 		name := fixtureName(path)
 		s := loadSnapshot(t, name)
-		if s.Note != illustrativeNote {
-			t.Errorf("%s: note = %q, want %q", name, s.Note, illustrativeNote)
+		if !s.Illustrative {
+			t.Errorf("%s: illustrative is not set; every fixture is illustrative, not medically verified", name)
 		}
 		if p := ruleset.Validate(s); len(p) != 0 {
 			t.Errorf("%s: ruleset.Validate = %v, want no problems", name, p)

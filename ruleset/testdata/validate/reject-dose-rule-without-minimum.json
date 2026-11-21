@@ -1,7 +1,7 @@
 {
   "snapshot": {
     "version": "validate-a7",
-    "note": "Illustrative, not medically verified",
+    "illustrative": true,
     "diseases": [
       {
         "id": "v",

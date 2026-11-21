@@ -1,6 +1,6 @@
 {
   "version": "minimal-short-buffer-s1",
-  "note": "Illustrative, not medically verified",
+  "illustrative": true,
   "diseases": [
     {
       "id": "shortbuf",

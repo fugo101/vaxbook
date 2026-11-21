@@ -1,6 +1,6 @@
 {
   "version": "minimal-first-dose-anchor-s1",
-  "note": "Illustrative, not medically verified",
+  "illustrative": true,
   "diseases": [
     {
       "id": "firstanchored",

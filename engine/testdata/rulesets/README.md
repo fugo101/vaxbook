@@ -2,7 +2,7 @@
 
 Shared, named rule-set snapshots used by the engine golden files (`../golden/*.json`, member `ruleset` = file name without `.json`) and by the property tests.
 
-**Every file here is illustrative, not medically verified.** Each snapshot carries `"note": "Illustrative, not medically verified"`. Ages, intervals and milestones were chosen to exercise engine semantics (SAD §5.1–§5.3), not copied from a cited schedule. Never use them as clinical data, and never copy them into an editorial rule set.
+**Every file here is illustrative, not medically verified.** Each snapshot carries `"illustrative": true`, the machine-checkable marker of a fixture or demo rule set (a publish gate can refuse it). Ages, intervals and milestones were chosen to exercise engine semantics (SAD §5.1–§5.3), not copied from a cited schedule. Never use them as clinical data, and never copy them into an editorial rule set.
 
 Rules for this folder:
 

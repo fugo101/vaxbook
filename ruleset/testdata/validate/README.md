@@ -1,6 +1,6 @@
 # Rule set validation cases
 
-Rejected rule-set snapshots for `ruleset.Validate`. **Every snapshot here is illustrative, not medically verified**, and each one deliberately breaks an engine-semantics check of SAD §5.2.
+Rejected rule-set snapshots for `ruleset.Validate`. **Every snapshot here is illustrative, not medically verified** (each carries `"illustrative": true`), and each one deliberately breaks an engine-semantics check of SAD §5.2.
 
 Each file is `{ "snapshot": Snapshot, "problems": [Problem] }` and is decoded strictly (unknown members fail). `problems` is the complete expected result of `ruleset.Validate(snapshot)`, written by hand before the code, in document order of `path`. Members of a Problem are written in Go struct order (`code`, `severity`, `path`, then `params` when present).
 

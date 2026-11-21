@@ -276,8 +276,8 @@ func TestValidateTestdata(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode snapshot: %v", err)
 			}
-			if snap.Note != "Illustrative, not medically verified" {
-				t.Errorf("note = %q, want the illustrative marker", snap.Note)
+			if !snap.Illustrative {
+				t.Error("illustrative is not set; every validate case is illustrative, not medically verified")
 			}
 			got := Validate(snap)
 			if !reflect.DeepEqual(got, c.Problems) {

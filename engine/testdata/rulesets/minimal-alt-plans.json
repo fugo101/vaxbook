@@ -1,6 +1,6 @@
 {
   "version": "minimal-alt-plans-s1",
-  "note": "Illustrative, not medically verified",
+  "illustrative": true,
   "diseases": [
     {
       "id": "alt",

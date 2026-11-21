@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "VaxBook rule set snapshot and engine contract",
-  "description": "Go structs in ruleset/ and engine/ are the source (SAD §3). This schema checks shape. null is never valid; an optional member is omitted; members added after S1 are optional. Content checks live in ruleset.Validate and engine.Validate. They include the keywords the Go decoders do not enforce (enums, minLength, minItems, uniqueItems, the Id pattern). The root is a rule set snapshot; $defs Input and Output are the engine's input and output (engine slice S1 subset).",
+  "description": "Go structs in ruleset/ and engine/ are the source (SAD §3). This schema checks shape. null is never valid; an optional member is omitted; members added after S1 are optional. Content checks live in ruleset.Validate and engine.Validate. They include the keywords the Go decoders do not enforce (enums, minLength, minItems, uniqueItems, the Id pattern). The Input schema accepts every Input that Evaluate assesses, so ⚪ INVALID_DATE (A9) stays reachable for a client that validates against it. The root is a rule set snapshot; $defs Input and Output are the engine's input and output (engine slice S1 subset).",
   "$ref": "#/$defs/Snapshot",
   "$defs": {
     "Id": {
@@ -98,12 +98,15 @@
       }
     },
     "RecalledDate": {
-      "description": "A date as the user remembers it. The value pattern checks the shape only, so a calendar-invalid value reaches the engine, which reports it (A9).",
+      "description": "A date as the user remembers it (GLOSSARY: Recalled date).",
       "type": "object",
       "additionalProperties": false,
       "required": ["precision"],
       "properties": {
-        "value": {"type": "string", "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"},
+        "value": {
+          "description": "YYYY-MM-DD for precision day; YYYY-MM and YYYY arrive with month and year in S2. Any string is accepted; engine.Validate reports one that does not parse as INVALID_DATE (⚪ on a dose record, input error on the birth date).",
+          "type": "string"
+        },
         "precision": {"enum": ["day", "month", "year", "unknown", "none"]}
       }
     },

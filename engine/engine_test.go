@@ -133,9 +133,25 @@ func TestValidateDates(t *testing.T) {
 	}
 }
 
+// malformedDates are recalled date values that do not parse. Each is
+// INVALID_DATE: on a dose record its diseases become ⚪, on the birth date
+// Evaluate returns an input error (A9, EQ27).
+var malformedDates = []string{
+	"abc", "", "2026-02-30", "10/02/2026", "2026-1-5", " 2026-01-01", "2026-01-01 ",
+	"2026-01-01T00:00:00Z", "２０２６-０１-０１", "2026-01", "2026", strings.Repeat("9", 200),
+}
+
 func TestEvaluateInputErrors(t *testing.T) {
 	t.Parallel()
 	e := testEngine(t)
+	for _, v := range malformedDates {
+		_, err := e.Evaluate(input(t, "2026-04-01", v))
+		var ie *InputError
+		want := []Problem{{Code: InvalidDate, Path: "/profile/birth/value"}}
+		if !errors.As(err, &ie) || !reflect.DeepEqual(ie.Problems, want) {
+			t.Errorf("birth %q: Evaluate error = %v, want INVALID_DATE at /profile/birth/value", v, err)
+		}
+	}
 	for name, in := range map[string]Input{
 		"invalid birth":         input(t, "2026-04-01", "2026-02-30"),
 		"unsupported precision": {Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026-01", Precision: Month}}},
@@ -155,7 +171,23 @@ func TestEvaluateInputErrors(t *testing.T) {
 func TestEvaluateGarbageDoseDateIsInvalidDate(t *testing.T) {
 	t.Parallel()
 	e := testEngine(t)
-	out, err := e.Evaluate(input(t, "2026-04-01", "2026-01-10", dose("r1", "abc", "a"), dose("r0", "", "a")))
+	for _, v := range append(malformedDates, "\x00") {
+		out, err := e.Evaluate(input(t, "2026-04-01", "2026-01-10", dose("r1", v, "a")))
+		if err != nil {
+			t.Errorf("dose date %q: Evaluate error %v, want ⚪ INVALID_DATE", v, err)
+			continue
+		}
+		want := []Reason{{Code: ReasonInvalidDate, Params: map[string]string{"dose": "r1"}}}
+		if a := out.Assessments[0]; a.Bucket != BucketUnknown || a.NextDose != nil || !reflect.DeepEqual(a.Reasons, want) {
+			t.Errorf("dose date %q: assessment = %+v", v, a)
+		}
+	}
+	// A missing value with precision day is the empty string.
+	out, err := e.Evaluate(input(t, "2026-04-01", "2026-01-10", DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: RecalledDate{Precision: Day}}))
+	if err != nil || out.Assessments[0].Bucket != BucketUnknown {
+		t.Errorf("absent dose date value: %+v, %v", out, err)
+	}
+	out, err = e.Evaluate(input(t, "2026-04-01", "2026-01-10", dose("r1", "abc", "a"), dose("r0", "", "a")))
 	if err != nil {
 		t.Fatal(err)
 	}

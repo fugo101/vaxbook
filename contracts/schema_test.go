@@ -127,6 +127,8 @@ func TestSchemaRejects(t *testing.T) {
 		"numeric param":            {"Reason", `{"code": "DOSE_INVALID", "params": {"number": 2}}`},
 		"duplicate disease":        {"DoseRecord", `{"id": "r", "diseases": ["a", "a"], "date": {"value": "2026-01-01", "precision": "day"}}`},
 		"bad precision":            {"RecalledDate", `{"value": "2026", "precision": "decade"}`},
+		"null date value":          {"RecalledDate", `{"value": null, "precision": "day"}`},
+		"numeric date value":       {"RecalledDate", `{"value": 20260210, "precision": "day"}`},
 		"uppercase id":             {"Id", `"Ab"`},
 	}
 	for name, c := range cases {
@@ -138,10 +140,23 @@ func TestSchemaRejects(t *testing.T) {
 			t.Errorf("%s: %s accepted %s", name, c.def, c.doc)
 		}
 	}
-	// A calendar-invalid recalled date is shape-valid: the engine reports it (A9).
-	v, _ := jsonschema.UnmarshalJSON(strings.NewReader(`{"value": "2026-02-30", "precision": "day"}`))
-	if err := compile(t, "RecalledDate").Validate(v); err != nil {
-		t.Errorf("RecalledDate rejected a shape-valid value: %v", err)
+}
+
+// TestRecalledDateAcceptsAnyString: engine.Validate reports a recalled date
+// value that does not parse as INVALID_DATE, and on a dose record Evaluate
+// still assesses the profile (⚪, A9). So the schema accepts every string,
+// or a client validating against it would reject the record instead.
+func TestRecalledDateAcceptsAnyString(t *testing.T) {
+	t.Parallel()
+	recalled := compile(t, "RecalledDate")
+	for _, value := range []string{
+		"2026-02-30", "10/02/2026", "2026-1-5", "", " 2026-01-01", "2026-01-01T00:00:00Z",
+		"２０２６-０１-０１", "2026-01", "2026", strings.Repeat("9", 200),
+	} {
+		doc := map[string]any{"value": value, "precision": "day"}
+		if err := recalled.Validate(doc); err != nil {
+			t.Errorf("RecalledDate rejected value %q: %v", value, err)
+		}
 	}
 }
 

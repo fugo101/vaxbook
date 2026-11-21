@@ -26,6 +26,8 @@ Members of `output` are written in Go struct order (`ruleSetVersion`, `today`, `
 - `alt-plans-overdue-from-latest-plan`: as above, today 2026-05-17 = merged O → overdue, `ALTERNATIVE_PLANS`. Measles Du 10-10 ≤ T6m = 11-17 → upcoming.
 - `a9-invalid-date-every-disease-of-record`: r1 value "2026-02-30" (no such day) on pertussis and measles → both unknown, `INVALID_DATE{dose: r1}`, no nextDose.
 - `a9-invalid-date-other-disease-unaffected`: r1 "2026-02-30" on pertussis only → pertussis unknown, `INVALID_DATE{dose: r1}`. Measles has no records: E = Du = 10-10, O = 10-17; today 2026-04-01, T6m = 10-01 < Du → `notYetScheduled`.
+- `a9-invalid-date-not-iso`: birth 2026-01-10, today 2026-04-01; r1 "10/02/2026" on pertussis and r2 "2026-1-5" on measles are not YYYY-MM-DD → pertussis unknown `INVALID_DATE{dose: r1}`, measles unknown `INVALID_DATE{dose: r2}`, no nextDose. (The schema accepts any string as a recalled date value, so a client that validates against it reaches ⚪ too.)
+- `a9-invalid-date-empty-value`: same dates; r1 value "" with precision day on pertussis → pertussis unknown `INVALID_DATE{dose: r1}`. Measles: E = Du = 10-10, O = 10-17; T6m = 10-01 < Du, no dose → `notYetScheduled`.
 
 ### minimal-single (birth 2026-01-10; dose 1 min age 6w = 02-21, at 2m = 03-10; dose 2 min interval 4w, at 4m = 05-10)
 

@@ -19,8 +19,9 @@ const (
 	// UnsupportedPrecision: a date precision this engine version cannot
 	// evaluate yet. Params: precision.
 	UnsupportedPrecision ProblemCode = "UNSUPPORTED_PRECISION"
-	// InvalidDate: a date value that cannot be parsed. On a dose record it
-	// does not stop Evaluate: the record's diseases become ⚪ INVALID_DATE.
+	// InvalidDate: a value that is not a parseable date, including an empty
+	// or absent value. On a dose record it does not stop Evaluate: the
+	// record's diseases become ⚪ INVALID_DATE.
 	InvalidDate ProblemCode = "INVALID_DATE"
 	// OutOfRange: a date outside [1900-01-01, 2199-12-31].
 	OutOfRange ProblemCode = "OUT_OF_RANGE"

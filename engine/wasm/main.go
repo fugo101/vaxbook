@@ -6,7 +6,8 @@
 //	vaxbookLoadRuleSet(snapshot) → {"ok":true} | {"error":{kind, message?, problems?}}
 //	vaxbookEvaluate(input)       → {"output":Output} | {"error":{kind, message?, problems?}}
 //
-// The logic lives in package bridge, which is tested natively and as WASM.
+// The logic lives in package bridge, which is tested natively and as WASM;
+// main_test.go calls the globals themselves through syscall/js.
 package main
 
 import (
@@ -16,6 +17,12 @@ import (
 )
 
 func main() {
+	register()
+	select {} // keep the Go runtime alive for later calls
+}
+
+// register sets the two global functions, sharing one fresh Bridge.
+func register() {
 	var b bridge.Bridge
 	js.Global().Set("vaxbookLoadRuleSet", js.FuncOf(func(_ js.Value, args []js.Value) any {
 		return string(b.LoadRuleSet([]byte(firstString(args))))
@@ -23,7 +30,6 @@ func main() {
 	js.Global().Set("vaxbookEvaluate", js.FuncOf(func(_ js.Value, args []js.Value) any {
 		return string(b.Evaluate([]byte(firstString(args))))
 	}))
-	select {} // keep the Go runtime alive for later calls
 }
 
 // firstString returns the first argument if it is a string; anything else

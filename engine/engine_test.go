@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"reflect"
@@ -585,6 +586,84 @@ func TestPositionsAndUndatedDoses(t *testing.T) {
 		}
 		if a := out.Assessments[c.disease]; !reflect.DeepEqual(a.Reasons, c.want) {
 			t.Errorf("%s: reasons\n  %v\nwant\n  %v", c.name, a.Reasons, c.want)
+		}
+	}
+}
+
+// TestResolveOverlapsMatchesPairwise: the linear sweep of resolveOverlaps
+// gives the groups of the pairwise definition (two dated ranges overlap
+// when they intersect and are not both single days) on random short ranges
+// over a few days, where ties, same-day exact doses and nested ranges are
+// common.
+func TestResolveOverlapsMatchesPairwise(t *testing.T) {
+	t.Parallel()
+	start, err := ParseDate("2025-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := uint64(1)
+	rnd := func(n int) int { // xorshift, so the cases are reproducible
+		seed ^= seed << 13
+		seed ^= seed >> 7
+		seed ^= seed << 17
+		return int(seed % uint64(n)) //nolint:gosec // n is small and positive
+	}
+	for range 20000 {
+		d := make([]givenDose, 1+rnd(7))
+		for i := range d {
+			lo := start.AddDays(rnd(6))
+			d[i] = givenDose{id: fmt.Sprintf("r%d", i), dated: true, number: rnd(2), date: Range{Lo: lo, Hi: lo.AddDays(rnd(3) * rnd(2))}}
+		}
+		slices.SortFunc(d, func(x, y givenDose) int {
+			return cmp.Or(x.date.Lo.Compare(y.date.Lo), x.date.Hi.Compare(y.date.Hi), strings.Compare(x.id, y.id))
+		})
+		// The pairwise groups, as the sets of IDs of the groups of two or
+		// more members whose members do not all have numbers.
+		parent := make([]int, len(d))
+		for i := range parent {
+			parent[i] = i
+		}
+		var find func(int) int
+		find = func(i int) int {
+			if parent[i] != i {
+				parent[i] = find(parent[i])
+			}
+			return parent[i]
+		}
+		for i := range d {
+			for j := range d {
+				x, y := d[i].date, d[j].date
+				if i != j && !x.Hi.Before(y.Lo) && !y.Hi.Before(x.Lo) && (!x.IsExact() || !y.IsExact()) {
+					parent[find(j)] = find(i)
+				}
+			}
+		}
+		groups := map[int][]string{}
+		numbered := map[int]bool{}
+		for i := range d {
+			r := find(i)
+			if _, ok := numbered[r]; !ok {
+				numbered[r] = true
+			}
+			groups[r] = append(groups[r], d[i].id)
+			numbered[r] = numbered[r] && d[i].number > 0
+		}
+		var want []string
+		for r, ids := range groups {
+			if len(ids) > 1 && !numbered[r] {
+				want = append(want, strings.Join(ids, ","))
+			}
+		}
+		pl := placement{dated: slices.Clone(d)}
+		pl.resolveOverlaps()
+		var got []string
+		for _, r := range pl.reasons {
+			got = append(got, strings.Join(r.Params.Doses, ","))
+		}
+		slices.Sort(want)
+		slices.Sort(got)
+		if !slices.Equal(got, want) {
+			t.Fatalf("%v: groups %q, want %q", d, got, want)
 		}
 	}
 }

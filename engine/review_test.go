@@ -455,3 +455,42 @@ func TestManyRecordsWithImpreciseBirthDate(t *testing.T) {
 		t.Errorf("Evaluate of %d records took %s", n, d)
 	}
 }
+
+// TestManyOverlappingRecords: grouping overlapping dose ranges must stay
+// linear after the sort when every range overlaps (year-precision records
+// in one year) and when many exact doses share one day (which do not
+// overlap), so 60 000 of each evaluate in well under the limit; a
+// quadratic scan takes several seconds natively.
+func TestManyOverlappingRecords(t *testing.T) {
+	t.Parallel()
+	if testing.Short() || runtime.GOOS == "js" {
+		t.Skip("timing test")
+	}
+	const n = 60000
+	doses := make([]engine.DoseRecord, 0, 2*n)
+	for i := range n {
+		doses = append(doses,
+			engine.DoseRecord{ID: fmt.Sprintf("y%05d", i), Diseases: []string{"pertussis"}, Date: engine.RecalledDate{Value: "2025", Precision: engine.Year}},
+			engine.DoseRecord{ID: fmt.Sprintf("d%05d", i), Diseases: []string{"measles"}, Date: engine.RecalledDate{Value: "2025-06-01", Precision: engine.Day}})
+	}
+	today, err := engine.ParseDate("2026-04-16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := engine.Input{Today: today, Profile: engine.Profile{Birth: engine.RecalledDate{Value: "2024-01-01", Precision: engine.Day}}, Doses: doses}
+	e := loadEngine(t, "illustrative-vn")
+	began := time.Now()
+	out, err := e.Evaluate(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(began); d > 5*time.Second {
+		t.Errorf("Evaluate of %d records took %s", 2*n, d)
+	}
+	// Every pertussis range overlaps every other: one group of n records.
+	for _, a := range out.Assessments {
+		if a.Disease == "pertussis" && (len(a.Reasons) != 1 || a.Reasons[0].Code != engine.ReasonOverlappingEstimatedDates || len(a.Reasons[0].Params.Doses) != n) {
+			t.Errorf("pertussis: want one OVERLAPPING_ESTIMATED_DATES with %d doses", n)
+		}
+	}
+}

@@ -176,14 +176,39 @@ func (pl *placement) resolveOverlaps() bool {
 		}
 		return parent[i]
 	}
-	for i := range d {
-		// d is sorted by Lo, so no later range intersects d[i] once one
-		// starts after d[i].Hi.
-		for j := i + 1; j < len(d) && !d[i].date.Hi.Before(d[j].date.Lo); j++ {
-			// Two exact doses on the same day do not overlap (orderSameDay).
-			if !d[i].date.IsExact() || !d[j].date.IsExact() {
-				parent[find(j)] = find(i)
+	// One sweep over d, sorted by (Lo, Hi): an earlier range intersects
+	// d[j] when its Hi is on or after d[j].Lo. The earlier ranges that do
+	// are already connected through one another, except exact doses on the
+	// day d[j] starts, which do not overlap one another (orderSameDay). So
+	// d[j] joins the earlier range with the latest Hi when that range
+	// reaches it and is not an exact dose on the same day as an exact d[j],
+	// and a range that is not exact also joins each exact dose on its first
+	// day. Exact doses on a day sort before the longer ranges starting on
+	// it, so that list is used once. On a tie the first range stays the
+	// widest: a range ending on a day sorts before an exact dose on it, so
+	// the widest is an exact dose only when no longer range reaches its day.
+	widest := -1      // the earlier range with the latest Hi
+	var sameDay []int // the exact doses on the last exact day not yet joined
+	for j := range d {
+		r := d[j].date
+		if widest >= 0 && !d[widest].date.Hi.Before(r.Lo) && (!r.IsExact() || !d[widest].date.IsExact()) {
+			parent[find(j)] = find(widest)
+		}
+		if r.IsExact() {
+			if len(sameDay) > 0 && d[sameDay[0]].date.Lo != r.Lo {
+				sameDay = sameDay[:0]
 			}
+			sameDay = append(sameDay, j)
+		} else {
+			if len(sameDay) > 0 && d[sameDay[0]].date.Lo == r.Lo {
+				for _, i := range sameDay {
+					parent[find(i)] = find(j)
+				}
+			}
+			sameDay = sameDay[:0]
+		}
+		if widest < 0 || d[widest].date.Hi.Before(r.Hi) {
+			widest = j
 		}
 	}
 	groups := map[int][]int{}

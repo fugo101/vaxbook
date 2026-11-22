@@ -283,7 +283,7 @@ Add one row to the SAD §15 table.
 
 ## Implementation order (TDD)
 
-Write each test first and watch it fail, then commit it together with its fix. Run `go tool -modfile=go.tool.mod task gen:check lint test` before each commit.
+Write each test first and watch it fail, then commit it together with its fix. Run `go tool -modfile=tools/go.mod task gen:check lint test` before each commit.
 
 1. **Strict decoding (Item 2).**
    - `contractjson` tests: null at a nested pointer, a missing required member with its pointer, an omitted optional member, an unknown member, `Members` order and requiredness.

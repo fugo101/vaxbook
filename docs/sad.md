@@ -81,7 +81,9 @@ Single-level subdomains are used because Cloudflare's free SSL certificate cover
 vaxbook/
 ├── Taskfile.yml                 # build, gen, test, dev, release
 ├── go.mod                       # one Go module for the whole repo
-├── go.tool.mod                  # dev tools (oapi-codegen, ent, task) pinned apart from app deps
+├── tools/go.mod                 # dev tool requirements (oapi-codegen, ent, task), read via -modfile, apart from app deps
+├── .golangci-lint-version       # the one golangci-lint version, read by the Taskfile and CI
+├── .github/                     # CI, PR title check, freshness check, dependabot.yml
 ├── compose.dev.yaml             # local Postgres for `task run`
 ├── Dockerfile                   # single static binary on distroless, non-root
 ├── engine/                      # recommendation engine — pure Go, stdlib only, no I/O
@@ -112,8 +114,9 @@ vaxbook/
   - `test`: Go tests (including golden) and Vitest; it ends with `test:wasm`, which runs the engine and `ruleset` tests again under `GOOS=js GOARCH=wasm` with Node and logs the WASM size.
   - `e2e`: Playwright.
   - `migrate:diff`: generates migration files in goose format with the Atlas Go library (through ent's `NamedDiff`), against a throwaway Postgres started by testcontainers; no Atlas CLI or local database needed.
-  - `gen:check`: CI drift check for generated code, migrations and `atlas.sum`.
-- **Tools** are pinned with `tool` directives in `go.tool.mod` and run as `go tool -modfile=go.tool.mod …`, so tool dependencies never bump app dependencies. golangci-lint is the exception (its project advises against `go tool`): `task lint` uses `go run …@<version>`, CI uses the official action at the same version. Lint loads only one platform's files, so both also lint `engine/` and `ruleset/` a second time as js/wasm, which puts the js-tagged WASM entry point under the stdlib-only rule.
+  - `gen:check`: CI drift check for generated code, migrations and `atlas.sum`, and that `go.mod` and `tools/go.mod` are tidy.
+- **Tools** are pinned with `tool` directives in `tools/go.mod` (same module path as `go.mod`; `-modfile` swaps the requirement list) and run as `go tool -modfile=tools/go.mod …`, so tool dependencies never bump app dependencies. golangci-lint is the exception (its project advises against `go tool`): `task lint` uses `go run …@<version>`, CI uses the official action, and both read the version from `.golangci-lint-version`. Lint loads only one platform's files, so both also lint `engine/` and `ruleset/` a second time as js/wasm, which puts the js-tagged WASM entry point under the stdlib-only rule.
+- **Dependency updates** come from Dependabot (`.github/dependabot.yml`): weekly, minor and patch grouped per ecosystem, majors separate, covering `go.mod`, `tools/go.mod`, GitHub Actions (pinned by commit SHA) and the Dockerfile and `compose.dev.yaml` images (the Dockerfile ones pinned by digest; the Dockerfile has no `# syntax=` line, so BuildKit pulls no unpinned frontend image). Values it cannot bump are kept in step by tests (Go version, Postgres image, Node major) or by a single source file (`.golangci-lint-version`); a weekly workflow opens an issue when golangci-lint or the Node LTS major falls behind.
 
 ---
 
@@ -662,7 +665,7 @@ sequenceDiagram
 | Email | **resend-go v4.12** |
 | Web | **React 19.3.1**, **Vite 8.3**, **React Router 8.5** (Data mode), **TanStack Query 5.107**, **openapi-typescript 7.13 + openapi-fetch 0.17**, **vite-plugin-pwa 2.0**, `idb`, **Tailwind CSS 4 + shadcn/ui** |
 | Testing | Go `testing` + golden files, **testcontainers-go 0.45** (real Postgres: one migrated template database, one database per test); Vitest; Playwright |
-| Build | Node 26 (build only), **Taskfile 3.54** (pinned in `go.tool.mod`), **golangci-lint 2.15**, GitHub Actions, GHCR, release-please |
+| Build | Node 26 (build only), **Taskfile 3.54** (pinned in `tools/go.mod`), **golangci-lint 2.15**, GitHub Actions, GHCR, release-please |
 
 ---
 

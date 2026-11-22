@@ -1,0 +1,85 @@
+# Dependabot version updates. Security updates are switched on in the repo
+# settings and use these entries too (commit-message, labels, allow).
+# Options: https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
+#
+# Dependabot cannot bump these; tests keep them in step (README > Dependency updates):
+# - the go directive in go.mod and tools/go.mod vs the golang image (internal/repocheck)
+# - store.PostgresImage vs compose.dev.yaml (apps/api/internal/store/image_test.go)
+# golangci-lint (.golangci-lint-version) and the Node major are not tracked by
+# Dependabot; .github/workflows/freshness.yml opens an issue when they fall behind.
+version: 2
+
+updates:
+  # App dependencies (go.mod) and dev tools (tools/go.mod) in one entry, so a
+  # module both use (ent, kin-openapi, x/tools) moves in both in one PR.
+  - package-ecosystem: gomod
+    directories:
+      - /
+      - /tools
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Ho_Chi_Minh
+    # Tool modules are "// indirect" in tools/go.mod and Dependabot skips
+    # indirect requirements by default (no tool-directive support yet:
+    # dependabot/dependabot-core#12050). "all" also refreshes the indirect
+    # requirements of go.mod.
+    allow:
+      - dependency-type: all
+    groups:
+      go:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
+    commit-message:
+      prefix: deps(go)
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Ho_Chi_Minh
+    groups:
+      actions:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: deps(actions)
+
+  # Dockerfile: golang builder and distroless runtime. A golang bump also needs
+  # the go directive in go.mod and tools/go.mod (TestGoVersionAgrees).
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Ho_Chi_Minh
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: deps(docker)
+
+  # compose.dev.yaml: dev Postgres. A bump also needs store.PostgresImage
+  # (TestPostgresImageMatchesCompose); a major also needs a dev volume reset.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Ho_Chi_Minh
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: deps(docker)

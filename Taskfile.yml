@@ -1,10 +1,12 @@
-# Build orchestration (ADR-0001). Tools are pinned in go.tool.mod; run
-# `go tool -modfile=go.tool.mod task <name>` if task is not installed.
+# Build orchestration (ADR-0001). Tools are pinned in tools/go.mod; run
+# `go tool -modfile=tools/go.mod task <name>` if task is not installed.
 version: "3"
 
 vars:
-  TOOL: go tool -modfile=go.tool.mod
-  GOLANGCI_LINT_VERSION: v2.15.0
+  TOOL: go tool -modfile=tools/go.mod
+  # Single source, also read by CI (golangci-lint-action version-file).
+  GOLANGCI_LINT_VERSION:
+    sh: cat .golangci-lint-version
   IMAGE: vaxbook:dev
 
 env:
@@ -34,7 +36,11 @@ tasks:
     desc: Fail if generated code or migrations are out of date (CI)
     cmds:
       - task: gen
-      - git diff --exit-code --stat -- apps/ contracts/ go.mod go.sum
+      - git diff --exit-code --stat -- apps/ contracts/ go.mod go.sum tools/go.mod tools/go.sum
+      # Dependabot tidies each module from its own directory; tools/go.mod is
+      # read through -modfile, so a root-level tidy would not check it.
+      - go mod tidy -diff
+      - cd tools && go mod tidy -diff
       - test -z "$(git status --porcelain -- apps/ contracts/)" || (git status --porcelain -- apps/ contracts/; echo "untracked generated files"; exit 1)
       - go run ./apps/api/internal/store/migrategen -check
 

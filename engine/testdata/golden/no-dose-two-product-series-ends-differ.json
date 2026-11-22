@@ -1,0 +1,88 @@
+{
+  "ruleset": "illustrative-products",
+  "input": {
+    "today": "2026-02-20",
+    "profile": {
+      "birth": {
+        "value": "2026-01",
+        "precision": "month"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-products-s3a",
+    "today": "2026-02-20",
+    "assessments": [
+      {
+        "disease": "rota",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "rota-rotarix",
+          "rota-rotateq"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "BIRTH_DATE_IMPRECISE",
+            "params": {
+              "hint": "fullBirthDate"
+            }
+          },
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "product": "rotarix",
+                  "series": "rota-rotarix"
+                },
+                {
+                  "product": "rotateq",
+                  "series": "rota-rotateq"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "disease": "pertussis",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "pertussis-primary",
+          "pertussis-pertu2"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "BIRTH_DATE_IMPRECISE",
+            "params": {
+              "hint": "fullBirthDate"
+            }
+          },
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "series": "pertussis-primary"
+                },
+                {
+                  "product": "pertu2",
+                  "series": "pertussis-pertu2"
+                }
+              ]
+            }
+          },
+          {
+            "code": "ALTERNATIVE_PLANS",
+            "params": {
+              "series": "pertussis-primary"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

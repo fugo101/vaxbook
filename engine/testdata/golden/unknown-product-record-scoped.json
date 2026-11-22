@@ -1,0 +1,78 @@
+{
+  "ruleset": "illustrative-products",
+  "input": {
+    "today": "2026-05-10",
+    "profile": {
+      "birth": {
+        "value": "2026-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "rota"
+        ],
+        "product": "rotavin",
+        "date": {
+          "value": "2026-03-01",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "pertussis"
+        ],
+        "product": "hexaxim",
+        "date": {
+          "value": "2026-03-01",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-products-s3a",
+    "today": "2026-05-10",
+    "assessments": [
+      {
+        "disease": "rota",
+        "bucket": "unknown",
+        "reasons": [
+          {
+            "code": "UNKNOWN_PRODUCT",
+            "params": {
+              "dose": "r1"
+            }
+          }
+        ]
+      },
+      {
+        "disease": "pertussis",
+        "bucket": "overdue",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-03-29",
+          "due": "2026-04-01",
+          "overdue": "2026-05-08"
+        },
+        "seriesUsed": [
+          "pertussis-primary"
+        ],
+        "products": [
+          "hexaxim"
+        ],
+        "reasons": [
+          {
+            "code": "ALTERNATIVE_PLANS",
+            "params": {
+              "series": "pertussis-primary"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

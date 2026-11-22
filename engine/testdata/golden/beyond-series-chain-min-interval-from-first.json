@@ -1,0 +1,109 @@
+{
+  "ruleset": "illustrative-vn",
+  "input": {
+    "today": "2026-10-01",
+    "profile": {
+      "birth": {
+        "value": "2010-05-20",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "hpv"
+        ],
+        "date": {
+          "value": "2026-01-10",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "hpv"
+        ],
+        "date": {
+          "value": "2026-05-20",
+          "precision": "day"
+        },
+        "doseNumbers": {
+          "hpv": 4
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-vn-s2",
+    "today": "2026-10-01",
+    "assessments": [
+      {
+        "disease": "pertussis",
+        "bucket": "overdue",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2010-07-01",
+          "due": "2010-07-20",
+          "overdue": "2010-07-27"
+        },
+        "seriesUsed": [
+          "pertussis-primary"
+        ],
+        "reasons": [
+          {
+            "code": "ALTERNATIVE_PLANS",
+            "params": {
+              "series": "pertussis-primary"
+            }
+          }
+        ]
+      },
+      {
+        "disease": "measles",
+        "bucket": "overdue",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2011-02-20",
+          "due": "2011-02-20",
+          "overdue": "2011-02-27"
+        },
+        "seriesUsed": [
+          "measles-primary"
+        ]
+      },
+      {
+        "disease": "hpv",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "hpv-generic"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "IMPLIED_EARLIER_DOSES",
+            "params": {
+              "numbers": [
+                2,
+                3
+              ]
+            }
+          },
+          {
+            "code": "DOSE_INVALID",
+            "params": {
+              "checks": [
+                "minInterval"
+              ],
+              "dose": "r2",
+              "number": 4
+            }
+          },
+          {
+            "code": "COMPLETE"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "version": "illustrative-products-s3a",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "rota",
+      "name": "Tiêu chảy do rotavirus"
+    },
+    {
+      "id": "pertussis",
+      "name": "Ho gà"
+    }
+  ],
+  "products": [
+    {
+      "id": "rotarix",
+      "name": "Rotarix",
+      "diseases": [
+        "rota"
+      ],
+      "live": true
+    },
+    {
+      "id": "rotateq",
+      "name": "RotaTeq",
+      "diseases": [
+        "rota"
+      ],
+      "live": true
+    },
+    {
+      "id": "rotasiil",
+      "name": "Rotasiil",
+      "diseases": [
+        "rota"
+      ],
+      "live": true
+    },
+    {
+      "id": "hexaxim",
+      "name": "Hexaxim",
+      "diseases": [
+        "pertussis"
+      ],
+      "live": false
+    },
+    {
+      "id": "pertu2",
+      "name": "Vắc xin ho gà minh hoạ 2 mũi",
+      "diseases": [
+        "pertussis"
+      ],
+      "live": false
+    }
+  ],
+  "series": [
+    {
+      "id": "rota-rotarix",
+      "disease": "rota",
+      "product": "rotarix",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rota-rotateq",
+      "disease": "rota",
+      "product": "rotateq",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P10W"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P6M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pertussis-primary",
+      "disease": "pertussis",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "p-2-3-4",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P3M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            }
+          ]
+        },
+        {
+          "id": "p-2-4-6",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P6M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pertussis-pertu2",
+      "disease": "pertussis",
+      "product": "pertu2",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P8W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

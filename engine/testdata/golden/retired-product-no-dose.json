@@ -1,0 +1,48 @@
+{
+  "ruleset": "minimal-retired-product",
+  "input": {
+    "today": "2026-02-12",
+    "profile": {
+      "birth": {
+        "value": "2026-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "minimal-retired-product-s3a",
+    "today": "2026-02-12",
+    "assessments": [
+      {
+        "disease": "rota",
+        "bucket": "due",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2026-02-12",
+          "due": "2026-03-01",
+          "overdue": "2026-03-08"
+        },
+        "seriesUsed": [
+          "rota-rotarix"
+        ],
+        "products": [
+          "rotarix"
+        ]
+      },
+      {
+        "disease": "hib",
+        "bucket": "due",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2026-02-12",
+          "due": "2026-03-01",
+          "overdue": "2026-03-08"
+        },
+        "seriesUsed": [
+          "hib-old-primary"
+        ]
+      }
+    ]
+  }
+}

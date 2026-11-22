@@ -4,7 +4,9 @@ version: "3"
 
 vars:
   TOOL: go tool -modfile=tools/go.mod
-  GOLANGCI_LINT_VERSION: v2.15.0
+  # Single source, also read by CI (golangci-lint-action version-file).
+  GOLANGCI_LINT_VERSION:
+    sh: cat .golangci-lint-version
   IMAGE: vaxbook:dev
 
 env:

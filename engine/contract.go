@@ -159,7 +159,7 @@ type Output struct {
 //
 // Bucket BucketUnknown always comes with a blocking reason, and a blocking
 // reason makes Bucket BucketUnknown unless a block of a higher precedence
-// layer wins over it (SAD §5.3 step 10, layers 1–5, none in S2); the
+// layer wins over it (SAD §5.3 step 10, layers 1–5, none in S3a); the
 // reasons it masks then stay in Reasons. Informational reasons never make
 // it ⚪ on their own.
 type Assessment struct {
@@ -211,7 +211,7 @@ const (
 // Block is a collapsed group outside the buckets.
 type Block string
 
-// Blocks (S2 subset).
+// Blocks (S3a subset).
 const (
 	// BlockNotYetScheduled is "Chưa tới lịch tiêm" ("Not yet scheduled"): no dose
 	// given and dose 1 due more than 6 months after today (EQ2, EQ18).

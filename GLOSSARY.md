@@ -63,12 +63,36 @@ A profile's "đang mang thai" ("pregnant") flag (with estimated delivery date) o
 A vaccine-preventable disease; the unit that series and assessments are computed per.
 
 **Product** — *Sản phẩm*:
-A specific commercial vaccine; it may protect against several diseases (combination vaccine dose).
+A specific commercial vaccine in the catalog; it may protect against several diseases (combination vaccine dose). It lists its diseases, carries a live-vaccine flag, and may be retired.
 _Avoid_: Vaccine (when you mean a specific product), Brand
+
+**Retired product** — UI label *"Không còn trong danh mục"* ("No longer in the catalog"):
+A product that is no longer given but stays in the catalog with its series. The engine treats a dose with it as a dose with an unknown product, and never offers it for a dose not yet given.
+_Avoid_: Deleted product, Discontinued product
+
+**Off-catalog product** — *Sản phẩm ngoài danh mục*:
+A product the user names in free text because it is not in the catalog. The engine reads only that one was named; a dose with it counts as a dose with an unknown product.
+_Avoid_: Unknown product (which also covers a dose with no product), Custom product
 
 **Series** — *Phác đồ*:
 A sequence of doses for one disease, optionally tied to one product and one start-age range.
 _Avoid_: Schedule, Regimen, Protocol
+
+**Generic series**:
+A series with no product: it applies to every product of its disease that has no series of its own.
+_Avoid_: Default series, General series
+
+**Product group**:
+The series of one disease that share one product, or the generic series of a disease. Start-age ranges tell the series of one group apart.
+_Avoid_: Product series (one series), Series family
+
+**Candidate series**:
+A series the engine still considers for one disease of a profile after reading the products of its dose records; with no dose given, every series except those of retired products.
+_Avoid_: Possible series, Matching series
+
+**Safest series**:
+The result over several candidate series: each date of the next dose takes its latest value among them, and the disease is complete only when every candidate is.
+_Avoid_: Strictest product, Worst case
 
 **Dose rule** — *Quy tắc mũi*:
 The conditions for one dose in a series: recommended milestone, minimum / maximum age, minimum interval, buffer, tolerance.

@@ -1,0 +1,84 @@
+{
+  "version": "minimal-crossed-candidates-s3a",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "duo",
+      "name": "Bệnh minh hoạ hai sản phẩm chéo"
+    }
+  ],
+  "products": [
+    {
+      "id": "vax-b",
+      "name": "Vắc xin minh hoạ B",
+      "diseases": [
+        "duo"
+      ],
+      "live": false
+    },
+    {
+      "id": "vax-a",
+      "name": "Vắc xin minh hoạ A",
+      "diseases": [
+        "duo"
+      ],
+      "live": false
+    }
+  ],
+  "series": [
+    {
+      "id": "duo-a",
+      "disease": "duo",
+      "product": "vax-a",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P8W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P3M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "duo-b",
+      "disease": "duo",
+      "product": "vax-b",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

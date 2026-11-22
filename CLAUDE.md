@@ -9,7 +9,7 @@
 
 ## Backend checks
 
-Run `go tool -modfile=go.tool.mod task gen:check lint test` (works without Task installed; `task test` also finds the Docker socket). Commands and setup: README › Backend development. Review rules: `CODING_STANDARDS.md`.
+Run `go tool -modfile=tools/go.mod task gen:check lint test` (works without Task installed; `task test` also finds the Docker socket). Commands and setup: README › Backend development. Review rules: `CODING_STANDARDS.md`.
 
 ## Agent skills
 

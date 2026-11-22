@@ -81,7 +81,7 @@ Single-level subdomains are used because Cloudflare's free SSL certificate cover
 vaxbook/
 ├── Taskfile.yml                 # build, gen, test, dev, release
 ├── go.mod                       # one Go module for the whole repo
-├── go.tool.mod                  # dev tools (oapi-codegen, ent, task) pinned apart from app deps
+├── tools/go.mod                 # dev tool requirements (oapi-codegen, ent, task), read via -modfile, apart from app deps
 ├── compose.dev.yaml             # local Postgres for `task run`
 ├── Dockerfile                   # single static binary on distroless, non-root
 ├── engine/                      # recommendation engine — pure Go, stdlib only, no I/O
@@ -113,7 +113,7 @@ vaxbook/
   - `e2e`: Playwright.
   - `migrate:diff`: generates migration files in goose format with the Atlas Go library (through ent's `NamedDiff`), against a throwaway Postgres started by testcontainers; no Atlas CLI or local database needed.
   - `gen:check`: CI drift check for generated code, migrations and `atlas.sum`.
-- **Tools** are pinned with `tool` directives in `go.tool.mod` and run as `go tool -modfile=go.tool.mod …`, so tool dependencies never bump app dependencies. golangci-lint is the exception (its project advises against `go tool`): `task lint` uses `go run …@<version>`, CI uses the official action at the same version. Lint loads only one platform's files, so both also lint `engine/` and `ruleset/` a second time as js/wasm, which puts the js-tagged WASM entry point under the stdlib-only rule.
+- **Tools** are pinned with `tool` directives in `tools/go.mod` (same module path as `go.mod`; `-modfile` swaps the requirement list) and run as `go tool -modfile=tools/go.mod …`, so tool dependencies never bump app dependencies. golangci-lint is the exception (its project advises against `go tool`): `task lint` uses `go run …@<version>`, CI uses the official action at the same version. Lint loads only one platform's files, so both also lint `engine/` and `ruleset/` a second time as js/wasm, which puts the js-tagged WASM entry point under the stdlib-only rule.
 
 ---
 
@@ -662,7 +662,7 @@ sequenceDiagram
 | Email | **resend-go v4.12** |
 | Web | **React 19.3.1**, **Vite 8.3**, **React Router 8.5** (Data mode), **TanStack Query 5.107**, **openapi-typescript 7.13 + openapi-fetch 0.17**, **vite-plugin-pwa 2.0**, `idb`, **Tailwind CSS 4 + shadcn/ui** |
 | Testing | Go `testing` + golden files, **testcontainers-go 0.45** (real Postgres: one migrated template database, one database per test); Vitest; Playwright |
-| Build | Node 26 (build only), **Taskfile 3.54** (pinned in `go.tool.mod`), **golangci-lint 2.15**, GitHub Actions, GHCR, release-please |
+| Build | Node 26 (build only), **Taskfile 3.54** (pinned in `tools/go.mod`), **golangci-lint 2.15**, GitHub Actions, GHCR, release-please |
 
 ---
 

@@ -20,9 +20,9 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: |
             go.sum
-            go.tool.sum
+            tools/go.sum
       - name: Generated code and migrations are up to date
-        run: go tool -modfile=go.tool.mod task gen:check
+        run: go tool -modfile=tools/go.mod task gen:check
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
@@ -41,7 +41,7 @@ jobs:
         with:
           node-version: '26'
       - name: Test
-        run: go tool -modfile=go.tool.mod task test
+        run: go tool -modfile=tools/go.mod task test
 
   image:
     name: Container image builds

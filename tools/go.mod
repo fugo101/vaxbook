@@ -1,8 +1,10 @@
-// Dev tools pinned for reproducible codegen, kept out of go.mod so tool
-// dependencies never bump app dependencies. Run through Taskfile, or:
-//   go tool -modfile=go.tool.mod <tool> ...
-// The module path must match go.mod: -modfile swaps the requirement list of
-// the root module, it does not create a separate module.
+// Dev tools (ent, oapi-codegen, task), kept apart from go.mod so tool
+// dependencies never bump app dependencies. Run them from the repository root
+// through Taskfile, or: go tool -modfile=tools/go.mod <tool> ...
+// The module path matches go.mod on purpose: -modfile swaps the requirement
+// list of the root module. Tidy from this directory (cd tools && go mod tidy),
+// as Dependabot does; `go mod tidy -modfile=tools/go.mod` from the root would
+// pull the app's dependencies in. task gen:check fails if it is not tidy.
 module github.com/fugo101/vaxbook
 
 go 1.27.4
@@ -11,13 +13,6 @@ tool (
 	entgo.io/ent/cmd/ent
 	github.com/go-task/task/v3/cmd/task
 	github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
-)
-
-require (
-	entgo.io/ent v0.14.6
-	github.com/getkin/kin-openapi v0.142.0
-	github.com/google/uuid v1.6.0
-	github.com/oapi-codegen/runtime v1.9.1
 )
 
 require (
@@ -33,6 +28,7 @@ require (
 	cloud.google.com/go/iam v1.14.0 // indirect
 	cloud.google.com/go/monitoring v1.31.0 // indirect
 	cloud.google.com/go/storage v1.65.1 // indirect
+	entgo.io/ent v0.14.6 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.38.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.62.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.62.0 // indirect
@@ -40,7 +36,6 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/alecthomas/chroma/v2 v2.27.0 // indirect
-	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.44.0 // indirect
@@ -85,6 +80,7 @@ require (
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
+	github.com/getkin/kin-openapi v0.142.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -96,6 +92,7 @@ require (
 	github.com/go-task/template v0.2.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.10 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.22 // indirect
 	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
 	github.com/hashicorp/aws-sdk-go-base/v2 v2.0.0-beta.74 // indirect

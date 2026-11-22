@@ -1,0 +1,53 @@
+{
+  "ruleset": "minimal-start-age-groups",
+  "input": {
+    "today": "2026-05-10",
+    "profile": {
+      "birth": {
+        "value": "2023",
+        "precision": "year"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "minimal-start-age-groups-s3b",
+    "today": "2026-05-10",
+    "assessments": [
+      {
+        "disease": "grp",
+        "bucket": "overdue",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2024-06-30",
+          "due": "2025-12-31",
+          "overdue": "2026-01-07"
+        },
+        "seriesUsed": [
+          "grp-gen-b",
+          "grp-x-a"
+        ],
+        "products": [
+          "grp-x"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "series": "grp-gen-b"
+                },
+                {
+                  "product": "grp-x",
+                  "series": "grp-x-a"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

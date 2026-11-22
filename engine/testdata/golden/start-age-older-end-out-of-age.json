@@ -1,0 +1,38 @@
+{
+  "ruleset": "illustrative-start-age",
+  "input": {
+    "today": "2026-06-30",
+    "profile": {
+      "birth": {
+        "value": "1980",
+        "precision": "year"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-start-age-s3b",
+    "today": "2026-06-30",
+    "assessments": [
+      {
+        "disease": "hpv",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "hpv-g9-15to45"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "BIRTH_DATE_IMPRECISE",
+            "params": {
+              "hint": "fullBirthDate"
+            }
+          },
+          {
+            "code": "OUT_OF_AGE"
+          }
+        ]
+      }
+    ]
+  }
+}

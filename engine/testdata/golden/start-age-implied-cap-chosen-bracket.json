@@ -1,0 +1,63 @@
+{
+  "ruleset": "illustrative-start-age",
+  "input": {
+    "today": "2026-11-10",
+    "profile": {
+      "birth": {
+        "value": "2012-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "hpv"
+        ],
+        "date": {
+          "value": "2022-01-01",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "hpv"
+        ],
+        "date": {
+          "precision": "unknown"
+        },
+        "doseNumbers": {
+          "hpv": 4
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-start-age-s3b",
+    "today": "2026-11-10",
+    "assessments": [
+      {
+        "disease": "hpv",
+        "bucket": "complete",
+        "seriesUsed": [
+          "hpv-g9-9to14"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "IMPLIED_EARLIER_DOSES",
+            "params": {
+              "numbers": [
+                2
+              ]
+            }
+          },
+          {
+            "code": "COMPLETE"
+          }
+        ]
+      }
+    ]
+  }
+}

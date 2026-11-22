@@ -1,0 +1,92 @@
+{
+  "version": "illustrative-start-age-s3b",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "hpv",
+      "name": "HPV"
+    }
+  ],
+  "products": [
+    {
+      "id": "gardasil9",
+      "name": "Gardasil 9",
+      "diseases": [
+        "hpv"
+      ],
+      "live": false
+    }
+  ],
+  "series": [
+    {
+      "id": "hpv-g9-9to14",
+      "disease": "hpv",
+      "product": "gardasil9",
+      "stage": "childhood",
+      "startAge": {
+        "min": "P9Y",
+        "max": "P15Y"
+      },
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P9Y",
+              "recommended": {
+                "from": "birth",
+                "offset": "P9Y"
+              }
+            },
+            {
+              "minInterval": "P5M",
+              "recommended": {
+                "from": "firstDose",
+                "offset": "P6M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hpv-g9-15to45",
+      "disease": "hpv",
+      "product": "gardasil9",
+      "stage": "adult",
+      "startAge": {
+        "min": "P15Y",
+        "max": "P46Y"
+      },
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P9Y",
+              "recommended": {
+                "from": "birth",
+                "offset": "P15Y"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "firstDose",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P12W",
+              "minIntervalFromFirst": "P5M",
+              "recommended": {
+                "from": "firstDose",
+                "offset": "P6M"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

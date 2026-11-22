@@ -1,0 +1,94 @@
+{
+  "version": "minimal-start-age-gap-s3b",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "gap",
+      "name": "Bệnh minh hoạ có khoảng trống độ tuổi"
+    }
+  ],
+  "series": [
+    {
+      "id": "gap-a",
+      "disease": "gap",
+      "stage": "childhood",
+      "startAge": {
+        "min": "P1Y",
+        "max": "P2Y"
+      },
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P1Y",
+              "recommended": {
+                "from": "birth",
+                "offset": "P1Y"
+              }
+            },
+            {
+              "minInterval": "P8W",
+              "recommended": {
+                "from": "previousDose",
+                "offset": "P2M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gap-b",
+      "disease": "gap",
+      "stage": "childhood",
+      "startAge": {
+        "min": "P3Y",
+        "max": "P5Y"
+      },
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P1Y",
+              "recommended": {
+                "from": "birth",
+                "offset": "P3Y"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "previousDose",
+                "offset": "P6M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gap-c",
+      "disease": "gap",
+      "stage": "childhood",
+      "startAge": {
+        "min": "P5Y"
+      },
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P1Y",
+              "recommended": {
+                "from": "birth",
+                "offset": "P5Y"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

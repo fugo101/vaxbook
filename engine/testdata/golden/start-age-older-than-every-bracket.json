@@ -1,0 +1,28 @@
+{
+  "ruleset": "illustrative-start-age",
+  "input": {
+    "today": "2026-11-10",
+    "profile": {
+      "birth": {
+        "value": "1976-05-01",
+        "precision": "day"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-start-age-s3b",
+    "today": "2026-11-10",
+    "assessments": [
+      {
+        "disease": "hpv",
+        "block": "outOfAge",
+        "reasons": [
+          {
+            "code": "OUT_OF_AGE"
+          }
+        ]
+      }
+    ]
+  }
+}

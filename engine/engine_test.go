@@ -662,10 +662,7 @@ func TestMergeMaskedByDoseInvalid(t *testing.T) {
 	dz := e.diseases[1]
 	doses := []givenDose{{id: "r1", date: Exact(d(t, "2026-03-01")), dated: true}, {id: "r2", date: Exact(d(t, "2026-04-01")), dated: true}}
 	cands := dz.candidates(doses, false)
-	ev := evaluation{dz: dz, cands: cands, today: d(t, "2026-04-20")}
-	for _, c := range cands {
-		ev.pls = append(ev.pls, dz.series[c].place(doses))
-	}
+	ev := dz.evaluate(arrange(doses), cands, d(t, "2026-04-20"), nil, false)
 	res := ev.at(birthEnd{date: d(t, "2026-01-01"), known: true})
 	want := NextDose{Number: 2, Earliest: d(t, "2026-05-27"), Due: d(t, "2026-05-27"), Overdue: d(t, "2026-06-03")}
 	if len(cands) != 2 || res.bucket != BucketUnknown || !res.hasNext || res.next != want || !slices.Equal(res.products, []string{"pertu2"}) {
@@ -706,10 +703,7 @@ func TestCandidateResultsKeptWhole(t *testing.T) {
 	dz := e.diseases[1]
 	doses := []givenDose{{id: "r1", date: Exact(d(t, "2026-03-01")), dated: true}, {id: "r2", date: Exact(d(t, "2026-04-01")), dated: true}}
 	cands := dz.candidates(doses, false)
-	ev := evaluation{dz: dz, cands: cands, today: d(t, "2026-04-20")}
-	for _, c := range cands {
-		ev.pls = append(ev.pls, dz.series[c].place(doses))
-	}
+	ev := dz.evaluate(arrange(doses), cands, d(t, "2026-04-20"), nil, false)
 	res := ev.at(birthEnd{date: d(t, "2026-01-01"), known: true})
 	pd := func(e, du, o string) planDates { return planDates{earliest: d(t, e), due: d(t, du), overdue: d(t, o)} }
 	want := []struct {

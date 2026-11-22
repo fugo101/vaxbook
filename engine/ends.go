@@ -16,6 +16,7 @@ type endResult struct {
 	reasons  []Reason
 	products []string          // the products for next; set with hasNext
 	cands    []candidateResult // per candidate series, for later merges (S4)
+	series   []int             // the end's candidate series, in rule-set order (seriesUsed)
 }
 
 // class is the result as the user sees it: ⚪ whenever a reason blocks, and
@@ -51,7 +52,11 @@ func distanceOnly(class string) bool {
 //
 // Otherwise the result is ⚪ BIRTH_DATE_IMPRECISE{hint} with no dates,
 // followed by the later end's reasons and then the older end's reasons that
-// are not already listed.
+// are not already listed. It keeps the later end's candidate series
+// (seriesUsed, issue #23 Q40) but not its products. When one end is
+// outOfAge and the other is not, the hint is fullBirthDate whatever the
+// birth precision (SAD §5.3 step 4: an end hits an age limit). Such ends
+// never agree: the outOfAge end has k 0 and the other k ≥ 1.
 func compareEnds(older, later endResult, hint Hint) endResult {
 	co, cl := older.class(), later.class()
 	agree := older.k == later.k &&
@@ -76,7 +81,10 @@ func compareEnds(older, later endResult, hint Hint) endResult {
 		}
 		return res
 	}
-	res := endResult{bucket: BucketUnknown, k: later.k}
+	if (older.block == BlockOutOfAge) != (later.block == BlockOutOfAge) {
+		hint = HintFullBirthDate
+	}
+	res := endResult{bucket: BucketUnknown, k: later.k, series: later.series}
 	for _, r := range slices.Concat([]Reason{{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: hint}}}, later.reasons, older.reasons) {
 		if k := reasonKey(r); !listed[k] {
 			listed[k] = true
@@ -87,12 +95,13 @@ func compareEnds(older, later endResult, hint Hint) endResult {
 }
 
 // bucketReason reports whether a reason describes one end's bucket: COMPLETE,
-// ON_TRACK, ALTERNATIVE_PLANS, PRODUCT_NOT_IN_CATALOG and SAFEST_SERIES. With
-// doses given, SAFEST_SERIES is emitted once before step 4 and is never in an
-// end's reasons.
+// ON_TRACK, ALTERNATIVE_PLANS, PRODUCT_NOT_IN_CATALOG, SAFEST_SERIES and
+// OUT_OF_AGE. With doses given, SAFEST_SERIES is emitted once before step 4
+// and is never in an end's reasons; with no dose given the ends can choose
+// different brackets, so each end's SAFEST_SERIES and OUT_OF_AGE can differ.
 func bucketReason(c ReasonCode) bool {
 	switch c {
-	case ReasonComplete, ReasonOnTrack, ReasonAlternativePlans, ReasonProductNotInCatalog, ReasonSafestSeries:
+	case ReasonComplete, ReasonOnTrack, ReasonAlternativePlans, ReasonProductNotInCatalog, ReasonSafestSeries, ReasonOutOfAge:
 		return true
 	}
 	return false

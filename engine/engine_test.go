@@ -557,9 +557,9 @@ func TestNewRejectsGoBuiltSnapshotWithBadSpan(t *testing.T) {
 	}
 }
 
-// TestNewRejectsUnsupportedShapes: S3a accepts several series per disease,
-// at most one per product group (issue #14); S3b tells the series of a
-// group apart by start age.
+// TestNewRejectsUnsupportedShapes: the only valid shape S3b cannot evaluate
+// is a disease with no series. S3a's limit of one series per product group
+// is gone: S3b tells the series of a group apart by start age (issue #23).
 func TestNewRejectsUnsupportedShapes(t *testing.T) {
 	t.Parallel()
 	const products = `"products": [{"id": "generic", "name": "G", "diseases": ["a"], "live": false}],`
@@ -573,13 +573,6 @@ func TestNewRejectsUnsupportedShapes(t *testing.T) {
 	for name, c := range map[string]struct{ snap, msg string }{
 		"disease without series": {`{"version": "v", "diseases": [{"id": "a", "name": "A"}], "series": []}`,
 			`disease "a" has no series`},
-		"two generic series": {`{"version": "v", "diseases": [{"id": "a", "name": "A"}], "series": [` + series("s1", "") + `, ` + series("s2", "") + `]}`,
-			`disease "a": more than one generic series`},
-		// "generic" is a valid product ID, so the generic group is never
-		// named by it.
-		"product group with two series": {`{"version": "v", "diseases": [{"id": "a", "name": "A"}], ` + products + ` "series": [` +
-			series("s1", "generic") + `, ` + series("s0", "") + `, ` + series("s2", "generic") + `]}`,
-			`disease "a": product "generic" has more than one series`},
 	} {
 		s, err := ruleset.Decode([]byte(c.snap))
 		if err != nil {
@@ -597,6 +590,50 @@ func TestNewRejectsUnsupportedShapes(t *testing.T) {
 	}
 	if _, err := New(s); err != nil {
 		t.Errorf("product and generic series: New error = %v", err)
+	}
+}
+
+// TestNewAcceptsBracketedGroups: a generic group and a product group, each
+// with several bracketed series, load (issue #23). "generic" is a valid
+// product ID, so the generic group is never named by it. The groups' series
+// are listed out of bracket order and interleaved.
+func TestNewAcceptsBracketedGroups(t *testing.T) {
+	t.Parallel()
+	series := func(id, product, startAge string) string {
+		p := ""
+		if product != "" {
+			p = `"product": "` + product + `", `
+		}
+		return `{"id": "` + id + `", "disease": "a", ` + p + `"stage": "childhood", "startAge": ` + startAge +
+			`, "plans": [{"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]}]}`
+	}
+	s, err := ruleset.Decode([]byte(`{"version": "v", "diseases": [{"id": "a", "name": "A"}], ` +
+		`"products": [{"id": "generic", "name": "G", "diseases": ["a"], "live": false}], "series": [` +
+		series("g-old", "", `{"min": "P5Y"}`) + `, ` + series("p-young", "generic", `{"min": "P0D", "max": "P1Y"}`) + `, ` +
+		series("g-young", "", `{"min": "P0D", "max": "P2Y"}`) + `, ` + series("p-old", "generic", `{"min": "P1Y", "max": "P10Y"}`) + `, ` +
+		series("g-mid", "", `{"min": "P2Y", "max": "P5Y"}`) + `]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := ruleset.Validate(s); len(p) > 0 {
+		t.Fatalf("Validate = %v", p)
+	}
+	e, err := New(s)
+	if err != nil {
+		t.Fatalf("New error = %v", err)
+	}
+	dz := e.diseases[0]
+	var order [][]string
+	for _, g := range dz.groups {
+		var ids []string
+		for _, i := range g.series {
+			ids = append(ids, dz.series[i].id)
+		}
+		order = append(order, ids)
+	}
+	// Groups in rule-set order of their first series; series by min.
+	if want := [][]string{{"g-young", "g-mid", "g-old"}, {"p-young", "p-old"}}; !reflect.DeepEqual(order, want) {
+		t.Errorf("groups %v, want %v", order, want)
 	}
 }
 

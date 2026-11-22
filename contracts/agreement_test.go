@@ -186,6 +186,9 @@ var mutations = []mutation{
 	// A fraction within float64 rounding of an integer is not an integer.
 	numberMutation("1.0000000000000001"),
 	numberMutation("20e-1"),
+	// A long mantissa that its exponent cancels out is an integer (1).
+	numberMutation("1" + strings.Repeat("0", 1001) + "e-1001"),
+	numberMutation("1" + strings.Repeat("0", 1001) + "e-1002"),
 }
 
 func isNumber(v any) bool { _, ok := v.(json.Number); return ok }

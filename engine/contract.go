@@ -104,8 +104,13 @@ func parseIntegral(s string) (int64, bool) {
 	exp := 0
 	if exponent != "" {
 		e, err := strconv.Atoi(strings.TrimPrefix(exponent, "+"))
-		if err != nil || e < -1000 || e > 1000 {
-			return 0, false // a nonzero value this far from 1 is a fraction or too large
+		// The value is digits × 10^(e − fraction + trailing zeros), with
+		// fraction and trailing zeros each at most len(s). Below −len(s) it
+		// is a fraction; above len(s) + 16 it has more than 16 digits. An
+		// exponent Atoi cannot parse is beyond both. The bounds also keep
+		// the arithmetic below from overflowing.
+		if err != nil || e < -len(s) || e > len(s)+16 {
+			return 0, false
 		}
 		exp = e
 	}

@@ -82,13 +82,20 @@ func TestFixtureRuleSetsMatchSchema(t *testing.T) {
 	}
 }
 
-// The rejected snapshots are shape-valid: only ruleset.Validate rejects them.
+// The rejected snapshots are shape-valid, so only ruleset.Validate rejects
+// them, except those named reject-schema-*: they break a schema keyword that
+// Validate mirrors (minLength, uniqueItems, the Id pattern), and the schema
+// must reject them too (R1).
 func TestRejectedRuleSetsMatchSchema(t *testing.T) {
 	t.Parallel()
 	snap := compile(t, "Snapshot")
 	for _, f := range glob(t, "../ruleset/testdata/validate/*.json") {
 		doc, _ := readJSON(t, f).(map[string]any)
-		if err := snap.Validate(doc["snapshot"]); err != nil {
+		err := snap.Validate(doc["snapshot"])
+		switch schemaOnly := strings.HasPrefix(filepath.Base(f), "reject-schema-"); {
+		case schemaOnly && err == nil:
+			t.Errorf("%s: the schema accepts a snapshot named reject-schema-*", f)
+		case !schemaOnly && err != nil:
 			t.Errorf("%s: %v", f, err)
 		}
 	}
@@ -152,6 +159,12 @@ func TestSchemaRejects(t *testing.T) {
 		"repeated overlapping dose": {"ReasonParams", `{"doses": ["r1", "r1"]}`},
 		"no implied numbers":        {"ReasonParams", `{"numbers": []}`},
 		"implied number zero":       {"ReasonParams", `{"numbers": [0]}`},
+		"product without live":      {"Product", `{"id": "p", "name": "P", "diseases": ["a"]}`},
+		"product live as a string":  {"Product", `{"id": "p", "name": "P", "diseases": ["a"], "live": "true"}`},
+		"product without diseases":  {"Product", `{"id": "p", "name": "P", "diseases": [], "live": false}`},
+		"product repeated disease":  {"Product", `{"id": "p", "name": "P", "diseases": ["a", "a"], "live": false}`},
+		"product empty name":        {"Product", `{"id": "p", "name": "", "diseases": ["a"], "live": false}`},
+		"series product not an id":  {"Series", `{"id": "s", "disease": "a", "product": "Bad", "stage": "childhood", "plans": [{"id": "p", "doses": [{"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}}]}]}`},
 	}
 	for name, c := range cases {
 		v, err := jsonschema.UnmarshalJSON(strings.NewReader(c.doc))
@@ -250,6 +263,7 @@ func TestSchemaMatchesStructs(t *testing.T) {
 	types := map[string]reflect.Type{
 		"Snapshot":     reflect.TypeFor[ruleset.Snapshot](),
 		"Disease":      reflect.TypeFor[ruleset.Disease](),
+		"Product":      reflect.TypeFor[ruleset.Product](),
 		"Series":       reflect.TypeFor[ruleset.Series](),
 		"Plan":         reflect.TypeFor[ruleset.Plan](),
 		"DoseRule":     reflect.TypeFor[ruleset.DoseRule](),

@@ -1,0 +1,51 @@
+{
+  "snapshot": {
+    "version": "validate-series-product-empty",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ A"
+      }
+    ],
+    "products": [
+      {
+        "id": "p",
+        "name": "Vắc xin minh hoạ P",
+        "diseases": [
+          "a"
+        ],
+        "live": false
+      }
+    ],
+    "series": [
+      {
+        "id": "a-p",
+        "disease": "a",
+        "product": "",
+        "stage": "childhood",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P2M"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "REQUIRED",
+      "severity": "reject",
+      "path": "/series/0/product"
+    }
+  ]
+}

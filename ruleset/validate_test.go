@@ -160,6 +160,107 @@ func TestValidateProblems(t *testing.T) {
 	}
 }
 
+// productCase has two diseases, a product catalog, a product series and a
+// generic series; individual cases break it (issue #14).
+const productCase = `{
+  "version": "v1",
+  "diseases": [{"id": "d", "name": "D"}, {"id": "e", "name": "E"}],
+  "products": [
+    {"id": "p", "name": "P", "diseases": ["d"], "live": true},
+    {"id": "q", "name": "Q", "diseases": ["d", "e"], "live": false, "retired": true}
+  ],
+  "series": [
+    {"id": "s", "disease": "d", "product": "p", "stage": "childhood",
+     "plans": [{"id": "p1", "doses": [{"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}}]}]},
+    {"id": "t", "disease": "e", "stage": "childhood",
+     "plans": [{"id": "p1", "doses": [{"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}}]}]}
+  ]
+}`
+
+func TestValidateProducts(t *testing.T) {
+	t.Parallel()
+	reject := func(code ProblemCode, path string, params ProblemParams) Problem {
+		return Problem{Code: code, Severity: Reject, Path: path, Params: params}
+	}
+	cases := []struct {
+		name, old, new string
+		want           []Problem
+	}{
+		{"valid", "", "", nil},
+		// A catalog product needs no series of its own (rotasiil, A2), and
+		// a product group may hold several series until S3b (engine.New
+		// rejects them).
+		{"product without series", `"id": "q", "name": "Q", "diseases": ["d", "e"]`, `"id": "q", "name": "Q", "diseases": ["e"]`, nil},
+		{"product group with two series", `{"id": "t", "disease": "e", "stage"`, `{"id": "t", "disease": "d", "product": "p", "stage"`, nil},
+		{"missing product id", `"id": "p", "name": "P"`, `"id": "", "name": "P"`,
+			[]Problem{
+				reject(Required, "/products/0/id", ProblemParams{}),
+				reject(UnknownReference, "/series/0/product", ProblemParams{Product: "p"}),
+			}},
+		{"invalid product id", `"id": "q", "name": "Q"`, `"id": "Q!", "name": "Q"`,
+			[]Problem{reject(InvalidValue, "/products/1/id", ProblemParams{Value: "Q!"})}},
+		{"repeated product id", `"id": "q", "name": "Q"`, `"id": "p", "name": "Q"`,
+			[]Problem{reject(DuplicateID, "/products/1/id", ProblemParams{ID: "p"})}},
+		{"empty product name", `"name": "P"`, `"name": ""`,
+			[]Problem{reject(Required, "/products/0/name", ProblemParams{})}},
+		{"product without diseases", `"diseases": ["d", "e"]`, `"diseases": []`,
+			[]Problem{reject(Empty, "/products/1/diseases", ProblemParams{})}},
+		{"product with an unknown disease", `"diseases": ["d", "e"]`, `"diseases": ["d", "x"]`,
+			[]Problem{reject(UnknownReference, "/products/1/diseases/1", ProblemParams{Disease: "x"})}},
+		{"product with an empty disease", `"diseases": ["d", "e"]`, `"diseases": ["d", ""]`,
+			[]Problem{reject(Required, "/products/1/diseases/1", ProblemParams{})}},
+		{"product repeats a disease", `"diseases": ["d", "e"]`, `"diseases": ["d", "e", "d"]`,
+			[]Problem{reject(DuplicateValue, "/products/1/diseases/2", ProblemParams{Disease: "d"})}},
+		{"empty series product", `"product": "p"`, `"product": ""`,
+			[]Problem{reject(Required, "/series/0/product", ProblemParams{})}},
+		{"invalid series product", `"product": "p"`, `"product": "P!"`,
+			[]Problem{reject(InvalidValue, "/series/0/product", ProblemParams{Value: "P!"})}},
+		{"unknown series product", `"product": "p"`, `"product": "z"`,
+			[]Problem{reject(UnknownReference, "/series/0/product", ProblemParams{Product: "z"})}},
+		{"series product does not list the disease", `{"id": "t", "disease": "e", "stage"`, `{"id": "t", "disease": "e", "product": "p", "stage"`,
+			[]Problem{reject(ProductDiseaseMismatch, "/series/1/product", ProblemParams{Disease: "e", Product: "p"})}},
+		// A retired product still names its series' product.
+		{"series of a retired product", `{"id": "t", "disease": "e", "stage"`, `{"id": "t", "disease": "e", "product": "q", "stage"`, nil},
+		// An unknown series disease is reported once; the product is not
+		// also a mismatch.
+		{"series with an unknown disease", `"disease": "d", "product": "p"`, `"disease": "x", "product": "p"`,
+			[]Problem{reject(UnknownReference, "/series/0/disease", ProblemParams{Disease: "x"})}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := strings.Replace(productCase, tc.old, tc.new, 1)
+			if tc.old != "" && in == productCase {
+				t.Fatalf("case did not change the snapshot")
+			}
+			if got := Validate(mustDecode(t, in)); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Validate =\n  %v\nwant\n  %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// Product and Series.product decode a present empty string as such, so
+// Validate sees it (a plain omitzero string could not).
+func TestDecodeProductMembers(t *testing.T) {
+	t.Parallel()
+	s := mustDecode(t, strings.Replace(productCase, `"product": "p"`, `"product": ""`, 1))
+	if s.Series[0].Product == nil || *s.Series[0].Product != "" {
+		t.Errorf("series product = %v, want a present empty string", s.Series[0].Product)
+	}
+	if s.Series[1].Product != nil {
+		t.Errorf("generic series product = %q, want absent", *s.Series[1].Product)
+	}
+	if _, err := Decode([]byte(strings.Replace(productCase, `"live": true`, `"live": "true"`, 1))); err == nil {
+		t.Error("Decode accepted a string live flag")
+	}
+	var se *contractjson.Error
+	if _, err := Decode([]byte(strings.Replace(productCase, `, "live": true`, ``, 1))); !errors.As(err, &se) ||
+		se.Kind != contractjson.KindMissing || se.Pointer != "/products/0/live" {
+		t.Errorf("Decode without live: %v, want missing /products/0/live", err)
+	}
+}
+
 func TestValidateSeriesWithoutPlans(t *testing.T) {
 	t.Parallel()
 	in := `{"version": "v1", "diseases": [{"id": "d", "name": "D"}],

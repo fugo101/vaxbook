@@ -175,6 +175,10 @@ func TestSchemaRejects(t *testing.T) {
 		"product without diseases":  {"Product", `{"id": "p", "name": "P", "diseases": [], "live": false}`},
 		"product repeated disease":  {"Product", `{"id": "p", "name": "P", "diseases": ["a", "a"], "live": false}`},
 		"product empty name":        {"Product", `{"id": "p", "name": "", "diseases": ["a"], "live": false}`},
+		"out of age with next dose": {"Assessment", `{"disease": "a", "block": "outOfAge", "nextDose": {"number": 1, "earliest": "2026-01-01", "due": "2026-01-01", "overdue": "2026-01-08"}}`},
+		"start age without min":     {"StartAge", `{"max": "P15Y"}`},
+		"start age bad span":        {"StartAge", `{"min": "9y"}`},
+		"start age unknown member":  {"StartAge", `{"min": "P9Y", "upTo": "P15Y"}`},
 		"series product not an id":  {"Series", `{"id": "s", "disease": "a", "product": "Bad", "stage": "childhood", "plans": [{"id": "p", "doses": [{"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}}]}]}`},
 	}
 	for name, c := range cases {

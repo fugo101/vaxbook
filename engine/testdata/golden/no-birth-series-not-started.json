@@ -1,0 +1,48 @@
+{
+  "ruleset": "illustrative-vn",
+  "input": {
+    "today": "2026-05-01",
+    "profile": {
+      "birth": {
+        "precision": "none"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-vn-s2",
+    "today": "2026-05-01",
+    "assessments": [
+      {
+        "disease": "pertussis",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "NO_BIRTH_DATE"
+          }
+        ]
+      },
+      {
+        "disease": "measles",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "NO_BIRTH_DATE"
+          }
+        ]
+      },
+      {
+        "disease": "hpv",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "NO_BIRTH_DATE"
+          }
+        ]
+      }
+    ]
+  }
+}

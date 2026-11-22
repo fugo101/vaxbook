@@ -171,6 +171,30 @@ var mutations = []mutation{
 	stringMutation("10/02/2026"),
 	stringMutation("P06W"),
 	stringMutation("P1000D"),
+	stringMutation("2026-03"),
+	stringMutation("2026-13"),
+	stringMutation("2026"),
+	// JSON Schema's "integer" is a mathematical integer, so 1.0 and 1e0
+	// are schema-valid dose numbers that the decoder must accept (I1).
+	numberMutation("1.0"),
+	numberMutation("1e0"),
+	numberMutation("2.5"),
+	numberMutation("-1"),
+	numberMutation("1000"),
+	numberMutation("2147483648"),
+	numberMutation("1e300"),
+	// A fraction within float64 rounding of an integer is not an integer.
+	numberMutation("1.0000000000000001"),
+	numberMutation("20e-1"),
+	// A long mantissa that its exponent cancels out is an integer (1).
+	numberMutation("1" + strings.Repeat("0", 1001) + "e-1001"),
+	numberMutation("1" + strings.Repeat("0", 1001) + "e-1002"),
+}
+
+func isNumber(v any) bool { _, ok := v.(json.Number); return ok }
+
+func numberMutation(n string) mutation {
+	return mutation{"replace with " + n, isNumber, func(any) (any, bool) { return json.Number(n), true }}
 }
 
 // forEachMutation calls f with the unchanged document and then with every

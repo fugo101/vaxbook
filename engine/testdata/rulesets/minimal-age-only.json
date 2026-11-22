@@ -1,0 +1,45 @@
+{
+  "version": "minimal-age-only-s2",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "ageonly",
+      "name": "Bệnh minh hoạ mũi chỉ có tuổi tối thiểu"
+    }
+  ],
+  "series": [
+    {
+      "id": "ageonly-series",
+      "disease": "ageonly",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minAge": "P4M",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P6M"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

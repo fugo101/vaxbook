@@ -1,5 +1,5 @@
 {
-  "version": "illustrative-vn-s1",
+  "version": "illustrative-vn-s2",
   "illustrative": true,
   "diseases": [
     {
@@ -9,6 +9,10 @@
     {
       "id": "measles",
       "name": "Sởi"
+    },
+    {
+      "id": "hpv",
+      "name": "HPV"
     }
   ],
   "series": [
@@ -91,6 +95,40 @@
               "recommended": {
                 "from": "birth",
                 "offset": "P18M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hpv-generic",
+      "disease": "hpv",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "p-0-2-6",
+          "doses": [
+            {
+              "minAge": "P9Y",
+              "recommended": {
+                "from": "birth",
+                "offset": "P9Y"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "firstDose",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P12W",
+              "minIntervalFromFirst": "P5M",
+              "recommended": {
+                "from": "firstDose",
+                "offset": "P6M"
               }
             }
           ]

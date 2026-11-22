@@ -1,57 +1,466 @@
 package engine
 
-// walk validates the doses in time order (SAD §5.3 step 5) and returns the
-// counted doses and a DOSE_INVALID reason per dose that is not counted.
-//
-// A dose is checked for the next free position. It is valid when it meets
-// the minimums of that position in at least one plan; the plan is never
-// inferred (A7). The minimum interval is measured to the dose adjacent in
-// time, counted or not, never to dose j−2 (A4). Doses past the end of the
-// series are ignored in S1.
-func (s seriesModel) walk(birth Date, doses []givenDose) (counted []givenDose, reasons []Reason) {
-	var prev *givenDose // the dose before g in time, counted or not
-	for i := range doses {
-		g, before := doses[i], prev
-		prev = &doses[i]
-		pos := len(counted) + 1
-		if pos > s.length {
-			continue
-		}
-		failed := s.check(pos, birth, g.date, before)
-		if len(failed) == 0 {
-			counted = append(counted, g)
-			continue
-		}
-		reasons = append(reasons, Reason{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: failed, Dose: g.id, Number: pos}})
-	}
-	return counted, reasons
+import "slices"
+
+// birthEnd is the birth date used by one evaluation of steps 5–9: one end of
+// the birth-date range (SAD §5.3 step 4), or no birth date (known false,
+// EQ19), in which case no age-based step runs.
+type birthEnd struct {
+	date  Date
+	known bool
 }
 
-// check returns nil when a dose on date meets the minimums of position pos in
-// some plan, otherwise the union over plans of the failed checks, in catalog
-// order.
+// verdict is the outcome of a dose-validity check over date ranges.
+type verdict uint8
+
+const (
+	verdictOK       verdict = iota // met at every end of the ranges
+	verdictPossible                // violated at one end only: DOSE_POSSIBLY_INVALID
+	verdictDefinite                // violated at every end: DOSE_INVALID
+)
+
+// against checks a dose range x against a minimum. definite is the minimum
+// at the end of the other range most favourable to x, possible the minimum
+// at its least favourable end; for exact dates they are equal. Minimums are
+// inclusive.
+func against(x Range, definite, possible Date) verdict {
+	switch {
+	case x.Hi.Before(definite):
+		return verdictDefinite
+	case x.Lo.Before(possible):
+		return verdictPossible
+	}
+	return verdictOK
+}
+
+// item is one dose in the walk sequence: a dated dose, or an undated slot
+// (a level-4 dose with a position, or an implied dose with id "").
+type item struct {
+	pos     int
+	dose    givenDose
+	counted bool
+}
+
+// walkResult is steps 5 and 6 at one birth end.
+type walkResult struct {
+	seq      []item // in time order; undated slots sit where their positions put them
+	reasons  []Reason
+	floating []givenDose
+	k        int // next dose number: highest counted position + floating doses + 1
+}
+
+// walk validates the doses (SAD §5.3 step 5, F05.10) at one birth end.
 //
-// Only a definite violation fails: the latest possible dose date is before
-// the minimum. For exact dates (S1) this is the plain comparison; minimums
-// are inclusive.
-func (s seriesModel) check(pos int, birth Date, date Range, prev *givenDose) []Check {
-	var age, interval bool
+// The dated doses are walked in placement order. A dose with a user-entered
+// number takes that position; any other dose takes the next free position
+// after the last one reached, skipping the undated slots, which are inserted
+// in front of the first dose that passes them. As in S1, an unnumbered dose
+// that is DOSE_INVALID does not advance the position, so the next dose is
+// checked for the same position.
+//
+// A dose meets a position when some plan's minimums all hold (A7). The
+// minimum interval is measured to the dose adjacent in time, counted or not,
+// never to dose j−2 (A4): to a dated predecessor P, the dose range R is
+// definitely invalid when R.Hi < P.Lo + minInterval and possibly invalid
+// when R.Lo < P.Hi + minInterval. Behind undated slots the interval is
+// waived (INTERVAL_UNVERIFIABLE) and replaced by the feasibility of the
+// slots (chain). The minimum age is checked when the birth date is known.
+// minIntervalFromFirst is checked against dose 1: a counted dated dose, or
+// an undated slot at its earliest dates, so that a dose that no placement
+// of dose 1 allows is DOSE_INVALID.
+//
+// Doses beyond the series length are not checked and not counted, but stay
+// in the sequence as the dose adjacent in time (S1). The undated slots
+// before such a dose must still fit before it.
+//
+// The floating level-4 doses have no position: they are counted when some
+// placement among the dated doses fits (checkFloating).
+func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
+	w := s.walkWith(b, today, pl, nil)
+	w.floating = pl.floating
+	s.checkFloating(&w, b, today, pl)
+	highest := 0
+	for _, it := range w.seq {
+		if it.counted && it.pos <= s.length {
+			highest = max(highest, it.pos)
+		}
+	}
+	w.k = highest + len(w.floating) + 1
+	return w
+}
+
+// walkWith is the walk of steps 5 and 6 with the floating doses ins[i]
+// inserted as undated slots in front of dated dose i, and ins[len(pl.dated)]
+// after the last dated dose and the undated slots of the placement. An
+// inserted dose takes the next free position; one beyond the series length
+// is not checked. ins nil walks the placement alone.
+func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]givenDose) walkResult {
+	var w walkResult
+	last := 0 // the highest position reached
+	taken := make(map[int]bool, len(pl.fixed))
+	for q := range pl.fixed {
+		taken[q] = true
+	}
+	// first is dose 1: the counted dated dose at position 1, or, when
+	// position 1 is an undated slot, the earliest dates that slot can have
+	// (chain), so that minIntervalFromFirst is checked against the most
+	// favourable placement of dose 1 (EQ20b).
+	var first *Range
+	appendSlot := func(it item) {
+		if it.pos == 1 {
+			from, _ := w.tail()
+			if lo, hi, bounded := s.chain(b, from, []item{it}, nil); bounded {
+				first = &Range{Lo: lo, Hi: hi}
+			}
+		}
+		w.seq = append(w.seq, it)
+		last = it.pos
+	}
+	insertSlots := func(below int) {
+		for q := last + 1; q < below && q <= s.length; q++ {
+			if g, ok := pl.fixed[q]; ok {
+				appendSlot(item{pos: q, dose: g, counted: true})
+			}
+		}
+	}
+	insertFloating := func(i int) {
+		if ins == nil {
+			return
+		}
+		for _, g := range ins[i] {
+			q := nextFree(last, taken)
+			insertSlots(q)
+			if q > s.length {
+				last = q
+				continue
+			}
+			appendSlot(item{pos: q, dose: g, counted: true})
+		}
+	}
+	for i, g := range pl.dated {
+		insertFloating(i)
+		pos := g.number
+		if pos == 0 {
+			pos = nextFree(last, taken)
+		}
+		insertSlots(pos)
+		from, run := w.tail()
+		it := item{pos: pos, dose: g}
+		if pos > s.length {
+			// Not checked itself, but the undated slots before it must fit
+			// on or before it; when they do not, it carries the chain
+			// failure, as a dated dose after the run in the series does.
+			if len(run) > 0 {
+				if best, worst, bounded := s.chain(b, from, run, first); bounded {
+					switch against(g.date, best, worst) {
+					case verdictDefinite:
+						w.reasons = append(w.reasons, Reason{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: []Check{CheckMinInterval}, Dose: g.id, Number: pos}})
+					case verdictPossible:
+						w.reasons = append(w.reasons, Reason{Code: ReasonDosePossiblyInvalid, Params: ReasonParams{Checks: []Check{CheckMinInterval}, Dose: g.id, Number: pos}})
+					}
+				}
+			}
+			w.seq = append(w.seq, it)
+			if g.number > 0 {
+				last = max(last, pos)
+			}
+			continue
+		}
+		v, checks := s.check(pos, b, g.date, from, run, first)
+		switch {
+		case v == verdictDefinite:
+			w.reasons = append(w.reasons, Reason{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: checks, Dose: g.id, Number: pos}})
+		case v == verdictPossible:
+			w.reasons = append(w.reasons, Reason{Code: ReasonDosePossiblyInvalid, Params: ReasonParams{Checks: checks, Dose: g.id, Number: pos}})
+			it.counted = true
+		case len(run) > 0 && s.hasInterval(pos):
+			w.reasons = append(w.reasons, Reason{Code: ReasonIntervalUnverifiable, Params: ReasonParams{Dose: g.id, Number: pos}})
+			it.counted = true
+		default:
+			it.counted = true
+		}
+		if it.counted || g.number > 0 {
+			last = max(last, pos)
+		}
+		if it.counted && pos == 1 {
+			first = &g.date
+		}
+		w.seq = append(w.seq, it)
+	}
+	insertSlots(s.length + 1)
+	insertFloating(len(pl.dated))
+	w.checkTrailing(s, b, today, first, pl.beyond)
+	return w
+}
+
+// checkFloating checks that the floating level-4 doses fit among the dated
+// doses (F05.10, EQ20: no feasible placement → DOSE_INVALID). Only as many
+// of them as the series still needs are placed, the last ones by ID. A
+// placement puts each of them in front of a counted dated dose that has no
+// number and no numbered dated dose after it (moving that dose and the ones
+// after it up one position), or after every dated dose and undated slot. It
+// fits when its walk has no DOSE_INVALID on a record the walk without them
+// has none on: the dated doses still meet their (possibly moved) positions,
+// the slots fit before the dated dose after them, and the last dose fits by
+// today. An uncounted dated dose has no position, so no placement is tried
+// in front of one; trying fewer placements can only report more
+// DOSE_INVALID (P1).
+//
+// When no placement fits, the last floating dose by ID is DOSE_INVALID, not
+// counted, with the position and checks it fails when all of them are
+// placed after the last dated dose (checked like a dose given today, as a
+// trailing slot is).
+func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl placement) {
+	counted := 0
+	movable := map[string]bool{}
+	for _, it := range w.seq {
+		if it.counted && it.pos <= s.length {
+			counted++
+			if it.dose.dated && it.dose.number == 0 {
+				movable[it.dose.id] = true
+			}
+		}
+	}
+	if len(w.floating) == 0 || counted >= s.length {
+		return
+	}
+	fl := w.floating[len(w.floating)-min(len(w.floating), s.length-counted):]
+	invalid := map[string]bool{}
+	for _, r := range w.reasons {
+		if r.Code == ReasonDoseInvalid {
+			invalid[r.Params.Dose] = true
+		}
+	}
+	newInvalid := func(r walkResult) (Reason, bool) {
+		for _, x := range r.reasons {
+			if x.Code == ReasonDoseInvalid && !invalid[x.Params.Dose] {
+				return x, true
+			}
+		}
+		return Reason{}, false
+	}
+
+	n := len(pl.dated)
+	ins := make([][]givenDose, n+1)
+	ins[n] = fl
+	failed, ok := newInvalid(s.walkWith(b, today, pl, ins))
+	if !ok {
+		return
+	}
+	// The insertion points, ascending: in front of the movable dated doses
+	// after the last numbered one, then after everything.
+	var points []int
+	for i := n - 1; i >= 0 && pl.dated[i].number == 0; i-- {
+		if movable[pl.dated[i].id] {
+			points = append(points, i)
+		}
+	}
+	slices.Reverse(points)
+	points = append(points, n)
+	// Every way to share the doses (in ID order) among the points, except
+	// all of them after everything, which was tried above.
+	var try func(p int, rest []givenDose) bool
+	try = func(p int, rest []givenDose) bool {
+		if p == len(points)-1 {
+			if len(rest) == len(fl) {
+				return false
+			}
+			ins[n] = rest
+			_, bad := newInvalid(s.walkWith(b, today, pl, ins))
+			return !bad
+		}
+		for c := len(rest); c >= 0; c-- {
+			ins[points[p]] = rest[:c]
+			if try(p+1, rest[c:]) {
+				return true
+			}
+		}
+		ins[points[p]] = nil
+		return false
+	}
+	clear(ins)
+	if try(0, fl) {
+		return
+	}
+	w.reasons = append(w.reasons, failed)
+	w.floating = slices.DeleteFunc(slices.Clone(w.floating), func(g givenDose) bool { return g.id == failed.Params.Dose })
+}
+
+// tail returns the dated dose before the undated slots at the end of the
+// sequence (nil if there is none) and those slots.
+func (w *walkResult) tail() (from *Range, run []item) {
+	j := len(w.seq)
+	for j > 0 && !w.seq[j-1].dose.dated {
+		j--
+	}
+	if j > 0 {
+		from = &w.seq[j-1].dose.date
+	}
+	return from, w.seq[j:]
+}
+
+// checkTrailing checks that the undated slots after the last dated dose can
+// lie on or before today. The last of them is checked like a dose given
+// today (check), with the slots before it as its run: when even its
+// earliest placement is after today it is DOSE_INVALID (not counted), and
+// when only the placement from the latest end of the ranges is, it is
+// DOSE_POSSIBLY_INVALID. Its checks name the minimums that push it past
+// today; a failure of the chain before it is minInterval.
+//
+// When the last trailing slot is an implied dose, the record whose number
+// implies it is a level-4 dose beyond the series (an in-series or dated
+// record would follow it). The lowest such record carries the reason, with
+// its number, and the implied doses stay counted.
+func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first *Range, beyond []givenDose) {
+	from, run := w.tail()
+	if len(run) == 0 {
+		return
+	}
+	lastSlot := &w.seq[len(w.seq)-1]
+	carrier, number := lastSlot.dose.id, lastSlot.pos
+	if carrier == "" {
+		if len(beyond) == 0 {
+			return
+		}
+		carrier, number = beyond[0].id, beyond[0].number
+	}
+	v, checks := s.check(lastSlot.pos, b, Range{Lo: today, Hi: today}, from, run[:len(run)-1], first)
+	if v == verdictOK {
+		return
+	}
+	code := ReasonDosePossiblyInvalid
+	if v == verdictDefinite {
+		code = ReasonDoseInvalid
+		if lastSlot.dose.id != "" {
+			lastSlot.counted = false
+		}
+	}
+	w.reasons = append(w.reasons, Reason{Code: code, Params: ReasonParams{Checks: checks, Dose: carrier, Number: number}})
+}
+
+// hasInterval reports whether some plan has a minimum interval for position
+// pos, so that an undated predecessor leaves something unverified.
+func (s seriesModel) hasInterval(pos int) bool {
+	return slices.ContainsFunc(s.plans, func(p planModel) bool { return p.doses[pos-1].minInterval.ok })
+}
+
+// check returns the verdict of a dose on range x for position pos at birth
+// end b, and the checks it fails. from is the dated dose before it in time
+// (nil if none) and run the undated slots between them; first is the counted
+// dated dose at position 1, or the earliest dates of an undated dose 1
+// (nil if neither).
+//
+// A plan's verdict is the worst of its checks; the dose's verdict is the
+// best over plans (A7). The checks reported are those that reach that
+// verdict in the plans that have it, merged in catalog order: a
+// DOSE_INVALID lists the checks failed at every end, not one failed at one
+// end only. For exact dates this is the S1 check.
+func (s seriesModel) check(pos int, b birthEnd, x Range, from *Range, run []item, first *Range) (verdict, []Check) {
+	var chainBest, chainWorst Date
+	chained := false
+	if len(run) > 0 {
+		chainBest, chainWorst, chained = s.chain(b, from, run, first)
+	}
+	best := verdictDefinite + 1
+	var failed [3]bool // minAge, minInterval, minIntervalFromFirst
 	for _, p := range s.plans {
 		r := p.doses[pos-1]
-		failAge := r.minAge.ok && date.Hi.Before(birth.AddSpan(r.minAge.span))
-		failInterval := r.minInterval.ok && prev != nil && date.Hi.Before(prev.date.Lo.AddSpan(r.minInterval.span))
-		if !failAge && !failInterval {
-			return nil
+		var vs [3]verdict
+		if b.known && r.minAge.ok {
+			lim := b.date.AddSpan(r.minAge.span)
+			vs[0] = against(x, lim, lim)
 		}
-		age = age || failAge
-		interval = interval || failInterval
+		switch {
+		case len(run) == 0 && from != nil && r.minInterval.ok:
+			vs[1] = against(x, from.Lo.AddSpan(r.minInterval.span), from.Hi.AddSpan(r.minInterval.span))
+		case chained:
+			lo, hi := chainBest, chainWorst
+			if r.minInterval.ok {
+				lo, hi = lo.AddSpan(r.minInterval.span), hi.AddSpan(r.minInterval.span)
+			}
+			vs[1] = against(x, lo, hi)
+		}
+		if first != nil && r.minFromFirst.ok {
+			vs[2] = against(x, first.Lo.AddSpan(r.minFromFirst.span), first.Hi.AddSpan(r.minFromFirst.span))
+		}
+		v := max(vs[0], vs[1], vs[2])
+		if v < best {
+			best, failed = v, [3]bool{}
+		}
+		if v == best {
+			for i, c := range vs {
+				failed[i] = failed[i] || c >= best
+			}
+		}
 	}
-	var failed []Check
-	if age {
-		failed = append(failed, CheckMinAge)
+	if best == verdictOK {
+		return verdictOK, nil
 	}
-	if interval {
-		failed = append(failed, CheckMinInterval)
+	var checks []Check
+	for i, c := range []Check{CheckMinAge, CheckMinInterval, CheckMinIntervalFromFirst} {
+		if failed[i] {
+			checks = append(checks, c)
+		}
 	}
-	return failed
+	return best, checks
+}
+
+// chain returns the earliest dates the last of a run of undated slots can
+// have (EQ8, EQ20b): best starting from from.Lo, worst from from.Hi. Each
+// slot q is on or after the slot before it, and takes the latest of the
+// previous slot + minInterval_q, birth + minAge_q (birth known) and dose 1 +
+// minIntervalFromFirst_q (first set), under the most lenient plan for
+// that slot. A run at the start of the series has no lower bound but the
+// birth date. bounded is false when nothing bounds the last slot (no birth
+// date and no dated dose before the run), so any placement is feasible.
+func (s seriesModel) chain(b birthEnd, from *Range, run []item, first *Range) (best, worst Date, bounded bool) {
+	if from != nil {
+		best, worst, bounded = from.Lo, from.Hi, true
+	}
+	for _, it := range run {
+		var nb, nw Date
+		set, unbounded := false, false
+		for _, p := range s.plans {
+			r := p.doses[it.pos-1]
+			lo, hi, ok := best, worst, bounded
+			if ok && r.minInterval.ok {
+				lo, hi = lo.AddSpan(r.minInterval.span), hi.AddSpan(r.minInterval.span)
+			}
+			if b.known && r.minAge.ok {
+				a := b.date.AddSpan(r.minAge.span)
+				lo, hi = later(lo, a, ok), later(hi, a, ok)
+				ok = true
+			}
+			if first != nil && r.minFromFirst.ok {
+				f1, f2 := first.Lo.AddSpan(r.minFromFirst.span), first.Hi.AddSpan(r.minFromFirst.span)
+				lo, hi = later(lo, f1, ok), later(hi, f2, ok)
+				ok = true
+			}
+			if !ok {
+				unbounded = true
+				break
+			}
+			if !set || lo.Before(nb) {
+				nb = lo
+			}
+			if !set || hi.Before(nw) {
+				nw = hi
+			}
+			set = true
+		}
+		if unbounded {
+			best, worst, bounded = Date{}, Date{}, false
+			continue
+		}
+		best, worst, bounded = nb, nw, true
+	}
+	return best, worst, bounded
+}
+
+// later returns max(a, b), or b when a is not set.
+func later(a, b Date, aSet bool) Date {
+	if !aSet {
+		return b
+	}
+	return maxDate(a, b)
 }

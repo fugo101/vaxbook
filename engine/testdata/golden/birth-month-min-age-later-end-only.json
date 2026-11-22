@@ -1,0 +1,56 @@
+{
+  "ruleset": "minimal-buffer",
+  "input": {
+    "today": "2025-03-01",
+    "profile": {
+      "birth": {
+        "value": "2025-01",
+        "precision": "month"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "buffered"
+        ],
+        "date": {
+          "value": "2025-02-20",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-buffer-s1",
+    "today": "2025-03-01",
+    "assessments": [
+      {
+        "disease": "buffered",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "BIRTH_DATE_IMPRECISE",
+            "params": {
+              "hint": "fullBirthDate"
+            }
+          },
+          {
+            "code": "DOSE_INVALID",
+            "params": {
+              "checks": [
+                "minAge"
+              ],
+              "dose": "r1",
+              "number": 1
+            }
+          },
+          {
+            "code": "ON_TRACK"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -52,7 +52,7 @@
     ]
   },
   "output": {
-    "ruleSetVersion": "illustrative-vn-s1",
+    "ruleSetVersion": "illustrative-vn-s2",
     "today": "2025-11-01",
     "assessments": [
       {
@@ -78,6 +78,16 @@
             "code": "ON_TRACK"
           }
         ]
+      },
+      {
+        "disease": "hpv",
+        "block": "notYetScheduled",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2034-01-15",
+          "due": "2034-01-15",
+          "overdue": "2034-01-22"
+        }
       }
     ]
   }

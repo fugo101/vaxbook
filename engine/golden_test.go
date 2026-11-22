@@ -333,14 +333,24 @@ func TestCompareGolden(t *testing.T) {
 // them required (SAD §5.4). The schema does not tie params to codes yet, so
 // this table checks every reason of the goldens and the property tests.
 var reasonParams = map[engine.ReasonCode][]string{
-	engine.ReasonInvalidDate:      {"dose"},
-	engine.ReasonOutOfRange:       {"dose"},
-	engine.ReasonDateInFuture:     {"dose"},
-	engine.ReasonDateBeforeBirth:  {"dose"},
-	engine.ReasonDoseInvalid:      {"checks", "dose", "number"},
-	engine.ReasonAlternativePlans: {"series"},
-	engine.ReasonComplete:         nil,
-	engine.ReasonOnTrack:          nil,
+	engine.ReasonInvalidDate:               {"dose"},
+	engine.ReasonOutOfRange:                {"dose"},
+	engine.ReasonDateInFuture:              {"dose"},
+	engine.ReasonDateBeforeBirth:           {"dose"},
+	engine.ReasonUnexpectedValue:           {"dose"},
+	engine.ReasonOverlappingEstimatedDates: {"doses"},
+	engine.ReasonNumberingConflict:         {"dose", "number"},
+	engine.ReasonImpliedEarlierDoses:       {"numbers"},
+	engine.ReasonBirthDateImprecise:        {"hint"},
+	engine.ReasonDoseInvalid:               {"checks", "dose", "number"},
+	engine.ReasonDosePossiblyInvalid:       {"checks", "dose", "number"},
+	engine.ReasonIntervalUnverifiable:      {"dose", "number"},
+	engine.ReasonComplete:                  nil,
+	engine.ReasonPreviousDoseDateUnknown:   {"dose"},
+	engine.ReasonNoBirthDate:               nil,
+	engine.ReasonFirstDoseDateAssumed:      {"dose"},
+	engine.ReasonAlternativePlans:          {"series"},
+	engine.ReasonOnTrack:                   nil,
 }
 
 // checkReasonParams fails when a reason of a carries params other than
@@ -369,9 +379,12 @@ func checkReasonParams(t testing.TB, a engine.Assessment) {
 			t.Errorf("%s: %s params %v, want exactly %v", a.Disease, r.Code, got, want)
 		}
 		for _, c := range r.Params.Checks {
-			if c != engine.CheckMinAge && c != engine.CheckMinInterval {
+			if c != engine.CheckMinAge && c != engine.CheckMinInterval && c != engine.CheckMinIntervalFromFirst {
 				t.Errorf("%s: %s has unknown check %q", a.Disease, r.Code, c)
 			}
+		}
+		if h := r.Params.Hint; h != "" && h != engine.HintBirthMonth && h != engine.HintFullBirthDate {
+			t.Errorf("%s: %s has unknown hint %q", a.Disease, r.Code, h)
 		}
 	}
 }

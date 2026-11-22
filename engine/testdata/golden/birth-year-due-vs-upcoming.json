@@ -1,0 +1,32 @@
+{
+  "ruleset": "minimal-single",
+  "input": {
+    "today": "2025-02-20",
+    "profile": {
+      "birth": {
+        "value": "2025",
+        "precision": "year"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "minimal-single-s1",
+    "today": "2025-02-20",
+    "assessments": [
+      {
+        "disease": "single",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "BIRTH_DATE_IMPRECISE",
+            "params": {
+              "hint": "birthMonth"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

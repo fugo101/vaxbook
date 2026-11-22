@@ -1,0 +1,39 @@
+{
+  "ruleset": "minimal-age-only",
+  "input": {
+    "today": "2025-04-01",
+    "profile": {
+      "birth": {
+        "precision": "none"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "ageonly"
+        ],
+        "date": {
+          "value": "2025-03-01",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-age-only-s2",
+    "today": "2025-04-01",
+    "assessments": [
+      {
+        "disease": "ageonly",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "NO_BIRTH_DATE"
+          }
+        ]
+      }
+    ]
+  }
+}

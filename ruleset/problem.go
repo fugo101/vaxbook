@@ -24,10 +24,12 @@ const (
 	// plan 0 of its series (EQ5). Path: the plan.
 	PlanDoseCountMismatch ProblemCode = "PLAN_DOSE_COUNT_MISMATCH"
 	// DoseRuleNoMinimum: a dose rule has neither a minimum age nor a minimum
-	// interval, or dose 1 has no minimum age (A7). Path: the dose rule.
+	// interval (minInterval or minIntervalFromFirst), or dose 1 has no minimum
+	// age (A7). Path: the dose rule.
 	DoseRuleNoMinimum ProblemCode = "DOSE_RULE_NO_MINIMUM"
-	// FirstDoseHasInterval: dose 1 has a minimum interval, but there is no
-	// previous dose to measure it from.
+	// FirstDoseHasInterval: dose 1 has a minimum interval or a
+	// minIntervalFromFirst, but there is no earlier dose to measure it from.
+	// Path: the interval member.
 	FirstDoseHasInterval ProblemCode = "FIRST_DOSE_HAS_INTERVAL"
 	// FirstDoseAnchorNotBirth: dose 1's milestone counts from a dose.
 	FirstDoseAnchorNotBirth ProblemCode = "FIRST_DOSE_ANCHOR_NOT_BIRTH"

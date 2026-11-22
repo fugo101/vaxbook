@@ -1,6 +1,11 @@
 package engine
 
-import "strconv"
+import (
+	"maps"
+	"slices"
+	"strconv"
+	"strings"
+)
 
 // Dates the engine accepts. Spans are capped at 999 units, so computed dates
 // keep four-digit years.
@@ -36,7 +41,10 @@ func (e *Engine) validate(in Input) validation {
 	default:
 		todayOK = true
 	}
-	birth, birthOK := v.recalled(-1, "/profile/birth", in.Profile.Birth)
+	// The birth date is a range for month and year precision (EQ17); the
+	// dose checks below compare against its older end.
+	birth, birthDated, birthOK := v.recalled(-1, "/profile/birth", in.Profile.Birth)
+	birthOK = birthOK && birthDated
 	if birthOK && todayOK && birth.Lo.After(in.Today) {
 		v.add(DateInFuture, "/profile/birth/value", ProblemParams{})
 		birthOK = false
@@ -65,16 +73,33 @@ func (e *Engine) validate(in Input) validation {
 			}
 			seen[dz] = true
 		}
-		date, ok := v.recalled(i, p+"/date", r.Date)
+		// A dose date is a problem only when its whole period is after today
+		// or before the whole birth-date range; a partial overlap is not
+		// (issue #13). The engine then caps the period at today.
+		period, dated, ok := v.recalled(i, p+"/date", r.Date)
 		switch {
-		case !ok:
-		case todayOK && date.Lo.After(in.Today):
+		case !ok || !dated:
+		case todayOK && period.Lo.After(in.Today):
 			v.value(i, DateInFuture, p+"/date/value")
-		case birthOK && date.Hi.Before(birth.Lo):
+		case birthOK && period.Hi.Before(birth.Lo):
 			v.value(i, DateBeforeBirth, p+"/date/value")
+		}
+		for _, dz := range slices.Sorted(maps.Keys(r.DoseNumbers)) {
+			np := p + "/doseNumbers/" + escapePointer(dz)
+			switch n := r.DoseNumbers[dz]; {
+			case !seen[dz]:
+				v.add(UnknownReference, np, ProblemParams{Disease: dz})
+			case n < 1 || n > maxDoseNumber:
+				v.add(OutOfRange, np, ProblemParams{})
+			}
 		}
 	}
 	return v
+}
+
+// escapePointer escapes one reference token of a JSON pointer (RFC 6901).
+func escapePointer(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "~", "~0"), "/", "~1")
 }
 
 // add records a problem that stops evaluation.
@@ -94,41 +119,43 @@ func (v *validation) value(i int, code ProblemCode, path string) {
 	v.records[i] = code
 }
 
-// recalled checks the RecalledDate at path, of dose record i or of the birth
-// date for i < 0, and returns its range when usable.
-func (v *validation) recalled(i int, path string, r RecalledDate) (Range, bool) {
+// recalled checks the RecalledDate at path, of dose record i or of the
+// birth date for i < 0. ok reports that it is usable; dated that it names a
+// period (day, month or year), which is then returned, not yet capped at
+// today. A usable undated date is a level-4 dose (unknown) or no birth date
+// (none).
+func (v *validation) recalled(i int, path string, r RecalledDate) (period Range, dated, ok bool) {
 	birth := i < 0
 	switch r.Precision {
-	case Day:
+	case Day, Month, Year:
 	case "":
 		v.add(Required, path+"/precision", ProblemParams{})
-		return Range{}, false
-	case Month, Year:
-		v.add(UnsupportedPrecision, path+"/precision", ProblemParams{Precision: string(r.Precision)})
-		return Range{}, false
+		return Range{}, false, false
 	case Unknown, None:
 		// Level 4 differs by field (F03, GLOSSARY "Date precision"): a dose
 		// record has "unknown" for an unremembered date, and a birth date
-		// has "none" for not entered. The other field's value is invalid in
-		// every engine version, not merely unsupported yet.
+		// has "none" for not entered. The other field's value is invalid.
 		if (r.Precision == None) != birth {
 			v.add(InvalidValue, path+"/precision", ProblemParams{Value: string(r.Precision)})
-			return Range{}, false
+			return Range{}, false, false
 		}
-		v.add(UnsupportedPrecision, path+"/precision", ProblemParams{Precision: string(r.Precision)})
-		return Range{}, false
+		if r.Value != "" {
+			v.value(i, UnexpectedValue, path+"/value")
+			return Range{}, false, false
+		}
+		return Range{}, false, true
 	default:
 		v.add(InvalidValue, path+"/precision", ProblemParams{Value: string(r.Precision)})
-		return Range{}, false
+		return Range{}, false, false
 	}
-	rng, err := r.Range()
+	period, _, err := r.Period()
 	if err != nil {
 		v.value(i, InvalidDate, path+"/value")
-		return Range{}, false
+		return Range{}, false, false
 	}
-	if !inInputRange(rng.Lo) || !inInputRange(rng.Hi) {
+	if !inInputRange(period.Lo) || !inInputRange(period.Hi) {
 		v.value(i, OutOfRange, path+"/value")
-		return Range{}, false
+		return Range{}, false, false
 	}
-	return rng, true
+	return period, true, true
 }

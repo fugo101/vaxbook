@@ -206,6 +206,15 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 // in front of one; trying fewer placements can only report more
 // DOSE_INVALID (P1).
 //
+// A placement that fits at every end of the ranges adds nothing. When every
+// placement that fits does so only at one end (its walk has a
+// DOSE_POSSIBLY_INVALID on a record the walk without them has no
+// DOSE_INVALID or DOSE_POSSIBLY_INVALID on), the first of them, in the
+// order tried, adds those DOSE_POSSIBLY_INVALID reasons: the floating doses
+// stay counted, but some day inside the ranges leaves no placement, so the
+// result is ⚪, not ✅ (F05.10). Without them, narrowing a dose range could
+// make a counted dose invalid (SAD §5.7).
+//
 // When no placement fits, the last floating dose by ID is DOSE_INVALID, not
 // counted, with the position and checks it fails when all of them are
 // placed after the last dated dose (checked like a dose given today, as a
@@ -225,26 +234,54 @@ func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl pla
 		return
 	}
 	fl := w.floating[len(w.floating)-min(len(w.floating), s.length-counted):]
-	invalid := map[string]bool{}
+	invalid, flagged := map[string]bool{}, map[string]bool{}
 	for _, r := range w.reasons {
-		if r.Code == ReasonDoseInvalid {
+		switch r.Code {
+		case ReasonDoseInvalid:
 			invalid[r.Params.Dose] = true
+			flagged[r.Params.Dose] = true
+		case ReasonDosePossiblyInvalid:
+			flagged[r.Params.Dose] = true
 		}
 	}
-	newInvalid := func(r walkResult) (Reason, bool) {
+	// assess returns the first DOSE_INVALID a placement's walk adds (bad
+	// when there is one) and the DOSE_POSSIBLY_INVALID reasons it adds.
+	assess := func(r walkResult) (failed Reason, bad bool, possible []Reason) {
 		for _, x := range r.reasons {
-			if x.Code == ReasonDoseInvalid && !invalid[x.Params.Dose] {
-				return x, true
+			switch {
+			case x.Code == ReasonDoseInvalid && !invalid[x.Params.Dose]:
+				return x, true, nil
+			case x.Code == ReasonDosePossiblyInvalid && !flagged[x.Params.Dose]:
+				possible = append(possible, x)
 			}
 		}
-		return Reason{}, false
+		return Reason{}, false, possible
+	}
+	// fallback holds the reasons of the first placement that fits only at
+	// one end.
+	var fallback []Reason
+	// fitsEverywhere reports whether a placement fits at every end, and
+	// records the first one that fits only at one end.
+	fitsEverywhere := func(r walkResult) bool {
+		_, bad, possible := assess(r)
+		if bad {
+			return false
+		}
+		if len(possible) == 0 {
+			return true
+		}
+		if fallback == nil {
+			fallback = possible
+		}
+		return false
 	}
 
 	n := len(pl.dated)
 	ins := make([][]givenDose, n+1)
 	ins[n] = fl
-	failed, ok := newInvalid(s.walkWith(b, today, pl, ins))
-	if !ok {
+	all := s.walkWith(b, today, pl, ins)
+	failed, _, _ := assess(all)
+	if fitsEverywhere(all) {
 		return
 	}
 	// The insertion points, ascending: in front of the movable dated doses
@@ -266,8 +303,7 @@ func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl pla
 				return false
 			}
 			ins[n] = rest
-			_, bad := newInvalid(s.walkWith(b, today, pl, ins))
-			return !bad
+			return fitsEverywhere(s.walkWith(b, today, pl, ins))
 		}
 		for c := len(rest); c >= 0; c-- {
 			ins[points[p]] = rest[:c]
@@ -280,6 +316,10 @@ func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl pla
 	}
 	clear(ins)
 	if try(0, fl) {
+		return
+	}
+	if fallback != nil {
+		w.reasons = append(w.reasons, fallback...)
 		return
 	}
 	w.reasons = append(w.reasons, failed)

@@ -552,6 +552,56 @@ func TestPropertyNarrowingDoseDate(t *testing.T) {
 	}
 }
 
+// TestNarrowingFloatingDoseShapes pins two inputs the narrowing property
+// missed at 400 runs: an unnumbered level-4 dose that fits among the dated
+// doses only at the late end of an imprecise neighbour's range. The wide
+// result must carry DOSE_POSSIBLY_INVALID (⚪, not ✅) whenever some day
+// inside that range makes a dose DOSE_INVALID, or the narrowing property
+// (SAD §5.7) fails for that day.
+func TestNarrowingFloatingDoseShapes(t *testing.T) {
+	t.Parallel()
+	ptr := func(s string) *string { return &s }
+	cases := []struct {
+		fixture, disease, today, birth, month, narrow string
+		product                                       *string
+	}{
+		// Rotarix: the level-4 dose fits as dose 1 only when r1 is on or
+		// after birth + 6w + 4w = 2022-12-20; r1 + 4w is after today.
+		{"illustrative-products", "rota", "2022-12-24", "2022-10-11", "2022-12", "2022-12-11", ptr("rotarix")},
+		// The same shape with one series and no products (S2).
+		{"illustrative-vn", "measles", "2025-11-24", "2025-01-11", "2025-11", "2025-11-05", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.fixture+"/"+c.disease, func(t *testing.T) {
+			t.Parallel()
+			e := loadEngine(t, c.fixture)
+			in := engine.Input{
+				Today:   mustDate(t, c.today),
+				Profile: engine.Profile{Birth: engine.RecalledDate{Value: c.birth, Precision: engine.Day}},
+				Doses: []engine.DoseRecord{
+					{ID: "r1", Diseases: []string{c.disease}, Date: engine.RecalledDate{Value: c.month, Precision: engine.Month}, Product: c.product},
+					{ID: "r5", Diseases: []string{c.disease}, Date: engine.RecalledDate{Precision: engine.Unknown}, Product: c.product},
+				},
+			}
+			wide, _ := evaluate(t, e, in)
+			narrow := cloneInput(in)
+			narrow.Doses[0].Date = engine.RecalledDate{Value: c.narrow, Precision: engine.Day}
+			got, _ := evaluate(t, e, narrow)
+			a, b := wide.Assessments[0], got.Assessments[0]
+			if a.Disease != c.disease {
+				a, b = wide.Assessments[1], got.Assessments[1]
+			}
+			if len(invalidDoses(b)) > 0 && !hasCode(a, engine.ReasonDosePossiblyInvalid) {
+				t.Fatalf("narrowing %s to %s made %v DOSE_INVALID, but the wide result has no DOSE_POSSIBLY_INVALID\nwide   %+v\nnarrow %+v",
+					c.month, c.narrow, invalidDoses(b), a, b)
+			}
+			if a.Bucket == engine.BucketComplete {
+				t.Fatalf("wide result is ✅ although a day inside %s makes a dose invalid: %+v", c.month, a)
+			}
+		})
+	}
+}
+
 // TestPropertyDoseOnEarliestDateCounts: a dose given on the earliest allowed
 // date is counted (the next dose number rises or the series completes) and
 // adds no DOSE_INVALID. It uses day-precise inputs: with a month-precision

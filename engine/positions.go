@@ -181,7 +181,7 @@ func (pl *placement) resolveOverlaps() bool {
 		// starts after d[i].Hi.
 		for j := i + 1; j < len(d) && !d[i].date.Hi.Before(d[j].date.Lo); j++ {
 			// Two exact doses on the same day do not overlap (orderSameDay).
-			if !(d[i].date.IsExact() && d[j].date.IsExact()) {
+			if !d[i].date.IsExact() || !d[j].date.IsExact() {
 				parent[find(j)] = find(i)
 			}
 		}

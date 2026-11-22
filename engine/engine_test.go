@@ -693,6 +693,36 @@ func TestReasonCodesClassified(t *testing.T) {
 	ReasonCode("NOPE").blocks()
 }
 
+// TestProblemCodeStrings pins the wire string of every input problem code.
+// The schema has no Problem definition, so TestSchemaEnumsMatchConstants
+// cannot cover these codes (issue #14, In scope 12), and the tests that use
+// them compare with the Go constants. The WASM bridge returns the strings to
+// clients, so a renamed or mistyped value must fail here.
+func TestProblemCodeStrings(t *testing.T) {
+	t.Parallel()
+	want := map[ProblemCode]string{
+		Required:             "REQUIRED",
+		InvalidValue:         "INVALID_VALUE",
+		UnsupportedPrecision: "UNSUPPORTED_PRECISION",
+		InvalidDate:          "INVALID_DATE",
+		UnexpectedValue:      "UNEXPECTED_VALUE",
+		OutOfRange:           "OUT_OF_RANGE",
+		DateInFuture:         "DATE_IN_FUTURE",
+		DateBeforeBirth:      "DATE_BEFORE_BIRTH",
+		UnknownReference:     "UNKNOWN_REFERENCE",
+		UnknownDisease:       "UNKNOWN_DISEASE",
+		DuplicateID:          "DUPLICATE_ID",
+		DuplicateValue:       "DUPLICATE_VALUE",
+		UnknownProduct:       "UNKNOWN_PRODUCT",
+		MutuallyExclusive:    "MUTUALLY_EXCLUSIVE",
+	}
+	for c, s := range want {
+		if string(c) != s {
+			t.Errorf("problem code %q, want %q", c, s)
+		}
+	}
+}
+
 // TestPositionsAndUndatedDoses pins step-2 and undated-dose behaviour that
 // no golden file covers (SAD §5.3 steps 2 and 5).
 func TestPositionsAndUndatedDoses(t *testing.T) {

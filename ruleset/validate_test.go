@@ -242,6 +242,32 @@ func TestValidateProducts(t *testing.T) {
 
 // Product and Series.product decode a present empty string as such, so
 // Validate sees it (a plain omitzero string could not).
+// TestProblemCodeStrings pins the wire string of every rule set problem
+// code. The schema has no Problem definition, so TestSchemaEnumsMatchConstants
+// cannot cover these codes (issue #14, In scope 12), and not every code has
+// a reject snapshot in testdata/validate.
+func TestProblemCodeStrings(t *testing.T) {
+	t.Parallel()
+	want := map[ProblemCode]string{
+		PlanDoseCountMismatch:   "PLAN_DOSE_COUNT_MISMATCH",
+		DoseRuleNoMinimum:       "DOSE_RULE_NO_MINIMUM",
+		FirstDoseHasInterval:    "FIRST_DOSE_HAS_INTERVAL",
+		FirstDoseAnchorNotBirth: "FIRST_DOSE_ANCHOR_NOT_BIRTH",
+		Required:                "REQUIRED",
+		InvalidValue:            "INVALID_VALUE",
+		DuplicateID:             "DUPLICATE_ID",
+		UnknownReference:        "UNKNOWN_REFERENCE",
+		Empty:                   "EMPTY",
+		DuplicateValue:          "DUPLICATE_VALUE",
+		ProductDiseaseMismatch:  "PRODUCT_DISEASE_MISMATCH",
+	}
+	for c, s := range want {
+		if string(c) != s {
+			t.Errorf("problem code %q, want %q", c, s)
+		}
+	}
+}
+
 func TestDecodeProductMembers(t *testing.T) {
 	t.Parallel()
 	s := mustDecode(t, strings.Replace(productCase, `"product": "p"`, `"product": ""`, 1))

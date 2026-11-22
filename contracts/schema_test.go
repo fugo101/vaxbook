@@ -347,6 +347,10 @@ func TestSchemaMatchesStructs(t *testing.T) {
 }
 
 // TestSchemaEnumsMatchConstants: every enum lists exactly the Go constants.
+// Problem codes are not here: the schema has no Problem definition (engine
+// problems reach clients only through the WASM bridge, and openapi.yaml has
+// only the RFC 9457 wrapper). TestProblemCodeStrings in engine and ruleset
+// pins their strings instead (issue #14, In scope 12).
 func TestSchemaEnumsMatchConstants(t *testing.T) {
 	t.Parallel()
 	defs := schemaDefs(t)

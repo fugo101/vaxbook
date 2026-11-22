@@ -2,8 +2,8 @@ package engine
 
 import (
 	"fmt"
-	"math"
 	"strconv"
+	"strings"
 )
 
 // The engine contract (SAD §5.1), S2 subset. It grows additively: each slice
@@ -54,8 +54,10 @@ const maxDoseNumber = 999
 // DoseNumber is a user-entered dose number. It decodes any JSON number with
 // an integral value (1, 1.0, 1e0), because JSON Schema's "integer" accepts
 // all of them and the decoder must accept every schema-valid document (I1).
-// A fraction, a value beyond ±2^53 and any other JSON kind are decode
-// errors. Validate checks the range 1..999.
+// Integrality is decided on the decimal text, as the schema does, so a
+// fraction is a decode error even when it rounds to an integer in float64
+// (1.0000000000000001), and so are a value beyond ±2^53 and any other JSON
+// kind (I2). Validate checks the range 1..999.
 type DoseNumber int
 
 // UnmarshalJSON implements json.Unmarshaler. JSON null leaves n unchanged:
@@ -67,12 +69,61 @@ func (n *DoseNumber) UnmarshalJSON(b []byte) error {
 	if len(b) == 0 || (b[0] != '-' && (b[0] < '0' || b[0] > '9')) {
 		return fmt.Errorf("dose number %s: want a JSON number", b)
 	}
-	f, err := strconv.ParseFloat(string(b), 64)
-	if err != nil || f != math.Trunc(f) || math.Abs(f) > 1<<53 {
+	v, ok := parseIntegral(string(b))
+	if !ok {
 		return fmt.Errorf("dose number %s: want an integer", b)
 	}
-	*n = DoseNumber(f)
+	*n = DoseNumber(v)
 	return nil
+}
+
+// maxExactInteger is 2^53, the largest magnitude parseIntegral accepts.
+const maxExactInteger = 1 << 53
+
+// parseIntegral returns the value of a JSON number token when that value is
+// an integer of magnitude at most 2^53. It works on the decimal digits, so
+// no rounding can make a fraction look integral.
+func parseIntegral(s string) (int64, bool) {
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+	mantissa, exponent := s, ""
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		mantissa, exponent = s[:i], s[i+1:]
+	}
+	digits, fraction := mantissa, 0
+	if i := strings.IndexByte(mantissa, '.'); i >= 0 {
+		digits, fraction = mantissa[:i]+mantissa[i+1:], len(mantissa)-i-1
+	}
+	if digits == "" || strings.Trim(digits, "0123456789") != "" {
+		return 0, false
+	}
+	digits = strings.TrimLeft(digits, "0")
+	if digits == "" {
+		return 0, true // zero, whatever the exponent
+	}
+	exp := 0
+	if exponent != "" {
+		e, err := strconv.Atoi(strings.TrimPrefix(exponent, "+"))
+		if err != nil || e < -1000 || e > 1000 {
+			return 0, false // a nonzero value this far from 1 is a fraction or too large
+		}
+		exp = e
+	}
+	exp -= fraction
+	for strings.HasSuffix(digits, "0") {
+		digits, exp = digits[:len(digits)-1], exp+1
+	}
+	if exp < 0 || len(digits)+exp > 16 {
+		return 0, false
+	}
+	v, err := strconv.ParseInt(digits+strings.Repeat("0", exp), 10, 64)
+	if err != nil || v > maxExactInteger {
+		return 0, false
+	}
+	if neg {
+		v = -v
+	}
+	return v, true
 }
 
 // Output is the assessment of every disease of the rule set, in the rule

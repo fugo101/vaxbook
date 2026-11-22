@@ -183,6 +183,9 @@ var mutations = []mutation{
 	numberMutation("1000"),
 	numberMutation("2147483648"),
 	numberMutation("1e300"),
+	// A fraction within float64 rounding of an integer is not an integer.
+	numberMutation("1.0000000000000001"),
+	numberMutation("20e-1"),
 }
 
 func isNumber(v any) bool { _, ok := v.(json.Number); return ok }

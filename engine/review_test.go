@@ -223,4 +223,42 @@ var s2ReviewCases = []reviewCase{
 			{"code":"INTERVAL_UNVERIFIABLE","params":{"dose":"a","number":2}},
 			{"code":"COMPLETE"}]`,
 	},
+	// Unnumbered level-4 doses that fill no gap (floating) still count, so
+	// the counted doses must all fit by today (SAD §5.3 step 5). measles: dose
+	// 1 min age 9m; dose 2 min interval 4w.
+	{
+		// b 2026-10-01: dose 1 ≥ 2027-07-01 and dose 2 ≥ 07-29, both after
+		// today, so two doses cannot have been given → the last floating
+		// dose by ID, f2, is DOSE_INVALID as dose 2 (a chain failure is
+		// minInterval) and is not counted. k = 2 and f1 may be the latest
+		// dose → PREVIOUS_DOSE_DATE_UNKNOWN{f1}.
+		name: "floating level-4 doses not feasible by today", ruleset: "illustrative-vn", today: "2026-11-22", birth: "2026-10-01",
+		doses: `[{"id": "f1", "diseases": ["measles"], "date": {"precision": "unknown"}},
+			{"id": "f2", "diseases": ["measles"], "date": {"precision": "unknown"}}]`,
+		disease: "measles", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"f2","number":2}},
+			{"code":"PREVIOUS_DOSE_DATE_UNKNOWN","params":{"dose":"f1"}}]`,
+	},
+	{
+		// b 2026-02-01: m1 11-20 ≥ b + 9m = 11-01 is dose 1. With f, two
+		// doses are counted, and dose 2 ≥ 11-01 + 28d = 11-29 > today → f
+		// DOSE_INVALID, not counted. k = 2: E = m1 + 28d = 12-18, Du = b +
+		// 18m = 2027-08-01 > T6m, 1 dose → the masked bucket is complete +
+		// ON_TRACK.
+		name: "floating level-4 dose with a dated dose not feasible by today", ruleset: "illustrative-vn", today: "2026-11-22", birth: "2026-02-01",
+		doses: `[{"id": "m1", "diseases": ["measles"], "date": {"value": "2026-11-20", "precision": "day"}},
+			{"id": "f", "diseases": ["measles"], "date": {"precision": "unknown"}}]`,
+		disease: "measles", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"f","number":2}},
+			{"code":"ON_TRACK"}]`,
+	},
+	{
+		// Control: b 2025-01-01, so dose 2 ≥ 2025-10-01 + 28d = 10-29 ≤ today
+		// (f may be dose 1, before m1) → complete.
+		name: "floating level-4 dose with a dated dose feasible", ruleset: "illustrative-vn", today: "2026-11-22", birth: "2025-01-01",
+		doses: `[{"id": "m1", "diseases": ["measles"], "date": {"value": "2026-11-01", "precision": "day"}},
+			{"id": "f", "diseases": ["measles"], "date": {"precision": "unknown"}}]`,
+		disease: "measles", bucket: engine.BucketComplete, est: true,
+		reasons: `[{"code":"COMPLETE"}]`,
+	},
 }

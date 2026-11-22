@@ -151,6 +151,7 @@ func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
 	insertSlots(s.length + 1)
 	w.checkTrailing(s, b, today, first, pl.beyond)
 
+	w.checkFloating(s, b, today)
 	highest := 0
 	for _, it := range w.seq {
 		if it.counted && it.pos <= s.length {
@@ -159,6 +160,42 @@ func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
 	}
 	w.k = highest + len(w.floating) + 1
 	return w
+}
+
+// checkFloating checks that the floating level-4 doses could have been
+// given by today. They have no position, so it checks the count: with m
+// counted doses in the series (floating ones included), the m-th dose in
+// time cannot be earlier than the chain of earliest dates from birth for
+// positions 1..m, so it must fit by today. When it does not, the last
+// floating dose by ID is DOSE_INVALID with number m and is not counted.
+// The bound uses only the count and the birth date, not the dates of the
+// dated doses, so it flags only a count that cannot fit by today.
+func (w *walkResult) checkFloating(s seriesModel, b birthEnd, today Date) {
+	counted := 0
+	for _, it := range w.seq {
+		if it.counted && it.pos <= s.length {
+			counted++
+		}
+	}
+	if len(w.floating) == 0 || counted >= s.length {
+		return
+	}
+	m := min(counted+len(w.floating), s.length)
+	run := make([]item, m-1)
+	for q := range run {
+		run[q] = item{pos: q + 1, counted: true}
+	}
+	var first *Range
+	if m > 1 {
+		if lo, hi, bounded := s.chain(b, nil, run[:1], nil); bounded {
+			first = &Range{Lo: lo, Hi: hi}
+		}
+	}
+	if v, checks := s.check(m, b, Range{Lo: today, Hi: today}, nil, run, first); v == verdictDefinite {
+		last := w.floating[len(w.floating)-1]
+		w.floating = w.floating[:len(w.floating)-1]
+		w.reasons = append(w.reasons, Reason{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: checks, Dose: last.id, Number: m}})
+	}
 }
 
 // tail returns the dated dose before the undated slots at the end of the

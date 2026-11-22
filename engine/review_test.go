@@ -3,8 +3,10 @@ package engine_test
 import (
 	"encoding/json/v2"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fugo101/vaxbook/engine"
 )
@@ -300,4 +302,38 @@ var s2ReviewCases = []reviewCase{
 		disease: "single", bucket: engine.BucketUnknown,
 		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"b","number":2}}]`,
 	},
+}
+
+// TestManyRecordsWithImpreciseBirthDate: comparing the two birth ends keeps
+// every distinct reason of both ends, one DOSE_INVALID per record. Removing
+// duplicates must stay linear, so 20 000 records evaluate in well under a
+// second; a quadratic scan takes several seconds.
+func TestManyRecordsWithImpreciseBirthDate(t *testing.T) {
+	t.Parallel()
+	if testing.Short() || runtime.GOOS == "js" {
+		t.Skip("timing test")
+	}
+	const n = 20000
+	start, err := engine.ParseDate("1990-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doses := make([]engine.DoseRecord, n)
+	for i := range doses {
+		doses[i] = engine.DoseRecord{ID: fmt.Sprintf("r%05d", i), Diseases: []string{"pertussis", "measles", "hpv"},
+			Date: engine.RecalledDate{Value: start.AddDays(i).String(), Precision: engine.Day}}
+	}
+	today, err := engine.ParseDate("2046-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := engine.Input{Today: today, Profile: engine.Profile{Birth: engine.RecalledDate{Value: "1960", Precision: engine.Year}}, Doses: doses}
+	e := loadEngine(t, "illustrative-vn")
+	began := time.Now()
+	if _, err := e.Evaluate(in); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(began); d > 5*time.Second {
+		t.Errorf("Evaluate of %d records took %s", n, d)
+	}
 }

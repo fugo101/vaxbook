@@ -1,6 +1,9 @@
 package engine
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+)
 
 // endResult is steps 5–9 at one birth end, before step 4 compares the ends.
 type endResult struct {
@@ -53,22 +56,30 @@ func compareEnds(older, later endResult, hint Hint) endResult {
 	agree := older.k == later.k &&
 		slices.EqualFunc(blockingOnly(older.reasons), blockingOnly(later.reasons), sameReason) &&
 		(co == cl || distanceOnly(co) && distanceOnly(cl))
+	// listed holds the reasons already in res.reasons, so that removing
+	// duplicates stays linear in the number of reasons (one DOSE_INVALID
+	// per record at each end).
+	listed := map[string]bool{}
 	if agree {
 		res := later
 		res.reasons = slices.Clone(later.reasons)
+		for _, r := range later.reasons {
+			listed[reasonKey(r)] = true
+		}
 		for _, r := range older.reasons {
 			keep := later.bucket == BucketUnknown ||
 				(r.Code != ReasonComplete && r.Code != ReasonOnTrack && r.Code != ReasonAlternativePlans)
-			if keep && !slices.ContainsFunc(res.reasons, func(x Reason) bool { return sameReason(x, r) }) {
+			if k := reasonKey(r); keep && !listed[k] {
+				listed[k] = true
 				res.reasons = append(res.reasons, r)
 			}
 		}
 		return res
 	}
 	res := endResult{bucket: BucketUnknown, k: later.k}
-	res.reasons = append(res.reasons, Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: hint}})
-	for _, r := range slices.Concat(later.reasons, older.reasons) {
-		if !slices.ContainsFunc(res.reasons, func(x Reason) bool { return sameReason(x, r) }) {
+	for _, r := range slices.Concat([]Reason{{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: hint}}}, later.reasons, older.reasons) {
+		if k := reasonKey(r); !listed[k] {
+			listed[k] = true
 			res.reasons = append(res.reasons, r)
 		}
 	}
@@ -86,8 +97,11 @@ func blockingOnly(reasons []Reason) []Reason {
 }
 
 // sameReason reports whether two reasons have the same code and params.
-func sameReason(a, b Reason) bool {
-	pa, pb := a.Params, b.Params
-	return a.Code == b.Code && pa.Dose == pb.Dose && pa.Hint == pb.Hint && pa.Number == pb.Number && pa.Series == pb.Series &&
-		slices.Equal(pa.Checks, pb.Checks) && slices.Equal(pa.Doses, pb.Doses) && slices.Equal(pa.Numbers, pb.Numbers)
+func sameReason(a, b Reason) bool { return reasonKey(a) == reasonKey(b) }
+
+// reasonKey encodes a reason's code and params; two reasons have the same
+// key iff they have the same code and params.
+func reasonKey(r Reason) string {
+	p := r.Params
+	return fmt.Sprintf("%q %q %q %d %q %q %q %v", r.Code, p.Dose, p.Hint, p.Number, p.Series, p.Checks, p.Doses, p.Numbers)
 }

@@ -78,3 +78,34 @@ func TestGolangciLintVersionIsSingleSource(t *testing.T) {
 		}
 	}
 }
+
+// TestActionsArePinnedBySHA: D6. A tag such as @v7 can be moved to other code;
+// every `uses:` is a full commit SHA with a version comment, which Dependabot
+// keeps current. Local actions (./) and docker:// references do not apply.
+func TestActionsArePinnedBySHA(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.yml"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no workflow files found: %v", err)
+	}
+	use := regexp.MustCompile(`(?m)^\s*(?:-\s+)?uses:\s*(\S+)(.*)$`)
+	pinned := regexp.MustCompile(`^[\w.-]+/[\w./-]+@[0-9a-f]{40}$`)
+	seen := 0
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range use.FindAllStringSubmatch(string(b), -1) {
+			seen++
+			name := filepath.Base(f)
+			if !pinned.MatchString(m[1]) {
+				t.Errorf("%s: %s is not pinned by a full commit SHA", name, m[1])
+			} else if !regexp.MustCompile(`#\s*v\d`).MatchString(m[2]) {
+				t.Errorf("%s: %s has no version comment (# vX.Y.Z)", name, m[1])
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no uses: lines found; the pattern is stale")
+	}
+}

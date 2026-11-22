@@ -67,6 +67,7 @@
       "properties": {
         "minAge": {"$ref": "#/$defs/Span"},
         "minInterval": {"$ref": "#/$defs/Span"},
+        "minIntervalFromFirst": {"description": "Minimum time since dose 1 (SAD §5.2); added in engine slice S2.", "$ref": "#/$defs/Span"},
         "recommended": {"$ref": "#/$defs/Milestone"},
         "buffer": {"$ref": "#/$defs/Span"}
       }

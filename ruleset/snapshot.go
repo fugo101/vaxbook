@@ -42,13 +42,17 @@ type Plan struct {
 }
 
 // DoseRule holds the rules for one dose position of a plan. Every rule has a
-// minimum age or a minimum interval (A7); dose 1 always has a minimum age.
+// minimum age or a minimum interval (A7; MinIntervalFromFirst counts as one);
+// dose 1 always has a minimum age and no interval.
 type DoseRule struct {
 	// MinAge is the minimum age at which the dose may be given.
 	MinAge *Span `json:"minAge,omitzero"`
 	// MinInterval is the minimum time since the previous dose in time.
-	MinInterval *Span     `json:"minInterval,omitzero"`
-	Recommended Milestone `json:"recommended"`
+	MinInterval *Span `json:"minInterval,omitzero"`
+	// MinIntervalFromFirst is the minimum time since dose 1 (SAD §5.2), such
+	// as HPV dose 3 at least 5 months after dose 1. Added in S2.
+	MinIntervalFromFirst *Span     `json:"minIntervalFromFirst,omitzero"`
+	Recommended          Milestone `json:"recommended"`
 	// Buffer only moves the overdue date: overdue = due + max(buffer, 7 days).
 	Buffer *Span `json:"buffer,omitzero"`
 }

@@ -1,0 +1,48 @@
+{
+  "snapshot": {
+    "version": "validate-first-from-first",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "v",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "v-series",
+        "disease": "v",
+        "stage": "adult",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P9Y",
+                "minIntervalFromFirst": "P1M",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P9Y"
+                }
+              },
+              {
+                "minIntervalFromFirst": "P5M",
+                "recommended": {
+                  "from": "firstDose",
+                  "offset": "P6M"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "FIRST_DOSE_HAS_INTERVAL",
+      "severity": "reject",
+      "path": "/series/0/plans/0/doses/0/minIntervalFromFirst"
+    }
+  ]
+}

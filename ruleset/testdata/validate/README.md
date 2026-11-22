@@ -9,5 +9,6 @@ Each file is `{ "snapshot": Snapshot, "problems": [Problem] }` and is decoded st
 | `reject-plans-different-dose-counts.json` | EQ5: every plan in one series has the same number of doses | plan 1 has 2 doses where plan 0 has 3 → one `reject` Problem at `/series/0/plans/1` |
 | `reject-dose-rule-without-minimum.json` | A7: every dose rule has a minimum age or a minimum interval | dose 2 of plan 0 has neither → one `reject` Problem at `/series/0/plans/0/doses/1` |
 | `reject-reports-every-problem.json` | both defects in one snapshot | both Problems, so `Validate` reports every problem, not the first |
+| `reject-first-dose-interval-from-first.json` | dose 1 has no earlier dose, so it has no `minIntervalFromFirst` (S2) | one `FIRST_DOSE_HAS_INTERVAL` at `/series/0/plans/0/doses/0/minIntervalFromFirst`; dose 2 has only a `minIntervalFromFirst`, which satisfies A7, so it has no problem |
 
 Notation: plan 0 sets the dose count of its series, and every other plan with a different count is reported at that plan's path. The codes `PLAN_DOSE_COUNT_MISMATCH` and `DOSE_RULE_NO_MINIMUM` are the first entries of the closed `ruleset` Problem catalog introduced in S1; renaming them is a format change reviewed in the PR.

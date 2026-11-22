@@ -122,13 +122,16 @@ func (v *validator) plans(seriesPath string, plans []Plan) {
 }
 
 func (v *validator) dose(p string, first bool, d DoseRule) {
-	// A7: a minimum age or a minimum interval; dose 1 has no previous dose,
-	// so only a minimum age counts for it.
-	if d.MinAge == nil && (first || d.MinInterval == nil) {
+	// A7: a minimum age or a minimum interval (to the previous dose or to
+	// dose 1); dose 1 has no earlier dose, so only a minimum age counts for it.
+	if d.MinAge == nil && (first || (d.MinInterval == nil && d.MinIntervalFromFirst == nil)) {
 		v.reject(DoseRuleNoMinimum, p, ProblemParams{})
 	}
 	if first && d.MinInterval != nil {
 		v.reject(FirstDoseHasInterval, p+"/minInterval", ProblemParams{})
+	}
+	if first && d.MinIntervalFromFirst != nil {
+		v.reject(FirstDoseHasInterval, p+"/minIntervalFromFirst", ProblemParams{})
 	}
 	switch d.Recommended.From {
 	case FromBirth:
@@ -145,6 +148,7 @@ func (v *validator) dose(p string, first bool, d DoseRule) {
 	// the engine's date arithmetic relies on a real unit and 0..MaxSpanN.
 	v.optionalSpan(p+"/minAge", d.MinAge)
 	v.optionalSpan(p+"/minInterval", d.MinInterval)
+	v.optionalSpan(p+"/minIntervalFromFirst", d.MinIntervalFromFirst)
 	switch o := d.Recommended.Offset; {
 	case o == Span{}:
 		v.reject(Required, p+"/recommended/offset", ProblemParams{})

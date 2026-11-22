@@ -81,6 +81,8 @@ func TestDecodeShape(t *testing.T) {
 		{"null version", strings.Replace(validCase, `"version": "v1"`, `"version": null`, 1), contractjson.KindNull, "/version"},
 		{"null min interval", strings.Replace(validCase, `"minInterval": "P4W"`, `"minInterval": null`, 1),
 			contractjson.KindNull, "/series/0/plans/0/doses/1/minInterval"},
+		{"null min interval from first", strings.Replace(validCase, `"minInterval": "P4W"`, `"minInterval": "P4W", "minIntervalFromFirst": null`, 1),
+			contractjson.KindNull, "/series/0/plans/0/doses/1/minIntervalFromFirst"},
 		{"null buffer", strings.Replace(validCase, `"buffer": "P14D"`, `"buffer": null`, 1),
 			contractjson.KindNull, "/series/0/plans/0/doses/1/buffer"},
 		{"null disease", strings.Replace(validCase, `[{"id": "d", "name": "D"}]`, `[{"id": "d", "name": "D"}, null]`, 1),
@@ -132,6 +134,16 @@ func TestValidateProblems(t *testing.T) {
 			[]Problem{{Code: Required, Severity: Reject, Path: "/series/0/plans/0/doses/1/recommended/from"}}},
 		{"first dose anchor", `"from": "birth"`, `"from": "firstDose"`,
 			[]Problem{{Code: FirstDoseAnchorNotBirth, Severity: Reject, Path: "/series/0/plans/0/doses/0/recommended/from"}}},
+		// minIntervalFromFirst satisfies A7 for a dose after dose 1 (SAD §5.2).
+		{"min interval from first only", `{"minInterval": "P4W", "recommended": {"from": "previousDose"`,
+			`{"minIntervalFromFirst": "P5M", "recommended": {"from": "previousDose"`, nil},
+		{"first dose interval from first", `{"minAge": "P6W", "recommended"`, `{"minAge": "P6W", "minIntervalFromFirst": "P1M", "recommended"`,
+			[]Problem{{Code: FirstDoseHasInterval, Severity: Reject, Path: "/series/0/plans/0/doses/0/minIntervalFromFirst"}}},
+		{"first dose with only interval from first", `{"minAge": "P6W", "recommended"`, `{"minIntervalFromFirst": "P1M", "recommended"`,
+			[]Problem{
+				{Code: DoseRuleNoMinimum, Severity: Reject, Path: "/series/0/plans/0/doses/0"},
+				{Code: FirstDoseHasInterval, Severity: Reject, Path: "/series/0/plans/0/doses/0/minIntervalFromFirst"},
+			}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -214,6 +226,8 @@ func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
 			[]Problem{invalid(dose+"0/minAge", Span{N: 100000, Unit: Years})}},
 		{"negative min interval", func(_, d1 *DoseRule) { d1.MinInterval = &Span{N: -1, Unit: Weeks} },
 			[]Problem{invalid(dose+"1/minInterval", Span{N: -1, Unit: Weeks})}},
+		{"negative min interval from first", func(_, d1 *DoseRule) { d1.MinIntervalFromFirst = &Span{N: -1, Unit: Months} },
+			[]Problem{invalid(dose+"1/minIntervalFromFirst", Span{N: -1, Unit: Months})}},
 		{"negative buffer", func(_, d1 *DoseRule) { d1.Buffer = &Span{N: -5, Unit: Days} },
 			[]Problem{invalid(dose+"1/buffer", Span{N: -5, Unit: Days})}},
 		{"buffer bad unit", func(_, d1 *DoseRule) { d1.Buffer = &Span{N: 14, Unit: 'x'} },

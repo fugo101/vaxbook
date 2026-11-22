@@ -1,6 +1,6 @@
 package ruleset
 
-// Snapshot is an immutable rule set version: the S1 subset of SAD §5.2.
+// Snapshot is an immutable rule set version: the S2 subset of SAD §5.2.
 // Fields are added additively by later slices.
 type Snapshot struct {
 	Version string `json:"version"`

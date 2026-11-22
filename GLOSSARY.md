@@ -42,6 +42,14 @@ _Avoid_: Fuzzy date, Approximate date
 A date as the user remembers it (a birth date or a dose date), together with its Date precision.
 _Avoid_: Fuzzy date, Approximate date, Estimated date
 
+**Dose number** — *Số thứ tự mũi*:
+The position of a dose record in the series of one of its diseases. The engine infers it per disease from chronological order; the user may enter it, and an entered number places the record at that position.
+_Avoid_: Dose index, Shot number
+
+**Implied dose** — *Mũi ngầm định*:
+A dose with no dose record that the engine counts because the user entered a higher dose number on a later record: it is counted and undated, like a level-4 dose.
+_Avoid_: Missing dose, Assumed dose, Virtual dose
+
 **Disease declaration** — *Khai báo theo bệnh*:
 What the user states about one disease for a profile that is not a dose record: unknown, confirmed not vaccinated, already immune, doctor advised against vaccination, postponed until a date, chose not to vaccinate for now. The first two are *history* declarations, and a dose record for the disease takes precedence over them. The other four are *acknowledged* declarations: while active they move the disease into the acknowledged block, even when dose records exist.
 _Avoid_: ProfileDiseaseStatus, Disease status, Acknowledgement

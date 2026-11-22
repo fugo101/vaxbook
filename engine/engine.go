@@ -10,7 +10,7 @@ import (
 )
 
 // ErrUnsupported reports a valid rule set shape that this engine slice does
-// not evaluate yet (S1: exactly one series per disease).
+// not evaluate yet (S1, S2: exactly one series per disease).
 var ErrUnsupported = errors.New("engine: rule set shape not supported yet")
 
 // Engine evaluates inputs against one rule set snapshot. New copies what it
@@ -82,7 +82,7 @@ func New(s *ruleset.Snapshot) (*Engine, error) {
 			}
 		}
 		if len(found) != 1 {
-			return nil, fmt.Errorf("%w: disease %q has %d series, S1 needs exactly one", ErrUnsupported, dz.ID, len(found))
+			return nil, fmt.Errorf("%w: disease %q has %d series, S2 needs exactly one", ErrUnsupported, dz.ID, len(found))
 		}
 		e.known[dz.ID] = true
 		e.diseases = append(e.diseases, diseaseModel{id: dz.ID, series: compileSeries(found[0])})

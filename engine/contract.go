@@ -126,7 +126,7 @@ const (
 // Block is a collapsed group outside the buckets.
 type Block string
 
-// Blocks (S1 subset).
+// Blocks (S2 subset).
 const (
 	// BlockNotYetScheduled is "Chưa tới lịch tiêm" ("Not yet scheduled"): no dose
 	// given and dose 1 due more than 6 months after today (EQ2, EQ18).

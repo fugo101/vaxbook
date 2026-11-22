@@ -1,0 +1,86 @@
+{
+  "ruleset": "minimal-retired-product",
+  "input": {
+    "today": "2026-05-10",
+    "profile": {
+      "birth": {
+        "value": "2026-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "rota"
+        ],
+        "product": "rotateq",
+        "date": {
+          "value": "2026-03-01",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "rota"
+        ],
+        "product": "rotateq",
+        "date": {
+          "value": "2026-04-01",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-retired-product-s3a",
+    "today": "2026-05-10",
+    "assessments": [
+      {
+        "disease": "rota",
+        "bucket": "upcoming",
+        "nextDose": {
+          "number": 3,
+          "earliest": "2026-04-29",
+          "due": "2026-07-01",
+          "overdue": "2026-07-08"
+        },
+        "seriesUsed": [
+          "rota-rotarix",
+          "rota-rotateq"
+        ],
+        "reasons": [
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "product": "rotarix",
+                  "series": "rota-rotarix"
+                },
+                {
+                  "product": "rotateq",
+                  "series": "rota-rotateq"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "disease": "hib",
+        "bucket": "overdue",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2026-02-12",
+          "due": "2026-03-01",
+          "overdue": "2026-03-08"
+        },
+        "seriesUsed": [
+          "hib-old-primary"
+        ]
+      }
+    ]
+  }
+}

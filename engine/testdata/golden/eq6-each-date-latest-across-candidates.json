@@ -1,0 +1,65 @@
+{
+  "ruleset": "minimal-crossed-candidates",
+  "input": {
+    "today": "2026-04-20",
+    "profile": {
+      "birth": {
+        "value": "2026-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "duo"
+        ],
+        "date": {
+          "value": "2026-03-01",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-crossed-candidates-s3a",
+    "today": "2026-04-20",
+    "assessments": [
+      {
+        "disease": "duo",
+        "bucket": "upcoming",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-04-26",
+          "due": "2026-05-01",
+          "overdue": "2026-05-08"
+        },
+        "seriesUsed": [
+          "duo-a",
+          "duo-b"
+        ],
+        "products": [
+          "vax-b",
+          "vax-a"
+        ],
+        "reasons": [
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "product": "vax-a",
+                  "series": "duo-a"
+                },
+                {
+                  "product": "vax-b",
+                  "series": "duo-b"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

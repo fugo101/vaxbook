@@ -1,0 +1,124 @@
+{
+  "ruleset": "illustrative-products",
+  "input": {
+    "today": "2026-05-10",
+    "profile": {
+      "birth": {
+        "value": "2026-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "rota"
+        ],
+        "product": "rotarix",
+        "date": {
+          "value": "2026-04-01",
+          "precision": "day"
+        },
+        "doseNumbers": {
+          "rota": 2
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-products-s3a",
+    "today": "2026-05-10",
+    "assessments": [
+      {
+        "disease": "rota",
+        "bucket": "upcoming",
+        "nextDose": {
+          "number": 3,
+          "earliest": "2026-04-29",
+          "due": "2026-07-01",
+          "overdue": "2026-07-08"
+        },
+        "seriesUsed": [
+          "rota-rotarix",
+          "rota-rotateq"
+        ],
+        "products": [
+          "rotateq"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "IMPLIED_EARLIER_DOSES",
+            "params": {
+              "numbers": [
+                1
+              ]
+            }
+          },
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "product": "rotarix",
+                  "series": "rota-rotarix"
+                },
+                {
+                  "product": "rotateq",
+                  "series": "rota-rotateq"
+                }
+              ]
+            }
+          },
+          {
+            "code": "INTERVAL_UNVERIFIABLE",
+            "params": {
+              "dose": "r1",
+              "number": 2
+            }
+          }
+        ]
+      },
+      {
+        "disease": "pertussis",
+        "bucket": "overdue",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2026-02-12",
+          "due": "2026-03-01",
+          "overdue": "2026-03-08"
+        },
+        "seriesUsed": [
+          "pertussis-primary",
+          "pertussis-pertu2"
+        ],
+        "products": [
+          "hexaxim",
+          "pertu2"
+        ],
+        "reasons": [
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "series": "pertussis-primary"
+                },
+                {
+                  "product": "pertu2",
+                  "series": "pertussis-pertu2"
+                }
+              ]
+            }
+          },
+          {
+            "code": "ALTERNATIVE_PLANS",
+            "params": {
+              "series": "pertussis-primary"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "version": "minimal-retired-product-s3a",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "rota",
+      "name": "Tiêu chảy do rotavirus"
+    },
+    {
+      "id": "hib",
+      "name": "Hib"
+    }
+  ],
+  "products": [
+    {
+      "id": "rotarix",
+      "name": "Rotarix",
+      "diseases": [
+        "rota"
+      ],
+      "live": true
+    },
+    {
+      "id": "rotateq",
+      "name": "RotaTeq",
+      "diseases": [
+        "rota"
+      ],
+      "live": true,
+      "retired": true
+    },
+    {
+      "id": "hib-old",
+      "name": "Vắc xin Hib minh hoạ đã ngừng",
+      "diseases": [
+        "hib"
+      ],
+      "live": false,
+      "retired": true
+    }
+  ],
+  "series": [
+    {
+      "id": "rota-rotarix",
+      "disease": "rota",
+      "product": "rotarix",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rota-rotateq",
+      "disease": "rota",
+      "product": "rotateq",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P10W"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P6M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hib-old-primary",
+      "disease": "hib",
+      "product": "hib-old",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

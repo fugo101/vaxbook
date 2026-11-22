@@ -38,6 +38,9 @@
       {
         "disease": "alt",
         "bucket": "unknown",
+        "seriesUsed": [
+          "alt-series"
+        ],
         "reasons": [
           {
             "code": "DOSE_INVALID",

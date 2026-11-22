@@ -1,0 +1,88 @@
+{
+  "ruleset": "illustrative-products",
+  "input": {
+    "today": "2026-04-20",
+    "profile": {
+      "birth": {
+        "value": "2026-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "rota",
+          "pertussis"
+        ],
+        "product": "rotarix",
+        "date": {
+          "value": "2026-03-01",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-products-s3a",
+    "today": "2026-04-20",
+    "assessments": [
+      {
+        "disease": "rota",
+        "bucket": "due",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-03-29",
+          "due": "2026-05-01",
+          "overdue": "2026-05-08"
+        },
+        "seriesUsed": [
+          "rota-rotarix"
+        ],
+        "products": [
+          "rotarix"
+        ]
+      },
+      {
+        "disease": "pertussis",
+        "bucket": "upcoming",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-04-26",
+          "due": "2026-05-01",
+          "overdue": "2026-05-08"
+        },
+        "seriesUsed": [
+          "pertussis-primary",
+          "pertussis-pertu2"
+        ],
+        "products": [
+          "hexaxim",
+          "pertu2"
+        ],
+        "reasons": [
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "series": "pertussis-primary"
+                },
+                {
+                  "product": "pertu2",
+                  "series": "pertussis-pertu2"
+                }
+              ]
+            }
+          },
+          {
+            "code": "ALTERNATIVE_PLANS",
+            "params": {
+              "series": "pertussis-primary"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

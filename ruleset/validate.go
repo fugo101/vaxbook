@@ -29,6 +29,7 @@ func Validate(s *Snapshot) []Problem {
 			v.reject(Required, p+"/name", ProblemParams{})
 		}
 	}
+	products := v.products(s.Products, diseases)
 	series := make(map[string]bool, len(s.Series))
 	for i, sr := range s.Series {
 		p := "/series/" + strconv.Itoa(i)
@@ -44,6 +45,19 @@ func Validate(s *Snapshot) []Problem {
 		case !diseases[sr.Disease]:
 			v.reject(UnknownReference, p+"/disease", ProblemParams{Disease: sr.Disease})
 		}
+		if sr.Product != nil {
+			// S3a does not limit a product group to one series here: S3b
+			// adds start-age brackets, which tell the series of a group
+			// apart (EQ26). engine.New rejects such a group until then.
+			pp := p + "/product"
+			switch id := *sr.Product; {
+			case !v.id(pp, id):
+			case products[id] == nil:
+				v.reject(UnknownReference, pp, ProblemParams{Product: id})
+			case diseases[sr.Disease] && !products[id][sr.Disease]:
+				v.reject(ProductDiseaseMismatch, pp, ProblemParams{Disease: sr.Disease, Product: id})
+			}
+		}
 		switch sr.Stage {
 		case Childhood, Adult:
 		case "":
@@ -54,6 +68,42 @@ func Validate(s *Snapshot) []Problem {
 		v.plans(p, sr.Plans)
 	}
 	return v.problems
+}
+
+// products checks the product catalog and returns the diseases each usable
+// product ID lists. For a repeated ID the first product wins.
+func (v *validator) products(products []Product, diseases map[string]bool) map[string]map[string]bool {
+	out := make(map[string]map[string]bool, len(products))
+	for i, pr := range products {
+		p := "/products/" + strconv.Itoa(i)
+		listed := make(map[string]bool, len(pr.Diseases))
+		if v.id(p+"/id", pr.ID) {
+			if out[pr.ID] != nil {
+				v.reject(DuplicateID, p+"/id", ProblemParams{ID: pr.ID})
+			} else {
+				out[pr.ID] = listed
+			}
+		}
+		if pr.Name == "" {
+			v.reject(Required, p+"/name", ProblemParams{})
+		}
+		if len(pr.Diseases) == 0 {
+			v.reject(Empty, p+"/diseases", ProblemParams{})
+		}
+		for j, d := range pr.Diseases {
+			dp := p + "/diseases/" + strconv.Itoa(j)
+			switch {
+			case d == "":
+				v.reject(Required, dp, ProblemParams{})
+			case !diseases[d]:
+				v.reject(UnknownReference, dp, ProblemParams{Disease: d})
+			case listed[d]:
+				v.reject(DuplicateValue, dp, ProblemParams{Disease: d})
+			}
+			listed[d] = true
+		}
+	}
+	return out
 }
 
 type validator struct {

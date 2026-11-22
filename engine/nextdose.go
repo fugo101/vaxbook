@@ -22,7 +22,11 @@ type anchors struct {
 // nextResult is step 7 at one birth end. When stop is set the next dose has
 // no dates and reasons hold the blocking reason that stopped it.
 type nextResult struct {
-	next    NextDose
+	next NextDose
+	// plans are the dates of dose k in each plan, in rule-set order, before
+	// the plans are merged into next: kept per candidate for the EQ15 cap
+	// of S4 (issue #14 In scope 6). Empty when step 7 stops.
+	plans   []planDates
 	reasons []Reason
 	stop    bool
 }
@@ -125,6 +129,7 @@ func (s seriesModel) next(b birthEnd, w walkResult) nextResult {
 			// assessment ⚪, so step 7 stops without a reason of its own.
 			return nextResult{stop: true}
 		}
+		r.plans = append(r.plans, pd)
 		if i == 0 || pd.due.Before(best.due) || (pd.due == best.due && pd.earliest.After(best.earliest)) {
 			best = pd
 		}

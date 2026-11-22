@@ -1,0 +1,79 @@
+{
+  "snapshot": {
+    "version": "validate-product-mismatch",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ A"
+      },
+      {
+        "id": "b",
+        "name": "Bệnh minh hoạ B"
+      }
+    ],
+    "products": [
+      {
+        "id": "p",
+        "name": "Vắc xin minh hoạ P",
+        "diseases": [
+          "a"
+        ],
+        "live": false
+      }
+    ],
+    "series": [
+      {
+        "id": "a-p",
+        "disease": "a",
+        "product": "p",
+        "stage": "childhood",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P2M"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "b-p",
+        "disease": "b",
+        "product": "p",
+        "stage": "childhood",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P2M"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "PRODUCT_DISEASE_MISMATCH",
+      "severity": "reject",
+      "path": "/series/1/product",
+      "params": {
+        "disease": "b",
+        "product": "p"
+      }
+    }
+  ]
+}

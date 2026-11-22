@@ -82,13 +82,20 @@ func TestFixtureRuleSetsMatchSchema(t *testing.T) {
 	}
 }
 
-// The rejected snapshots are shape-valid: only ruleset.Validate rejects them.
+// The rejected snapshots are shape-valid, so only ruleset.Validate rejects
+// them, except those named reject-schema-*: they break a schema keyword that
+// Validate mirrors (minLength, uniqueItems, the Id pattern), and the schema
+// must reject them too (R1).
 func TestRejectedRuleSetsMatchSchema(t *testing.T) {
 	t.Parallel()
 	snap := compile(t, "Snapshot")
 	for _, f := range glob(t, "../ruleset/testdata/validate/*.json") {
 		doc, _ := readJSON(t, f).(map[string]any)
-		if err := snap.Validate(doc["snapshot"]); err != nil {
+		err := snap.Validate(doc["snapshot"])
+		switch schemaOnly := strings.HasPrefix(filepath.Base(f), "reject-schema-"); {
+		case schemaOnly && err == nil:
+			t.Errorf("%s: the schema accepts a snapshot named reject-schema-*", f)
+		case !schemaOnly && err != nil:
 			t.Errorf("%s: %v", f, err)
 		}
 	}
@@ -148,10 +155,27 @@ func TestSchemaRejects(t *testing.T) {
 		"dose numbers array":        {"DoseRecord", `{"id": "r", "diseases": ["a"], "date": {"precision": "unknown"}, "doseNumbers": [1]}`},
 		"estimated false":           {"Assessment", `{"disease": "a", "bucket": "due", "estimated": false}`},
 		"unknown hint":              {"ReasonParams", `{"hint": "fullName"}`},
-		"one overlapping dose":      {"ReasonParams", `{"doses": ["r1"]}`},
+		"no doses":                  {"ReasonParams", `{"doses": []}`},
 		"repeated overlapping dose": {"ReasonParams", `{"doses": ["r1", "r1"]}`},
 		"no implied numbers":        {"ReasonParams", `{"numbers": []}`},
 		"implied number zero":       {"ReasonParams", `{"numbers": [0]}`},
+		"one candidate":             {"ReasonParams", `{"candidates": [{"series": "s"}]}`},
+		"candidate without series":  {"ReasonParams", `{"candidates": [{"product": "p"}, {"series": "s"}]}`},
+		"repeated candidate":        {"ReasonParams", `{"candidates": [{"series": "s"}, {"series": "s"}]}`},
+		"candidate empty product":   {"SeriesRef", `{"product": "", "series": "s"}`},
+		"candidates as strings":     {"ReasonParams", `{"candidates": ["p/s", "generic/t"]}`},
+		"empty seriesUsed":          {"Assessment", `{"disease": "a", "bucket": "due", "seriesUsed": []}`},
+		"repeated seriesUsed":       {"Assessment", `{"disease": "a", "bucket": "due", "seriesUsed": ["s", "s"]}`},
+		"empty products":            {"Assessment", `{"disease": "a", "bucket": "due", "products": []}`},
+		"empty dose product":        {"DoseRecord", `{"id": "r", "diseases": ["a"], "product": "", "date": {"precision": "unknown"}}`},
+		"empty free product":        {"DoseRecord", `{"id": "r", "diseases": ["a"], "freeProduct": "", "date": {"precision": "unknown"}}`},
+		"numeric dose product":      {"DoseRecord", `{"id": "r", "diseases": ["a"], "product": 1, "date": {"precision": "unknown"}}`},
+		"product without live":      {"Product", `{"id": "p", "name": "P", "diseases": ["a"]}`},
+		"product live as a string":  {"Product", `{"id": "p", "name": "P", "diseases": ["a"], "live": "true"}`},
+		"product without diseases":  {"Product", `{"id": "p", "name": "P", "diseases": [], "live": false}`},
+		"product repeated disease":  {"Product", `{"id": "p", "name": "P", "diseases": ["a", "a"], "live": false}`},
+		"product empty name":        {"Product", `{"id": "p", "name": "", "diseases": ["a"], "live": false}`},
+		"series product not an id":  {"Series", `{"id": "s", "disease": "a", "product": "Bad", "stage": "childhood", "plans": [{"id": "p", "doses": [{"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}}]}]}`},
 	}
 	for name, c := range cases {
 		v, err := jsonschema.UnmarshalJSON(strings.NewReader(c.doc))
@@ -178,6 +202,22 @@ func TestRecalledDateAcceptsAnyString(t *testing.T) {
 		doc := map[string]any{"value": value, "precision": "day"}
 		if err := recalled.Validate(doc); err != nil {
 			t.Errorf("RecalledDate rejected value %q: %v", value, err)
+		}
+	}
+}
+
+// TestDoseProductAcceptsAnyString: engine.Validate reports a product ID the
+// rule set does not have as UNKNOWN_PRODUCT, record-scoped, and Evaluate
+// still assesses the profile (⚪, issue #14 Q35). So the schema gives the
+// member no Id pattern, or a client validating against it would reject the
+// record instead.
+func TestDoseProductAcceptsAnyString(t *testing.T) {
+	t.Parallel()
+	record := compile(t, "DoseRecord")
+	for _, value := range []string{"rotavin", "Rotavin", "vaccine x", "-", "２"} {
+		doc := map[string]any{"id": "r", "diseases": []any{"a"}, "product": value, "date": map[string]any{"precision": "unknown"}}
+		if err := record.Validate(doc); err != nil {
+			t.Errorf("DoseRecord rejected product %q: %v", value, err)
 		}
 	}
 }
@@ -250,6 +290,7 @@ func TestSchemaMatchesStructs(t *testing.T) {
 	types := map[string]reflect.Type{
 		"Snapshot":     reflect.TypeFor[ruleset.Snapshot](),
 		"Disease":      reflect.TypeFor[ruleset.Disease](),
+		"Product":      reflect.TypeFor[ruleset.Product](),
 		"Series":       reflect.TypeFor[ruleset.Series](),
 		"Plan":         reflect.TypeFor[ruleset.Plan](),
 		"DoseRule":     reflect.TypeFor[ruleset.DoseRule](),
@@ -263,6 +304,7 @@ func TestSchemaMatchesStructs(t *testing.T) {
 		"NextDose":     reflect.TypeFor[engine.NextDose](),
 		"Reason":       reflect.TypeFor[engine.Reason](),
 		"ReasonParams": reflect.TypeFor[engine.ReasonParams](),
+		"SeriesRef":    reflect.TypeFor[engine.SeriesRef](),
 	}
 	defs := schemaDefs(t)
 	for name, def := range defs {
@@ -305,6 +347,10 @@ func TestSchemaMatchesStructs(t *testing.T) {
 }
 
 // TestSchemaEnumsMatchConstants: every enum lists exactly the Go constants.
+// Problem codes are not here: the schema has no Problem definition (engine
+// problems reach clients only through the WASM bridge, and openapi.yaml has
+// only the RFC 9457 wrapper). TestProblemCodeStrings in engine and ruleset
+// pins their strings instead (issue #14, In scope 12).
 func TestSchemaEnumsMatchConstants(t *testing.T) {
 	t.Parallel()
 	defs := schemaDefs(t)
@@ -339,9 +385,10 @@ func TestSchemaEnumsMatchConstants(t *testing.T) {
 		{"Assessment", "bucket", str(engine.BucketOverdue, engine.BucketDue, engine.BucketUpcoming, engine.BucketUnknown, engine.BucketComplete)},
 		{"Assessment", "block", str(engine.BlockNotYetScheduled)},
 		{"Reason", "code", str(engine.ReasonInvalidDate, engine.ReasonOutOfRange, engine.ReasonDateInFuture, engine.ReasonDateBeforeBirth,
-			engine.ReasonUnexpectedValue, engine.ReasonOverlappingEstimatedDates, engine.ReasonNumberingConflict, engine.ReasonImpliedEarlierDoses,
-			engine.ReasonBirthDateImprecise, engine.ReasonDoseInvalid, engine.ReasonDosePossiblyInvalid, engine.ReasonIntervalUnverifiable,
-			engine.ReasonComplete, engine.ReasonPreviousDoseDateUnknown, engine.ReasonNoBirthDate, engine.ReasonFirstDoseDateAssumed,
+			engine.ReasonUnexpectedValue, engine.ReasonUnknownProduct, engine.ReasonOverlappingEstimatedDates, engine.ReasonNumberingConflict,
+			engine.ReasonImpliedEarlierDoses, engine.ReasonSafestSeries, engine.ReasonBirthDateImprecise, engine.ReasonDoseInvalid,
+			engine.ReasonDosePossiblyInvalid, engine.ReasonIntervalUnverifiable, engine.ReasonComplete, engine.ReasonProductNotInCatalog,
+			engine.ReasonPreviousDoseDateUnknown, engine.ReasonNoBirthDate, engine.ReasonFirstDoseDateAssumed,
 			engine.ReasonAlternativePlans, engine.ReasonOnTrack)},
 		{"ReasonParams", "checks", str(engine.CheckMinAge, engine.CheckMinInterval, engine.CheckMinIntervalFromFirst)},
 		{"ReasonParams", "hint", str(engine.HintBirthMonth, engine.HintFullBirthDate)},

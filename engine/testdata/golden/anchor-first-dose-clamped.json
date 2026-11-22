@@ -33,7 +33,10 @@
           "earliest": "2025-01-28",
           "due": "2025-02-28",
           "overdue": "2025-03-07"
-        }
+        },
+        "seriesUsed": [
+          "anchored-series"
+        ]
       }
     ]
   }

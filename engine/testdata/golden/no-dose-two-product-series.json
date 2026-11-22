@@ -1,0 +1,94 @@
+{
+  "ruleset": "illustrative-products",
+  "input": {
+    "today": "2026-02-12",
+    "profile": {
+      "birth": {
+        "value": "2026-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-products-s3a",
+    "today": "2026-02-12",
+    "assessments": [
+      {
+        "disease": "rota",
+        "bucket": "due",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2026-02-12",
+          "due": "2026-03-12",
+          "overdue": "2026-03-19"
+        },
+        "seriesUsed": [
+          "rota-rotarix",
+          "rota-rotateq"
+        ],
+        "products": [
+          "rotarix",
+          "rotateq"
+        ],
+        "reasons": [
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "product": "rotarix",
+                  "series": "rota-rotarix"
+                },
+                {
+                  "product": "rotateq",
+                  "series": "rota-rotateq"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "disease": "pertussis",
+        "bucket": "due",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2026-02-12",
+          "due": "2026-03-01",
+          "overdue": "2026-03-08"
+        },
+        "seriesUsed": [
+          "pertussis-primary",
+          "pertussis-pertu2"
+        ],
+        "products": [
+          "hexaxim",
+          "pertu2"
+        ],
+        "reasons": [
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "series": "pertussis-primary"
+                },
+                {
+                  "product": "pertu2",
+                  "series": "pertussis-pertu2"
+                }
+              ]
+            }
+          },
+          {
+            "code": "ALTERNATIVE_PLANS",
+            "params": {
+              "series": "pertussis-primary"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

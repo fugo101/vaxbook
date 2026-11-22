@@ -33,7 +33,10 @@
           "earliest": "2026-05-26",
           "due": "2027-02-28",
           "overdue": "2027-03-14"
-        }
+        },
+        "seriesUsed": [
+          "buffered-series"
+        ]
       }
     ]
   }

@@ -18,7 +18,7 @@ const (
 // ProblemCode is a code from the closed catalog of rule set problems.
 type ProblemCode string
 
-// The rule set problem catalog (S1). Renaming a code is a contract change.
+// The rule set problem catalog (S3a). Renaming a code is a contract change.
 const (
 	// PlanDoseCountMismatch: a plan has a different number of doses from
 	// plan 0 of its series (EQ5). Path: the plan.
@@ -39,12 +39,19 @@ const (
 	InvalidValue ProblemCode = "INVALID_VALUE"
 	// DuplicateID: an ID is used twice in its scope. Params: id.
 	DuplicateID ProblemCode = "DUPLICATE_ID"
-	// UnknownReference: a series names a disease that does not exist.
-	// Params: disease.
+	// UnknownReference: a series or product names a disease, or a series
+	// names a product, that does not exist. Params: disease or product.
 	UnknownReference ProblemCode = "UNKNOWN_REFERENCE"
-	// Empty: a snapshot has no diseases, a series has no plans or a plan has
-	// no doses.
+	// Empty: a snapshot has no diseases, a series has no plans, a plan has
+	// no doses or a product has no diseases.
 	Empty ProblemCode = "EMPTY"
+	// DuplicateValue: a product lists a disease twice. Params: disease.
+	// Added in S3a.
+	DuplicateValue ProblemCode = "DUPLICATE_VALUE"
+	// ProductDiseaseMismatch: a series names a product that does not list
+	// the series' disease. Path: the series' product. Params: disease,
+	// product. Added in S3a.
+	ProductDiseaseMismatch ProblemCode = "PRODUCT_DISEASE_MISMATCH"
 )
 
 // Problem is one finding of Validate. Path is a JSON pointer (RFC 6901)
@@ -63,13 +70,14 @@ type Problem struct {
 type ProblemParams struct {
 	Disease string `json:"disease,omitzero"`
 	ID      string `json:"id,omitzero"`
+	Product string `json:"product,omitzero"`
 	Value   string `json:"value,omitzero"`
 }
 
 func (p Problem) String() string {
 	s := fmt.Sprintf("%s %s at %s", p.Severity, p.Code, p.Path)
 	var parts []string
-	for _, kv := range [][2]string{{"disease", p.Params.Disease}, {"id", p.Params.ID}, {"value", p.Params.Value}} {
+	for _, kv := range [][2]string{{"disease", p.Params.Disease}, {"id", p.Params.ID}, {"product", p.Params.Product}, {"value", p.Params.Value}} {
 		if kv[1] != "" {
 			parts = append(parts, kv[0]+"="+strconv.Quote(kv[1]))
 		}

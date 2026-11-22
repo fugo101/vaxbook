@@ -23,6 +23,9 @@
           "due": "2026-12-31",
           "overdue": "2027-01-14"
         },
+        "seriesUsed": [
+          "late-series"
+        ],
         "estimated": true
       }
     ]

@@ -25,6 +25,12 @@ var s1Required = map[string][]string{
 		"/diseases",
 		"/diseases/*/id",
 		"/diseases/*/name",
+		// Added in S3a inside the new optional products member, which no
+		// stored document has yet (R5); live is required by decision (Q46).
+		"/products/*/diseases",
+		"/products/*/id",
+		"/products/*/live",
+		"/products/*/name",
 		"/series",
 		"/series/*/disease",
 		"/series/*/id",

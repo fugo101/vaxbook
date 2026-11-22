@@ -1,6 +1,6 @@
 package ruleset
 
-// Snapshot is an immutable rule set version: the S2 subset of SAD §5.2.
+// Snapshot is an immutable rule set version: the S3a subset of SAD §5.2.
 // Fields are added additively by later slices.
 type Snapshot struct {
 	Version string `json:"version"`
@@ -8,13 +8,34 @@ type Snapshot struct {
 	// the publish path never sets it.
 	Illustrative bool      `json:"illustrative,omitzero"`
 	Diseases     []Disease `json:"diseases"`
-	Series       []Series  `json:"series"`
+	// Products is the vaccine product catalog, in display order. Added in
+	// S3a.
+	Products []Product `json:"products,omitzero"`
+	Series   []Series  `json:"series"`
 }
 
 // Disease is a disease the engine assesses, in display order.
 type Disease struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// Product is a vaccine product of the catalog (SAD §5.2, F11.3). Added in
+// S3a.
+type Product struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Diseases are the diseases the product protects against: at least one,
+	// each a disease of the snapshot, none repeated.
+	Diseases []string `json:"diseases"`
+	// Live is the live-vaccine flag. It is required although the engine
+	// does not read it before S7 (pregnancy), because an absent flag would
+	// read as non-live, which is unsafe (issue #14, Q46).
+	Live bool `json:"live"`
+	// Retired marks a product that is no longer given (F11.3, SAD §5.6
+	// table C). It stays in the snapshot with its series: a dose of it has
+	// an unknown product, and it is never offered for a dose not yet given.
+	Retired bool `json:"retired,omitzero"`
 }
 
 // Stage is the life stage a series belongs to.
@@ -31,8 +52,15 @@ const (
 type Series struct {
 	ID      string `json:"id"`
 	Disease string `json:"disease"`
-	Stage   Stage  `json:"stage"`
-	Plans   []Plan `json:"plans"`
+	// Product names the catalog product the series belongs to, which must
+	// list Disease. Absent, the series is generic: it applies to every
+	// product of the disease that has no series of its own. It is a pointer
+	// so that a present empty string is a Validate problem instead of a
+	// generic series. The series of one disease with the same Product, or
+	// its generic series, form a product group (issue #14). Added in S3a.
+	Product *string `json:"product,omitzero"`
+	Stage   Stage   `json:"stage"`
+	Plans   []Plan  `json:"plans"`
 }
 
 // Plan is one alternative schedule of a series.

@@ -338,14 +338,17 @@ var reasonParams = map[engine.ReasonCode][]string{
 	engine.ReasonDateInFuture:              {"dose"},
 	engine.ReasonDateBeforeBirth:           {"dose"},
 	engine.ReasonUnexpectedValue:           {"dose"},
+	engine.ReasonUnknownProduct:            {"dose"},
 	engine.ReasonOverlappingEstimatedDates: {"doses"},
 	engine.ReasonNumberingConflict:         {"dose", "number"},
 	engine.ReasonImpliedEarlierDoses:       {"numbers"},
+	engine.ReasonSafestSeries:              {"candidates"},
 	engine.ReasonBirthDateImprecise:        {"hint"},
 	engine.ReasonDoseInvalid:               {"checks", "dose", "number"},
 	engine.ReasonDosePossiblyInvalid:       {"checks", "dose", "number"},
 	engine.ReasonIntervalUnverifiable:      {"dose", "number"},
 	engine.ReasonComplete:                  nil,
+	engine.ReasonProductNotInCatalog:       {"doses"},
 	engine.ReasonPreviousDoseDateUnknown:   {"dose"},
 	engine.ReasonNoBirthDate:               nil,
 	engine.ReasonFirstDoseDateAssumed:      {"dose"},
@@ -385,6 +388,11 @@ func checkReasonParams(t testing.TB, a engine.Assessment) {
 		}
 		if h := r.Params.Hint; h != "" && h != engine.HintBirthMonth && h != engine.HintFullBirthDate {
 			t.Errorf("%s: %s has unknown hint %q", a.Disease, r.Code, h)
+		}
+		for _, c := range r.Params.Candidates {
+			if c.Series == "" {
+				t.Errorf("%s: %s has a candidate without a series: %+v", a.Disease, r.Code, r.Params.Candidates)
+			}
 		}
 	}
 }

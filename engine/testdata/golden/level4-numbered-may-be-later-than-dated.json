@@ -40,6 +40,9 @@
       {
         "disease": "pertussis",
         "bucket": "unknown",
+        "seriesUsed": [
+          "pertussis-primary"
+        ],
         "estimated": true,
         "reasons": [
           {
@@ -58,7 +61,10 @@
           "earliest": "2027-03-01",
           "due": "2027-03-01",
           "overdue": "2027-03-08"
-        }
+        },
+        "seriesUsed": [
+          "measles-primary"
+        ]
       },
       {
         "disease": "hpv",
@@ -68,7 +74,10 @@
           "earliest": "2035-06-01",
           "due": "2035-06-01",
           "overdue": "2035-06-08"
-        }
+        },
+        "seriesUsed": [
+          "hpv-generic"
+        ]
       }
     ]
   }

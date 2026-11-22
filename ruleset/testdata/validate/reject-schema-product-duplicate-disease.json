@@ -1,0 +1,55 @@
+{
+  "snapshot": {
+    "version": "validate-product-duplicate-disease",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ A"
+      }
+    ],
+    "products": [
+      {
+        "id": "p",
+        "name": "Vắc xin minh hoạ P",
+        "diseases": [
+          "a",
+          "a"
+        ],
+        "live": false
+      }
+    ],
+    "series": [
+      {
+        "id": "a-p",
+        "disease": "a",
+        "product": "p",
+        "stage": "childhood",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P2M"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "DUPLICATE_VALUE",
+      "severity": "reject",
+      "path": "/products/0/diseases/1",
+      "params": {
+        "disease": "a"
+      }
+    }
+  ]
+}

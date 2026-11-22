@@ -28,6 +28,9 @@
       {
         "disease": "single",
         "bucket": "unknown",
+        "seriesUsed": [
+          "single-series"
+        ],
         "reasons": [
           {
             "code": "DOSE_INVALID",

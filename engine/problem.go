@@ -9,9 +9,10 @@ import (
 // ProblemCode is a code from the closed catalog of input problems.
 type ProblemCode string
 
-// The input problem catalog (S2).
+// The input problem catalog (S3a).
 const (
-	// Required: a required value is missing.
+	// Required: a required value is missing, or an optional string member
+	// is present but empty (product, freeProduct).
 	Required ProblemCode = "REQUIRED"
 	// InvalidValue: a value is outside its enum, including the level-4
 	// precision of the other field ("none" on a dose record, "unknown" on
@@ -49,6 +50,12 @@ const (
 	DuplicateID ProblemCode = "DUPLICATE_ID"
 	// DuplicateValue: a dose record lists a disease twice. Params: disease.
 	DuplicateValue ProblemCode = "DUPLICATE_VALUE"
+	// UnknownProduct: a dose record names a product the rule set does not
+	// have. Record-scoped (issue #14, Q35). Params: product. Added in S3a.
+	UnknownProduct ProblemCode = "UNKNOWN_PRODUCT"
+	// MutuallyExclusive: a dose record has both product and freeProduct.
+	// Path: freeProduct. Added in S3a.
+	MutuallyExclusive ProblemCode = "MUTUALLY_EXCLUSIVE"
 )
 
 // Scope says what a problem stops.
@@ -59,9 +66,10 @@ const (
 	// ScopeInput: Evaluate returns an *InputError instead of an Output.
 	ScopeInput Scope = "input"
 	// ScopeRecord: a problem with a dose record's date value (INVALID_DATE,
-	// UNEXPECTED_VALUE, OUT_OF_RANGE, DATE_IN_FUTURE, DATE_BEFORE_BIRTH).
-	// Evaluate still assesses the profile: every disease of that record
-	// becomes ⚪ with a reason of the same code (A9, EQ27).
+	// UNEXPECTED_VALUE, OUT_OF_RANGE, DATE_IN_FUTURE, DATE_BEFORE_BIRTH) or
+	// its product (UNKNOWN_PRODUCT). Evaluate still assesses the profile:
+	// every disease of that record becomes ⚪ with a reason of the same code
+	// (A9, EQ27).
 	ScopeRecord Scope = "record"
 )
 
@@ -81,13 +89,15 @@ type ProblemParams struct {
 	Disease   string `json:"disease,omitzero"`
 	ID        string `json:"id,omitzero"`
 	Precision string `json:"precision,omitzero"`
+	Product   string `json:"product,omitzero"`
 	Value     string `json:"value,omitzero"`
 }
 
 func (p Problem) String() string {
 	s := fmt.Sprintf("%s at %s", p.Code, p.Path)
 	if p.Params != (ProblemParams{}) {
-		s += " " + paramString("disease", p.Params.Disease, "id", p.Params.ID, "precision", p.Params.Precision, "value", p.Params.Value)
+		s += " " + paramString("disease", p.Params.Disease, "id", p.Params.ID, "precision", p.Params.Precision,
+			"product", p.Params.Product, "value", p.Params.Value)
 	}
 	return s
 }

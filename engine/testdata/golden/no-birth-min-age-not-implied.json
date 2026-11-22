@@ -27,6 +27,9 @@
       {
         "disease": "ageonly",
         "bucket": "unknown",
+        "seriesUsed": [
+          "ageonly-series"
+        ],
         "estimated": true,
         "reasons": [
           {

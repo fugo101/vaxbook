@@ -17,6 +17,9 @@
       {
         "disease": "single",
         "bucket": "unknown",
+        "seriesUsed": [
+          "single-series"
+        ],
         "estimated": true,
         "reasons": [
           {

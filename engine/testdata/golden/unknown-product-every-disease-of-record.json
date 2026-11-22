@@ -1,0 +1,69 @@
+{
+  "ruleset": "illustrative-vn",
+  "input": {
+    "today": "2026-04-01",
+    "profile": {
+      "birth": {
+        "value": "2026-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "pertussis",
+          "measles"
+        ],
+        "product": "vaccine-x",
+        "date": {
+          "value": "2026-03-01",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-vn-s2",
+    "today": "2026-04-01",
+    "assessments": [
+      {
+        "disease": "pertussis",
+        "bucket": "unknown",
+        "reasons": [
+          {
+            "code": "UNKNOWN_PRODUCT",
+            "params": {
+              "dose": "r1"
+            }
+          }
+        ]
+      },
+      {
+        "disease": "measles",
+        "bucket": "unknown",
+        "reasons": [
+          {
+            "code": "UNKNOWN_PRODUCT",
+            "params": {
+              "dose": "r1"
+            }
+          }
+        ]
+      },
+      {
+        "disease": "hpv",
+        "block": "notYetScheduled",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2035-01-10",
+          "due": "2035-01-10",
+          "overdue": "2035-01-17"
+        },
+        "seriesUsed": [
+          "hpv-generic"
+        ]
+      }
+    ]
+  }
+}

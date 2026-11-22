@@ -8,8 +8,13 @@ import (
 )
 
 // placement is the result of SAD §5.3 step 2 for one disease: where each
-// dose record sits in the series. It does not depend on the birth date, so
+// dose record sits in a series. It does not depend on the birth date, so
 // both ends of a birth-date range (step 4) walk the same placement.
+//
+// arrange computes the part that does not depend on the series: the walk
+// order, the step-2 reasons and the positions the records take. forLength
+// then fills the slots of a series of a given length, so the candidate
+// series of a disease (step 3) share one arrangement.
 type placement struct {
 	// dated are the dated doses in walk order: time order (Lo, Hi, ID),
 	// except that the members of an overlap resolved by user-entered
@@ -33,11 +38,22 @@ type placement struct {
 	// reasons are the blocking step-2 reasons: OVERLAPPING_ESTIMATED_DATES,
 	// then NUMBERING_CONFLICT. Any of them skips steps 5–9 (blocked).
 	reasons []Reason
+
+	// Set by arrange, read by forLength: the numbered and the unnumbered
+	// level-4 doses, each by ID, and the positions the records take.
+	numbered, unnumbered []givenDose
+	occupied             map[int]bool
 }
 
 func (pl placement) blocked() bool { return len(pl.reasons) > 0 }
 
-// place assigns positions (SAD §5.3 step 2, F04.1, F04.2, A4, EQ20a).
+// place assigns positions in series s: arrange, then forLength.
+func (s seriesModel) place(doses []givenDose) placement {
+	return arrange(doses).forLength(s.length)
+}
+
+// arrange assigns positions (SAD §5.3 step 2, F04.1, F04.2, A4, EQ20a);
+// forLength fills the gaps of item 3 for one series length.
 //
 //  1. Dated doses are put in time order. Two dated ranges overlap when they
 //     intersect and are not both single days. Overlapping ranges form
@@ -64,7 +80,7 @@ func (pl placement) blocked() bool { return len(pl.reasons) > 0 }
 // S1's doses beyond the series: it is not checked or counted itself, but
 // its number implies the positions below it, and the doses there must fit
 // before it (walk).
-func (s seriesModel) place(doses []givenDose) placement {
+func arrange(doses []givenDose) placement {
 	var dated, numbered, unnumbered []givenDose
 	for _, g := range doses {
 		switch {
@@ -127,13 +143,22 @@ func (s seriesModel) place(doses []givenDose) placement {
 			pl.reasons = append(pl.reasons, Reason{Code: ReasonNumberingConflict, Params: ReasonParams{Dose: g.id, Number: n}})
 		}
 	}
+	pl.numbered, pl.unnumbered, pl.occupied = numbered, unnumbered, occupied
+	return pl
+}
+
+// forLength returns the placement in a series of n doses: the undated
+// slots up to n (fixed, implied), the numbered level-4 doses beyond n and
+// the unnumbered level-4 doses that fill no gap. A blocked placement is
+// returned unchanged. pl is not modified.
+func (pl placement) forLength(n int) placement {
 	if pl.blocked() {
 		return pl
 	}
-
-	pl.fixed = map[int]givenDose{}
+	numbered, unnumbered, occupied := pl.numbered, pl.unnumbered, pl.occupied
+	pl.fixed, pl.beyond, pl.implied = map[int]givenDose{}, nil, nil
 	for _, g := range numbered {
-		if g.number <= s.length {
+		if g.number <= n {
 			pl.fixed[g.number] = g
 		} else {
 			pl.beyond = append(pl.beyond, g)
@@ -144,7 +169,7 @@ func (s seriesModel) place(doses []givenDose) placement {
 	for q := range occupied {
 		top = max(top, q)
 	}
-	for q := 1; q < top && q <= s.length; q++ {
+	for q := 1; q < top && q <= n; q++ {
 		if occupied[q] {
 			continue
 		}

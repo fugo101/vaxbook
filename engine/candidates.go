@@ -237,10 +237,15 @@ func (ev evaluation) at(b birthEnd) endResult {
 }
 
 // walkReasons merges the step-5 reasons of the candidates: by dose in walk
-// order (the dated doses in placement order, which every candidate shares,
-// then the undated records), then by candidate in rule-set order, then in
-// the candidate's own order, without repeats (A8). One candidate's reasons
-// are already in that order.
+// order, then by candidate in rule-set order, then in the candidate's own
+// order, without repeats (A8). The dated doses come first, in placement
+// order, which every candidate shares. The undated records after them are
+// ordered by the position their reason names, which is where the walk puts
+// them (a numbered or gap-filling level-4 dose has the same position in
+// every candidate that reaches it), and then by ID. A reason on an undated
+// record names it only after the last dated dose: the trailing slot that
+// cannot lie by today, a level-4 dose beyond the series, or a floating dose.
+// One candidate's reasons are already in that order.
 func (ev evaluation) walkReasons(rs []candidateResult) []Reason {
 	dated := ev.pls[0].dated
 	rank := make(map[string]int, len(dated))
@@ -248,21 +253,26 @@ func (ev evaluation) walkReasons(rs []candidateResult) []Reason {
 		rank[g.id] = i
 	}
 	type entry struct {
-		rank, cand, idx int
-		r               Reason
+		rank, pos int
+		id        string
+		cand, idx int
+		r         Reason
 	}
 	var all []entry
 	for c, r := range rs {
 		for i, x := range r.walk.reasons {
-			rk, ok := rank[x.Params.Dose]
-			if !ok {
-				rk = len(dated)
+			e := entry{cand: c, idx: i, r: x}
+			if rk, ok := rank[x.Params.Dose]; ok {
+				e.rank = rk
+			} else {
+				e.rank, e.pos, e.id = len(dated), x.Params.Number, x.Params.Dose
 			}
-			all = append(all, entry{rk, c, i, x})
+			all = append(all, e)
 		}
 	}
 	slices.SortFunc(all, func(x, y entry) int {
-		return cmp.Or(cmp.Compare(x.rank, y.rank), cmp.Compare(x.cand, y.cand), cmp.Compare(x.idx, y.idx))
+		return cmp.Or(cmp.Compare(x.rank, y.rank), cmp.Compare(x.pos, y.pos), strings.Compare(x.id, y.id),
+			cmp.Compare(x.cand, y.cand), cmp.Compare(x.idx, y.idx))
 	})
 	var out []Reason
 	listed := map[string]bool{}

@@ -422,6 +422,44 @@ var s2ReviewCases = []reviewCase{
 	},
 }
 
+// TestS3aReviewRegressions pins the S3a review findings that no golden file
+// covers. The derivations use the notation of testdata/golden/README.md.
+func TestS3aReviewRegressions(t *testing.T) {
+	t.Parallel()
+	for _, c := range s3aReviewCases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			checkReviewCase(t, c)
+		})
+	}
+}
+
+var s3aReviewCases = []reviewCase{
+	{
+		// Reason order item 5 (issue #14, SAD §5.4): per dose in walk order,
+		// then by candidate. No product → every series: pertussis-primary
+		// (3 doses, 4w, 4w) before pertussis-pertu2 (2 doses, 8w). u1 ≥ b +
+		// 6w = 02-12 in both.
+		//   primary: u3 #3 is the last trailing slot, ≥ 02-12 + 4w + 4w =
+		//     04-09 > today → DOSE_INVALID{minInterval, u3, 3}; k = 3.
+		//   pertu2: u3 is beyond the series; u2 #2 is the last trailing
+		//     slot, ≥ 02-12 + 8w = 04-09 > today → DOSE_INVALID{minInterval,
+		//     u2, 2}; k = 2.
+		// u2 (position 2) comes before u3 (position 3) in every walk, so its
+		// reason comes first although pertu2 is the later candidate. k = 2:
+		// only pertu2 is at k, and its dose 1 is undated → step 7 stops.
+		name: "reasons on undated records by walk position across candidates", ruleset: "illustrative-products", today: "2026-02-20", birth: "2026-01-01",
+		doses: `[{"id": "u1", "diseases": ["pertussis"], "date": {"precision": "unknown"}, "doseNumbers": {"pertussis": 1}},
+			{"id": "u2", "diseases": ["pertussis"], "date": {"precision": "unknown"}, "doseNumbers": {"pertussis": 2}},
+			{"id": "u3", "diseases": ["pertussis"], "date": {"precision": "unknown"}, "doseNumbers": {"pertussis": 3}}]`,
+		disease: "pertussis", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"SAFEST_SERIES","params":{"candidates":[{"series":"pertussis-primary"},{"product":"pertu2","series":"pertussis-pertu2"}]}},
+			{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"u2","number":2}},
+			{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"u3","number":3}},
+			{"code":"PREVIOUS_DOSE_DATE_UNKNOWN","params":{"dose":"u1"}}]`,
+	},
+}
+
 // TestManyRecordsWithImpreciseBirthDate: comparing the two birth ends keeps
 // every distinct reason of both ends, one DOSE_INVALID per record. Removing
 // duplicates must stay linear: 4× the records may take about 4× the time,

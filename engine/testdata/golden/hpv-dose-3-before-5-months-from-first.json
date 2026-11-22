@@ -1,0 +1,94 @@
+{
+  "ruleset": "illustrative-vn",
+  "input": {
+    "today": "2026-10-01",
+    "profile": {
+      "birth": {
+        "value": "2010-05-20",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "hpv"
+        ],
+        "date": {
+          "value": "2026-01-10",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "hpv"
+        ],
+        "date": {
+          "value": "2026-02-10",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r3",
+        "diseases": [
+          "hpv"
+        ],
+        "date": {
+          "value": "2026-05-20",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-vn-s2",
+    "today": "2026-10-01",
+    "assessments": [
+      {
+        "disease": "pertussis",
+        "bucket": "overdue",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2010-07-01",
+          "due": "2010-07-20",
+          "overdue": "2010-07-27"
+        },
+        "reasons": [
+          {
+            "code": "ALTERNATIVE_PLANS",
+            "params": {
+              "series": "pertussis-primary"
+            }
+          }
+        ]
+      },
+      {
+        "disease": "measles",
+        "bucket": "overdue",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2011-02-20",
+          "due": "2011-02-20",
+          "overdue": "2011-02-27"
+        }
+      },
+      {
+        "disease": "hpv",
+        "bucket": "unknown",
+        "reasons": [
+          {
+            "code": "DOSE_INVALID",
+            "params": {
+              "checks": [
+                "minIntervalFromFirst"
+              ],
+              "dose": "r3",
+              "number": 3
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

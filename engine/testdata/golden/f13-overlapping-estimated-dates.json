@@ -1,0 +1,56 @@
+{
+  "ruleset": "minimal-single",
+  "input": {
+    "today": "2026-05-01",
+    "profile": {
+      "birth": {
+        "value": "2026-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "single"
+        ],
+        "date": {
+          "value": "2026-03",
+          "precision": "month"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "single"
+        ],
+        "date": {
+          "value": "2026-03",
+          "precision": "month"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-single-s1",
+    "today": "2026-05-01",
+    "assessments": [
+      {
+        "disease": "single",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "OVERLAPPING_ESTIMATED_DATES",
+            "params": {
+              "doses": [
+                "r1",
+                "r2"
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

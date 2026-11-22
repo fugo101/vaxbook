@@ -1,0 +1,57 @@
+{
+  "ruleset": "minimal-age-only",
+  "input": {
+    "today": "2025-07-01",
+    "profile": {
+      "birth": {
+        "value": "2025-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "ageonly"
+        ],
+        "date": {
+          "value": "2025-06",
+          "precision": "month"
+        },
+        "doseNumbers": {
+          "ageonly": 1
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "ageonly"
+        ],
+        "date": {
+          "value": "2025-06-15",
+          "precision": "day"
+        },
+        "doseNumbers": {
+          "ageonly": 2
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-age-only-s2",
+    "today": "2025-07-01",
+    "assessments": [
+      {
+        "disease": "ageonly",
+        "bucket": "upcoming",
+        "nextDose": {
+          "number": 3,
+          "earliest": "2025-07-13",
+          "due": "2025-07-13",
+          "overdue": "2025-07-20"
+        },
+        "estimated": true
+      }
+    ]
+  }
+}

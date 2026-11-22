@@ -1,0 +1,59 @@
+{
+  "ruleset": "minimal-single",
+  "input": {
+    "today": "2026-04-20",
+    "profile": {
+      "birth": {
+        "value": "2026-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "single"
+        ],
+        "date": {
+          "value": "2026-03-10",
+          "precision": "day"
+        },
+        "doseNumbers": {
+          "single": 1
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "single"
+        ],
+        "date": {
+          "value": "2026-04-10",
+          "precision": "day"
+        },
+        "doseNumbers": {
+          "single": 1
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-single-s1",
+    "today": "2026-04-20",
+    "assessments": [
+      {
+        "disease": "single",
+        "bucket": "unknown",
+        "reasons": [
+          {
+            "code": "NUMBERING_CONFLICT",
+            "params": {
+              "dose": "r2",
+              "number": 1
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

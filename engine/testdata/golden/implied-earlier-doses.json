@@ -1,0 +1,79 @@
+{
+  "ruleset": "illustrative-vn",
+  "input": {
+    "today": "2025-11-01",
+    "profile": {
+      "birth": {
+        "value": "2025-01-15",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "p3",
+        "diseases": [
+          "pertussis"
+        ],
+        "date": {
+          "value": "2025-05-15",
+          "precision": "day"
+        },
+        "doseNumbers": {
+          "pertussis": 3
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-vn-s2",
+    "today": "2025-11-01",
+    "assessments": [
+      {
+        "disease": "pertussis",
+        "bucket": "complete",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "IMPLIED_EARLIER_DOSES",
+            "params": {
+              "numbers": [
+                1,
+                2
+              ]
+            }
+          },
+          {
+            "code": "INTERVAL_UNVERIFIABLE",
+            "params": {
+              "dose": "p3",
+              "number": 3
+            }
+          },
+          {
+            "code": "COMPLETE"
+          }
+        ]
+      },
+      {
+        "disease": "measles",
+        "bucket": "overdue",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2025-10-15",
+          "due": "2025-10-15",
+          "overdue": "2025-10-22"
+        }
+      },
+      {
+        "disease": "hpv",
+        "block": "notYetScheduled",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2034-01-15",
+          "due": "2034-01-15",
+          "overdue": "2034-01-22"
+        }
+      }
+    ]
+  }
+}

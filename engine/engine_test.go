@@ -528,3 +528,63 @@ func TestReasonCodesClassified(t *testing.T) {
 	}()
 	ReasonCode("NOPE").blocks()
 }
+
+// TestPositionsAndUndatedDoses pins step-2 and undated-dose behaviour that
+// no golden file covers (SAD §5.3 steps 2 and 5).
+func TestPositionsAndUndatedDoses(t *testing.T) {
+	t.Parallel()
+	e := testEngine(t)
+	undated := func(id string, number int, diseases ...string) DoseRecord {
+		r := DoseRecord{ID: id, Diseases: diseases, Date: RecalledDate{Precision: Unknown}}
+		if number > 0 {
+			r.DoseNumbers = map[string]DoseNumber{diseases[0]: DoseNumber(number)}
+		}
+		return r
+	}
+	numbered := func(r DoseRecord, n int) DoseRecord {
+		r.DoseNumbers = map[string]DoseNumber{r.Diseases[0]: DoseNumber(n)}
+		return r
+	}
+	month := func(id, v string, diseases ...string) DoseRecord {
+		return DoseRecord{ID: id, Diseases: diseases, Date: RecalledDate{Value: v, Precision: Month}}
+	}
+	cases := []struct {
+		name    string
+		in      Input
+		disease int
+		want    []Reason
+	}{
+		// A level-4 dose 1 whose earliest placement (birth + 6w = 02-21) is
+		// after today cannot have been given yet: DOSE_INVALID, not counted.
+		{"trailing level-4 dose not feasible by today", input(t, "2026-02-01", "2026-01-10", undated("r1", 1, "b")), 1,
+			[]Reason{{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: []Check{CheckMinAge}, Dose: "r1", Number: 1}}}},
+		// Two exact doses on the same day are not an overlap, and their
+		// numbers order them: b1 (#1) then a1 (#2), which fails the interval.
+		{"same-day doses ordered by number", input(t, "2026-04-01", "2026-01-10",
+			numbered(dose("a1", "2026-03-01", "a"), 2), numbered(dose("b1", "2026-03-01", "a"), 1)), 0,
+			[]Reason{
+				{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: []Check{CheckMinInterval}, Dose: "a1", Number: 2}},
+				{Code: ReasonAlternativePlans, Params: ReasonParams{Series: "a-series"}},
+			}},
+		{"duplicate level-4 numbers", input(t, "2026-04-01", "2026-01-10", undated("r1", 1, "a"), undated("r2", 1, "a")), 0,
+			[]Reason{{Code: ReasonNumberingConflict, Params: ReasonParams{Dose: "r2", Number: 1}}}},
+		// r2 and r3 do not overlap each other (two exact days), but each
+		// overlaps r1, so the three form one group.
+		{"overlap group of three", input(t, "2026-04-01", "2026-01-10",
+			dose("r3", "2026-03-20", "b"), dose("r2", "2026-03-10", "b"), month("r1", "2026-03", "b")), 1,
+			[]Reason{{Code: ReasonOverlappingEstimatedDates, Params: ReasonParams{Doses: []string{"r1", "r2", "r3"}}}}},
+		// A number beyond the series sits beyond it; the positions below are
+		// implied, so the series is complete.
+		{"number beyond the series", input(t, "2026-06-01", "2026-01-10", numbered(dose("r1", "2026-03-01", "b"), 3)), 1,
+			[]Reason{{Code: ReasonImpliedEarlierDoses, Params: ReasonParams{Numbers: []int{1}}}, {Code: ReasonComplete}}},
+	}
+	for _, c := range cases {
+		out, err := e.Evaluate(c.in)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if a := out.Assessments[c.disease]; !reflect.DeepEqual(a.Reasons, c.want) {
+			t.Errorf("%s: reasons\n  %v\nwant\n  %v", c.name, a.Reasons, c.want)
+		}
+	}
+}

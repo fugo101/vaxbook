@@ -33,11 +33,13 @@ func (pl placement) blocked() bool { return len(pl.reasons) > 0 }
 // place assigns positions (SAD §5.3 step 2, F04.1, F04.2, A4, EQ20a).
 //
 //  1. Dated doses are put in time order. Two dated ranges overlap when they
-//     intersect and are not both single days (two exact doses on the same
-//     day keep their S1 order by ID). Overlapping ranges form connected
-//     groups. A group is resolved only when every member has a
+//     intersect and are not both single days. Overlapping ranges form
+//     connected groups. A group is resolved only when every member has a
 //     user-entered number, and is then ordered by number; otherwise it is
-//     OVERLAPPING_ESTIMATED_DATES{doses}, with the IDs in time order.
+//     OVERLAPPING_ESTIMATED_DATES{doses}, with the IDs in time order. Two
+//     exact doses on the same day keep their S1 order by ID, unless both
+//     have numbers, which then order them (a same-day pair never
+//     contradicts the time order).
 //  2. A user-entered number that repeats an earlier record's number, or
 //     that is not above the position reached by the dated doses before it
 //     in time, is NUMBERING_CONFLICT{dose, number}, at most one per record,
@@ -160,7 +162,10 @@ func (pl *placement) resolveOverlaps() bool {
 	}
 	for i := range d {
 		for j := i + 1; j < len(d); j++ {
-			if d[i].date.Intersects(d[j].date) && (!d[i].date.IsExact() || !d[j].date.IsExact()) {
+			// Two exact doses on the same day are ordered by ID, unless both
+			// have numbers: then the numbers order them.
+			bothExact := d[i].date.IsExact() && d[j].date.IsExact()
+			if d[i].date.Intersects(d[j].date) && (!bothExact || d[i].number > 0 && d[j].number > 0) {
 				parent[find(j)] = find(i)
 			}
 		}

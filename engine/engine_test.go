@@ -61,7 +61,7 @@ func TestValidateReportsEveryProblem(t *testing.T) {
 	in := everyProblemInput()
 	want := []Problem{
 		{Code: Required, Path: "/today", Scope: ScopeInput},
-		{Code: UnsupportedPrecision, Path: "/profile/birth/precision", Params: ProblemParams{Precision: "year"}, Scope: ScopeInput},
+		{Code: UnexpectedValue, Path: "/profile/birth/value", Scope: ScopeInput},
 		{Code: Required, Path: "/doses/0/id", Scope: ScopeInput},
 		{Code: Required, Path: "/doses/0/diseases", Scope: ScopeInput},
 		{Code: Required, Path: "/doses/0/date/precision", Scope: ScopeInput},
@@ -71,7 +71,10 @@ func TestValidateReportsEveryProblem(t *testing.T) {
 		{Code: DuplicateID, Path: "/doses/2/id", Params: ProblemParams{ID: "x"}, Scope: ScopeInput},
 		{Code: InvalidDate, Path: "/doses/2/date/value", Scope: ScopeRecord},
 		{Code: InvalidValue, Path: "/doses/3/date/precision", Params: ProblemParams{Value: "none"}, Scope: ScopeInput},
-		{Code: UnsupportedPrecision, Path: "/doses/4/date/precision", Params: ProblemParams{Precision: "month"}, Scope: ScopeInput},
+		{Code: InvalidDate, Path: "/doses/4/date/value", Scope: ScopeRecord},
+		{Code: UnknownReference, Path: "/doses/4/doseNumbers/a~1b", Params: ProblemParams{Disease: "a/b"}, Scope: ScopeInput},
+		{Code: OutOfRange, Path: "/doses/4/doseNumbers/b", Scope: ScopeInput},
+		{Code: UnexpectedValue, Path: "/doses/5/date/value", Scope: ScopeRecord},
 	}
 	if got := e.Validate(in); !reflect.DeepEqual(got, want) {
 		t.Errorf("Validate =\n  %v\nwant\n  %v", got, want)
@@ -87,13 +90,15 @@ type validateCase struct {
 // everyProblemInput has a problem of nearly every code.
 func everyProblemInput() Input {
 	return Input{
-		Profile: Profile{Birth: RecalledDate{Value: "2026", Precision: Year}},
+		Profile: Profile{Birth: RecalledDate{Value: "2026", Precision: None}},
 		Doses: []DoseRecord{
 			{ID: "", Diseases: nil, Date: RecalledDate{Value: "2026-01-01"}},
 			{ID: "x", Diseases: []string{"a", "zz", "a"}, Date: RecalledDate{Value: "2026", Precision: "decade"}},
 			{ID: "x", Diseases: []string{"b"}, Date: day("2026-02-30")},
 			{ID: "y", Diseases: []string{"b"}, Date: RecalledDate{Precision: None}},
-			{ID: "z", Diseases: []string{"b"}, Date: RecalledDate{Value: "2026-03", Precision: Month}},
+			{ID: "z", Diseases: []string{"b"}, Date: RecalledDate{Value: "2026-13", Precision: Month},
+				DoseNumbers: map[string]DoseNumber{"b": 0, "a/b": 1}},
+			{ID: "w", Diseases: []string{"a"}, Date: RecalledDate{Value: "2026-03", Precision: Unknown}},
 		},
 	}
 }
@@ -124,15 +129,63 @@ func validateDateCases(t *testing.T) []validateCase {
 		// precision"): no engine version evaluates it for a birth date.
 		{"birth precision unknown", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Precision: Unknown}}},
 			[]Problem{{Code: InvalidValue, Path: "/profile/birth/precision", Params: ProblemParams{Value: "unknown"}, Scope: ScopeInput}}},
-		// Each field's own level 4 is reserved for S2, so it is unsupported
-		// rather than invalid.
-		{"birth precision none", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Precision: None}}},
-			[]Problem{{Code: UnsupportedPrecision, Path: "/profile/birth/precision", Params: ProblemParams{Precision: "none"}, Scope: ScopeInput}}},
+		// Each field's own level 4 is evaluable since S2, with no value.
+		{"birth precision none", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Precision: None}}}, nil},
+		{"birth precision none with a value", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026-01-10", Precision: None}}},
+			[]Problem{{Code: UnexpectedValue, Path: "/profile/birth/value", Scope: ScopeInput}}},
 		{"dose precision unknown", input(t, "2026-04-01", "2026-01-10",
-			DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: RecalledDate{Precision: Unknown}}),
-			[]Problem{{Code: UnsupportedPrecision, Path: "/doses/0/date/precision", Params: ProblemParams{Precision: "unknown"}, Scope: ScopeInput}}},
-		{"birth precision month", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026-01", Precision: Month}}},
-			[]Problem{{Code: UnsupportedPrecision, Path: "/profile/birth/precision", Params: ProblemParams{Precision: "month"}, Scope: ScopeInput}}},
+			DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: RecalledDate{Precision: Unknown}}), nil},
+		{"dose precision unknown with a value", input(t, "2026-04-01", "2026-01-10",
+			DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: RecalledDate{Value: "2026-03", Precision: Unknown}}),
+			[]Problem{{Code: UnexpectedValue, Path: "/doses/0/date/value", Scope: ScopeRecord}}},
+		{"birth precision month", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026-01", Precision: Month}}}, nil},
+		{"birth precision year", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026", Precision: Year}}}, nil},
+		{"birth month value with precision day", input(t, "2026-04-01", "2026-01"),
+			[]Problem{{Code: InvalidDate, Path: "/profile/birth/value", Scope: ScopeInput}}},
+		{"birth month 13", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026-13", Precision: Month}}},
+			[]Problem{{Code: InvalidDate, Path: "/profile/birth/value", Scope: ScopeInput}}},
+		// The current month or year is not in the future: only a period that
+		// starts after today is (issue #13).
+		{"birth in the current month", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026-04", Precision: Month}}}, nil},
+		{"birth month after today", Input{Today: d(t, "2026-04-30"), Profile: Profile{Birth: RecalledDate{Value: "2026-05", Precision: Month}}},
+			[]Problem{{Code: DateInFuture, Path: "/profile/birth/value", Scope: ScopeInput}}},
+		{"birth year after today", Input{Today: d(t, "2026-12-31"), Profile: Profile{Birth: RecalledDate{Value: "2027", Precision: Year}}},
+			[]Problem{{Code: DateInFuture, Path: "/profile/birth/value", Scope: ScopeInput}}},
+		{"birth year before the input range", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "1899", Precision: Year}}},
+			[]Problem{{Code: OutOfRange, Path: "/profile/birth/value", Scope: ScopeInput}}},
+		{"dose year after the input range", input(t, "2026-04-01", "2026-01-10",
+			DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: RecalledDate{Value: "2200", Precision: Year}}),
+			[]Problem{{Code: OutOfRange, Path: "/doses/0/date/value", Scope: ScopeRecord}}},
+		{"dose in the current month", input(t, "2026-04-01", "2026-01-10",
+			DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: RecalledDate{Value: "2026-04", Precision: Month}}), nil},
+		{"dose month after today", input(t, "2026-04-30", "2026-01-10",
+			DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: RecalledDate{Value: "2026-05", Precision: Month}}),
+			[]Problem{{Code: DateInFuture, Path: "/doses/0/date/value", Scope: ScopeRecord}}},
+		// A dose is before birth only when its whole period is before the
+		// whole birth range; a partial overlap is not a problem.
+		{"dose month overlapping the birth day", input(t, "2026-04-01", "2026-01-10",
+			DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: RecalledDate{Value: "2026-01", Precision: Month}}), nil},
+		{"dose month before the birth day", input(t, "2026-04-01", "2026-01-10",
+			DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: RecalledDate{Value: "2025-12", Precision: Month}}),
+			[]Problem{{Code: DateBeforeBirth, Path: "/doses/0/date/value", Scope: ScopeRecord}}},
+		{"dose day inside the birth month", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026-01", Precision: Month}},
+			Doses: []DoseRecord{dose("r1", "2026-01-01", "a")}}, nil},
+		{"dose day before the birth year", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026", Precision: Year}},
+			Doses: []DoseRecord{dose("r1", "2025-12-31", "a")}},
+			[]Problem{{Code: DateBeforeBirth, Path: "/doses/0/date/value", Scope: ScopeRecord}}},
+		{"dose with no birth date", Input{Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Precision: None}},
+			Doses: []DoseRecord{dose("r1", "1950-01-01", "a")}}, nil},
+		{"dose numbers", input(t, "2026-04-01", "2026-01-10",
+			DoseRecord{ID: "r1", Diseases: []string{"a", "b"}, Date: day("2026-03-01"), DoseNumbers: map[string]DoseNumber{"b": 999, "a": 1}}), nil},
+		{"dose number of another disease", input(t, "2026-04-01", "2026-01-10",
+			DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: day("2026-03-01"), DoseNumbers: map[string]DoseNumber{"b": 1}}),
+			[]Problem{{Code: UnknownReference, Path: "/doses/0/doseNumbers/b", Params: ProblemParams{Disease: "b"}, Scope: ScopeInput}}},
+		{"dose number out of range", input(t, "2026-04-01", "2026-01-10",
+			DoseRecord{ID: "r1", Diseases: []string{"a", "b"}, Date: day("2026-03-01"), DoseNumbers: map[string]DoseNumber{"b": 1000, "a": -1}}),
+			[]Problem{
+				{Code: OutOfRange, Path: "/doses/0/doseNumbers/a", Scope: ScopeInput},
+				{Code: OutOfRange, Path: "/doses/0/doseNumbers/b", Scope: ScopeInput},
+			}},
 		{"dose after the input range", input(t, "2026-04-01", "2026-01-10", dose("r1", "2200-01-01", "a")),
 			[]Problem{{Code: OutOfRange, Path: "/doses/0/date/value", Scope: ScopeRecord}}},
 		{"dose before the input range", input(t, "2026-04-01", "2026-01-10", dose("r1", "1899-12-31", "a")),
@@ -230,10 +283,12 @@ func TestEvaluateInputErrors(t *testing.T) {
 		}
 	}
 	for name, in := range map[string]Input{
-		"invalid birth":         input(t, "2026-04-01", "2026-02-30"),
-		"unsupported precision": {Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026-01", Precision: Month}}},
-		"unknown disease":       input(t, "2026-04-01", "2026-01-10", dose("r1", "2026-03-01", "x")),
-		"missing today":         {Profile: Profile{Birth: day("2026-01-10")}},
+		"invalid birth":           input(t, "2026-04-01", "2026-02-30"),
+		"birth none with a value": {Today: d(t, "2026-04-01"), Profile: Profile{Birth: RecalledDate{Value: "2026-01", Precision: None}}},
+		"dose number of another disease": input(t, "2026-04-01", "2026-01-10",
+			DoseRecord{ID: "r1", Diseases: []string{"a"}, Date: day("2026-03-01"), DoseNumbers: map[string]DoseNumber{"b": 1}}),
+		"unknown disease": input(t, "2026-04-01", "2026-01-10", dose("r1", "2026-03-01", "x")),
+		"missing today":   {Profile: Profile{Birth: day("2026-01-10")}},
 	} {
 		_, err := e.Evaluate(in)
 		var ie *InputError
@@ -303,17 +358,17 @@ func TestNextAfterUncountedDose(t *testing.T) {
 	t.Parallel()
 	e := testEngine(t)
 	s := e.diseases[0].series
-	birth := d(t, "2026-01-10")
-	doses := []givenDose{{id: "r1", date: Exact(d(t, "2026-03-10"))}, {id: "r2", date: Exact(d(t, "2026-03-31"))}}
-	counted, reasons := s.walk(birth, doses)
-	if len(counted) != 1 || len(reasons) != 1 {
-		t.Fatalf("walk = %v, %v; want r1 counted and r2 invalid", counted, reasons)
+	birth := birthEnd{date: d(t, "2026-01-10"), known: true}
+	doses := []givenDose{{id: "r1", date: Exact(d(t, "2026-03-10")), dated: true}, {id: "r2", date: Exact(d(t, "2026-03-31")), dated: true}}
+	w := s.walk(birth, d(t, "2026-04-01"), s.place(doses))
+	if w.k != 2 || len(w.reasons) != 1 || w.reasons[0].Code != ReasonDoseInvalid {
+		t.Fatalf("walk = %+v; want r1 counted and r2 invalid", w)
 	}
 	// short: E = r2 03-31 + 4w = 04-28, Du = max(E, 05-10) = 05-10, O = 05-17;
 	// long: E = 03-31 + 6w = 05-12, Du = 05-12, O = 05-19. Earliest-due plan
 	// short gives E and Du; O from the latest plan.
 	want := NextDose{Number: 2, Earliest: d(t, "2026-04-28"), Due: d(t, "2026-05-10"), Overdue: d(t, "2026-05-19")}
-	if got := s.next(birth, doses, counted); got != want {
+	if got := s.next(birth, w); got.stop || got.next != want {
 		t.Errorf("next = %+v, want %+v", got, want)
 	}
 }
@@ -445,4 +500,31 @@ func TestNewCopiesSnapshot(t *testing.T) {
 	if !reflect.DeepEqual(before, after) {
 		t.Errorf("engine changed with its snapshot:\n%+v\n%+v", before, after)
 	}
+}
+
+// TestReasonCodesClassified: every reason code is either blocking or
+// informational (issue #13); blocks panics on an unclassified code.
+func TestReasonCodesClassified(t *testing.T) {
+	t.Parallel()
+	informational := []ReasonCode{ReasonImpliedEarlierDoses, ReasonIntervalUnverifiable, ReasonFirstDoseDateAssumed,
+		ReasonAlternativePlans, ReasonComplete, ReasonOnTrack}
+	blockingCodes := []ReasonCode{ReasonInvalidDate, ReasonOutOfRange, ReasonDateInFuture, ReasonDateBeforeBirth,
+		ReasonUnexpectedValue, ReasonOverlappingEstimatedDates, ReasonNumberingConflict, ReasonBirthDateImprecise,
+		ReasonDoseInvalid, ReasonDosePossiblyInvalid, ReasonPreviousDoseDateUnknown, ReasonNoBirthDate}
+	for _, c := range informational {
+		if c.blocks() {
+			t.Errorf("%s blocks, want informational", c)
+		}
+	}
+	for _, c := range blockingCodes {
+		if !c.blocks() {
+			t.Errorf("%s is informational, want blocking", c)
+		}
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("blocks of an unknown code did not panic")
+		}
+	}()
+	ReasonCode("NOPE").blocks()
 }

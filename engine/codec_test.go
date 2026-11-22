@@ -92,3 +92,39 @@ func TestDecodeInputSyntax(t *testing.T) {
 		}
 	}
 }
+
+// TestDecodeDoseNumbers: a dose number decodes from any JSON number with an
+// integral value, which is what JSON Schema's "integer" accepts (I1), and
+// from nothing else. Validate checks the range.
+func TestDecodeDoseNumbers(t *testing.T) {
+	t.Parallel()
+	with := func(numbers string) string {
+		return strings.Replace(validInput, `"precision": "day"}}]`, `"precision": "day"}, "doseNumbers": `+numbers+`}]`, 1)
+	}
+	for numbers, want := range map[string]engine.DoseNumber{
+		`{"a": 2}`: 2, `{"a": 2.0}`: 2, `{"a": 2e0}`: 2, `{"a": 0.2e1}`: 2, `{"a": 0}`: 0, `{"a": -3}`: -3, `{"a": 1000}`: 1000,
+	} {
+		in, err := engine.DecodeInput([]byte(with(numbers)))
+		if err != nil {
+			t.Errorf("%s: DecodeInput: %v", numbers, err)
+			continue
+		}
+		if got := in.Doses[0].DoseNumbers["a"]; got != want {
+			t.Errorf("%s: dose number %d, want %d", numbers, got, want)
+		}
+	}
+	for _, numbers := range []string{
+		`{"a": 1.5}`, `{"a": "2"}`, `{"a": true}`, `{"a": [2]}`, `{"a": {}}`, `{"a": 1e300}`, `[2]`, `{"a": 2, "a": 3}`,
+	} {
+		if _, err := engine.DecodeInput([]byte(with(numbers))); err == nil {
+			t.Errorf("%s: DecodeInput succeeded", numbers)
+		}
+	}
+	var se *contractjson.Error
+	if _, err := engine.DecodeInput([]byte(with(`{"a": null}`))); !errors.As(err, &se) || se.Kind != contractjson.KindNull || se.Pointer != "/doses/0/doseNumbers/a" {
+		t.Errorf("null dose number: DecodeInput error = %v", err)
+	}
+	if _, err := engine.DecodeInput([]byte(with(`null`))); !errors.As(err, &se) || se.Kind != contractjson.KindNull || se.Pointer != "/doses/0/doseNumbers" {
+		t.Errorf("null doseNumbers: DecodeInput error = %v", err)
+	}
+}

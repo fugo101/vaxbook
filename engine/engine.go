@@ -51,9 +51,16 @@ func optional(s *ruleset.Span) optSpan {
 }
 
 type doseRule struct {
-	minAge, minInterval, buffer optSpan
-	from                        ruleset.Anchor
-	offset                      ruleset.Span
+	minAge, minInterval, minFromFirst, buffer optSpan
+	// minAgeImplied: minAge is absent or implied by dose 1's minimum age and
+	// the intervals (ruleset.MinAgeImplied), so it needs no birth date.
+	minAgeImplied bool
+	from          ruleset.Anchor
+	offset        ruleset.Span
+	// birthGap is offset_k − offset_{k−1} when both milestones count from
+	// birth in the same unit family; without a birth date the due date is
+	// dose k−1 + birthGap (EQ19).
+	birthGap optSpan
 }
 
 // New validates a snapshot and prepares an Engine for it. A snapshot that
@@ -87,25 +94,76 @@ func compileSeries(sr ruleset.Series) seriesModel {
 	m := seriesModel{id: sr.ID, length: len(sr.Plans[0].Doses)}
 	for _, p := range sr.Plans {
 		pm := planModel{id: p.ID}
-		for _, r := range p.Doses {
-			pm.doses = append(pm.doses, doseRule{
-				minAge:      optional(r.MinAge),
-				minInterval: optional(r.MinInterval),
-				buffer:      optional(r.Buffer),
-				from:        r.Recommended.From,
-				offset:      r.Recommended.Offset,
-			})
+		for k, r := range p.Doses {
+			d := doseRule{
+				minAge:        optional(r.MinAge),
+				minInterval:   optional(r.MinInterval),
+				minFromFirst:  optional(r.MinIntervalFromFirst),
+				buffer:        optional(r.Buffer),
+				minAgeImplied: ruleset.MinAgeImplied(p, k+1),
+				from:          r.Recommended.From,
+				offset:        r.Recommended.Offset,
+			}
+			if k > 0 && r.Recommended.From == ruleset.FromBirth && p.Doses[k-1].Recommended.From == ruleset.FromBirth {
+				d.birthGap = spanGap(p.Doses[k-1].Recommended.Offset, r.Recommended.Offset)
+			}
+			pm.doses = append(pm.doses, d)
 		}
 		m.plans = append(m.plans, pm)
 	}
 	return m
 }
 
+// spanGap returns b − a when both spans are in the same unit family (months
+// and years, or days and weeks).
+func spanGap(a, b ruleset.Span) optSpan {
+	months := func(s ruleset.Span) (int, bool) {
+		switch s.Unit {
+		case ruleset.Months:
+			return s.N, true
+		case ruleset.Years:
+			return 12 * s.N, true
+		}
+		return 0, false
+	}
+	days := func(s ruleset.Span) (int, bool) {
+		switch s.Unit {
+		case ruleset.Days:
+			return s.N, true
+		case ruleset.Weeks:
+			return 7 * s.N, true
+		}
+		return 0, false
+	}
+	if ma, ok := months(a); ok {
+		if mb, ok := months(b); ok {
+			return optSpan{span: ruleset.Span{N: mb - ma, Unit: ruleset.Months}, ok: true}
+		}
+	}
+	if da, ok := days(a); ok {
+		if db, ok := days(b); ok {
+			return optSpan{span: ruleset.Span{N: db - da, Unit: ruleset.Days}, ok: true}
+		}
+	}
+	return optSpan{}
+}
+
 // givenDose is a dose record as one disease sees it.
 type givenDose struct {
-	id      string
-	date    Range
-	problem ReasonCode // the record's date problem (ScopeRecord), if any
+	id        string
+	date      Range // today-capped; zero when not dated
+	dated     bool  // precision day, month or year; false for level 4
+	imprecise bool  // precision other than day
+	number    int   // the user-entered dose number for this disease, 0 if none
+	problem   ReasonCode
+}
+
+// birthRange is the birth date as the engine uses it (EQ17): its period
+// capped at today, or no birth date.
+type birthRange struct {
+	r         Range
+	known     bool
+	precision Precision
 }
 
 // Evaluate assesses every disease of the rule set for one profile, in the
@@ -114,8 +172,9 @@ type givenDose struct {
 //
 // It returns an *InputError holding the ScopeInput problems of Validate when
 // there are any. A ScopeRecord problem (a dose date that is unparseable, out
-// of range, after today or before birth) makes every disease of that record
-// ⚪ with a reason of the same code instead (A9, EQ27).
+// of range, after today or before birth, or a level-4 dose with a value)
+// makes every disease of that record ⚪ with a reason of the same code
+// instead (A9, EQ27).
 func (e *Engine) Evaluate(in Input) (Output, error) {
 	v := e.validate(in)
 	var fatal []Problem
@@ -127,41 +186,56 @@ func (e *Engine) Evaluate(in Input) (Output, error) {
 	if len(fatal) > 0 {
 		return Output{}, &InputError{Problems: fatal}
 	}
-	birth, err := in.Profile.Birth.Range()
+	birth := birthRange{precision: in.Profile.Birth.Precision}
+	period, dated, err := in.Profile.Birth.Period()
 	if err != nil {
-		return Output{}, fmt.Errorf("engine: birth date passed validation but has no range: %w", err)
+		return Output{}, fmt.Errorf("engine: birth date passed validation but has no period: %w", err)
+	}
+	if dated {
+		birth.r, birth.known = period.CapAt(in.Today), true
 	}
 	byDisease := make(map[string][]givenDose, len(e.diseases))
 	for i, r := range in.Doses {
-		g := givenDose{id: r.ID}
+		g := givenDose{id: r.ID, imprecise: r.Date.Precision != Day}
 		if code, ok := v.records[i]; ok {
 			g.problem = ReasonCode(code)
-		} else if g.date, err = r.Date.Range(); err != nil {
-			return Output{}, fmt.Errorf("engine: dose date passed validation but has no range: %w", err)
+		} else {
+			period, dated, err := r.Date.Period()
+			if err != nil {
+				return Output{}, fmt.Errorf("engine: dose date passed validation but has no period: %w", err)
+			}
+			if dated {
+				g.date, g.dated = period.CapAt(in.Today), true
+			}
 		}
 		for _, dz := range r.Diseases {
-			byDisease[dz] = append(byDisease[dz], g)
+			gd := g
+			gd.number = int(r.DoseNumbers[dz])
+			byDisease[dz] = append(byDisease[dz], gd)
 		}
 	}
 	out := Output{RuleSetVersion: e.version, Today: in.Today, Assessments: make([]Assessment, 0, len(e.diseases))}
 	for _, dz := range e.diseases {
-		// S1 has exact birth dates only (Lo == Hi). S2 runs the steps at both
-		// ends of the range and compares the results (SAD §5.3 step 4).
-		out.Assessments = append(out.Assessments, dz.assess(birth.Hi, in.Today, byDisease[dz.id]))
+		out.Assessments = append(out.Assessments, dz.assess(birth, in.Today, byDisease[dz.id]))
 	}
 	return out, nil
 }
 
-// assess runs SAD §5.3 for one disease at one end of the birth-date range.
-func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
+// assess runs SAD §5.3 for one disease.
+func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) Assessment {
 	a := Assessment{Disease: dz.id}
 
+	// Step 1 (EQ20d): estimated when the birth date or a dose date of the
+	// disease is not day-precise; step 2 adds implied doses.
+	a.Estimated = birth.precision != Day || slices.ContainsFunc(doses, func(g givenDose) bool { return g.imprecise })
+
 	// Step 1: a dose record whose date is unparseable, out of range, after
-	// today or before birth makes the disease ⚪ (A9, EQ27). Steps 2–9 are
-	// skipped. The ⚪ is a data ⚪ (step 10 layer 7) with the record reasons,
-	// sorted by record ID; S1 has no higher layer, so it returns here. A slice
-	// that adds layers 1–5 must let them win over it and keep these reasons as
-	// masked reasons (SAD §5.3 steps 1 and 10).
+	// today or before birth, or a level-4 dose with a value, makes the
+	// disease ⚪ (A9, EQ27). Steps 2–9 are skipped. The ⚪ is a data ⚪ (step
+	// 10 layer 7) with the record reasons, sorted by record ID; S2 has no
+	// higher layer, so it returns here. A slice that adds layers 1–5 must
+	// let them win over it and keep these reasons as masked reasons (SAD
+	// §5.3 steps 1 and 10).
 	var bad []givenDose
 	for _, g := range doses {
 		if g.problem != "" {
@@ -177,50 +251,84 @@ func (dz diseaseModel) assess(birth, today Date, doses []givenDose) Assessment {
 		return a
 	}
 
-	// Step 2: time order. The ID breaks ties so the order never depends on
-	// how the caller stored the records.
-	doses = slices.Clone(doses)
-	slices.SortFunc(doses, func(x, y givenDose) int {
-		if c := x.date.Lo.Compare(y.date.Lo); c != 0 {
-			return c
-		}
-		if c := x.date.Hi.Compare(y.date.Hi); c != 0 {
-			return c
-		}
-		return strings.Compare(x.id, y.id)
-	})
+	// Step 2: positions. A step-2 ⚪ skips steps 5–9, like a step-1 ⚪.
+	pl := dz.series.place(doses)
+	if pl.blocked() {
+		a.Bucket, a.Reasons = BucketUnknown, pl.reasons
+		return a
+	}
+	if len(pl.implied) > 0 {
+		a.Estimated = true
+		a.Reasons = append(a.Reasons, Reason{Code: ReasonImpliedEarlierDoses, Params: ReasonParams{Numbers: pl.implied}})
+	}
 
+	// Step 4: steps 5–9 at each end of the birth-date range, or once.
+	var res endResult
+	switch {
+	case !birth.known:
+		res = dz.series.evaluate(birthEnd{}, today, pl)
+	case birth.r.IsExact():
+		res = dz.series.evaluate(birthEnd{date: birth.r.Lo, known: true}, today, pl)
+	default:
+		hint := HintFullBirthDate
+		if birth.precision == Year {
+			hint = HintBirthMonth
+		}
+		res = compareEnds(
+			dz.series.evaluate(birthEnd{date: birth.r.Lo, known: true}, today, pl),
+			dz.series.evaluate(birthEnd{date: birth.r.Hi, known: true}, today, pl),
+			hint)
+	}
+	a.Reasons = append(a.Reasons, res.reasons...)
+	a.Bucket, a.Block = res.bucket, res.block
+	if res.bucket != BucketUnknown && res.hasNext {
+		nd := res.next
+		a.NextDose = &nd
+	}
+	return a
+}
+
+// evaluate runs steps 5–9 at one birth end. Step 10 has one layer in S2:
+// any blocking reason makes the result ⚪ (layer 7, data ⚪), and the
+// masked bucket's reasons stay.
+func (s seriesModel) evaluate(b birthEnd, today Date, pl placement) endResult {
 	// Step 5: dose validity.
-	counted, reasons := dz.series.walk(birth, doses)
-	a.Reasons = reasons
-	dataUnknown := len(reasons) > 0 // layer 7: dose validity ⚪
+	w := s.walk(b, today, pl)
+	res := endResult{k: w.k, reasons: w.reasons}
 
 	// Step 6: complete.
-	if len(counted) >= dz.series.length {
-		a.Bucket = BucketComplete
-		a.Reasons = append(a.Reasons, Reason{Code: ReasonComplete})
-		if dataUnknown {
-			a.Bucket = BucketUnknown
+	if w.k > s.length {
+		res.complete = true
+		res.bucket = BucketComplete
+		res.reasons = append(res.reasons, Reason{Code: ReasonComplete})
+		if blocking(res.reasons) {
+			res.bucket = BucketUnknown
 		}
-		return a
+		return res
 	}
 
 	// Step 7: next dose, merged over alternative plans. A ⚪ assessment does
 	// not emit it (SAD §5.1): the dates still decide the masked bucket.
-	nd := dz.series.next(birth, doses, counted)
-	if len(dz.series.plans) > 1 {
-		a.Reasons = append(a.Reasons, Reason{Code: ReasonAlternativePlans, Params: ReasonParams{Series: dz.series.id}})
+	n := s.next(b, w)
+	res.reasons = append(res.reasons, n.reasons...)
+	if n.stop {
+		res.bucket = BucketUnknown
+		return res
+	}
+	if len(s.plans) > 1 {
+		res.reasons = append(res.reasons, Reason{Code: ReasonAlternativePlans, Params: ReasonParams{Series: s.id}})
 	}
 
-	// Step 9: bucket; step 10: layer 7 masks it, its reasons stay.
-	bucket, block, reason := classify(today, nd, len(counted) > 0)
+	// Step 9: bucket; step 10: a blocking reason masks it.
+	bucket, block, reason := classify(today, n.next, w.k > 1)
 	if reason != "" {
-		a.Reasons = append(a.Reasons, Reason{Code: reason})
+		res.reasons = append(res.reasons, Reason{Code: reason})
 	}
-	if dataUnknown {
-		a.Bucket = BucketUnknown
-		return a
+	res.next, res.hasNext = n.next, true
+	if blocking(res.reasons) {
+		res.bucket = BucketUnknown
+		return res
 	}
-	a.Bucket, a.Block, a.NextDose = bucket, block, &nd
-	return a
+	res.bucket, res.block = bucket, block
+	return res
 }

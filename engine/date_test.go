@@ -114,18 +114,77 @@ func TestDateCompare(t *testing.T) {
 	}
 }
 
-func TestRecalledDateRange(t *testing.T) {
+func TestRecalledDatePeriod(t *testing.T) {
 	t.Parallel()
-	r, err := RecalledDate{Value: "2026-03-15", Precision: Day}.Range()
-	if err != nil || r != Exact(d(t, "2026-03-15")) || r.Lo != r.Hi {
-		t.Fatalf("Range = %v, %v", r, err)
+	cases := []struct {
+		r      RecalledDate
+		lo, hi string // "" when not dated
+	}{
+		{RecalledDate{Value: "2026-03-15", Precision: Day}, "2026-03-15", "2026-03-15"},
+		{RecalledDate{Value: "2026-02", Precision: Month}, "2026-02-01", "2026-02-28"},
+		{RecalledDate{Value: "2024-02", Precision: Month}, "2024-02-01", "2024-02-29"},
+		{RecalledDate{Value: "2026-12", Precision: Month}, "2026-12-01", "2026-12-31"},
+		{RecalledDate{Value: "2026", Precision: Year}, "2026-01-01", "2026-12-31"},
+		{RecalledDate{Value: "0001", Precision: Year}, "0001-01-01", "0001-12-31"},
+		{RecalledDate{Precision: Unknown}, "", ""},
+		{RecalledDate{Precision: None}, "", ""},
 	}
-	if _, err := (RecalledDate{Value: "2026-02-30", Precision: Day}).Range(); err == nil {
-		t.Error("an impossible day gave a range")
+	for _, c := range cases {
+		p, dated, err := c.r.Period()
+		switch {
+		case err != nil:
+			t.Errorf("%+v: Period error %v", c.r, err)
+		case dated != (c.lo != ""):
+			t.Errorf("%+v: dated = %v", c.r, dated)
+		case dated && (p.Lo != d(t, c.lo) || p.Hi != d(t, c.hi)):
+			t.Errorf("%+v: Period = %v, want [%s, %s]", c.r, p, c.lo, c.hi)
+		}
 	}
-	for _, p := range []Precision{Month, Year, Unknown, None} {
-		if _, err := (RecalledDate{Value: "2026", Precision: p}).Range(); err == nil {
-			t.Errorf("precision %s is not supported in S1 but gave a range", p)
+	for _, bad := range []RecalledDate{
+		{Value: "2026-02-30", Precision: Day},
+		{Value: "2026-03", Precision: Day},
+		{Value: "2026-13", Precision: Month},
+		{Value: "2026-00", Precision: Month},
+		{Value: "2026-3", Precision: Month},
+		{Value: "2026-03-01", Precision: Month},
+		{Value: "0000-01", Precision: Month},
+		{Value: "2026", Precision: Month},
+		{Value: "26", Precision: Year},
+		{Value: "0000", Precision: Year},
+		{Value: "20260", Precision: Year},
+		{Value: "2026-01", Precision: Year},
+		{Value: "+202", Precision: Year},
+		{Value: "", Precision: Year},
+		{Value: "2026", Precision: "decade"},
+	} {
+		if _, _, err := bad.Period(); err == nil {
+			t.Errorf("%+v: Period succeeded, want an error", bad)
+		}
+	}
+}
+
+func TestRangeCapAndIntersects(t *testing.T) {
+	t.Parallel()
+	r := Range{Lo: d(t, "2026-04-01"), Hi: d(t, "2026-04-30")}
+	if got := r.CapAt(d(t, "2026-04-15")); got.Lo != r.Lo || got.Hi != d(t, "2026-04-15") {
+		t.Errorf("CapAt inside = %v", got)
+	}
+	if got := r.CapAt(d(t, "2026-05-15")); got != r {
+		t.Errorf("CapAt after = %v", got)
+	}
+	cases := []struct {
+		a, b Range
+		want bool
+	}{
+		{r, Exact(d(t, "2026-04-30")), true},
+		{r, Exact(d(t, "2026-05-01")), false},
+		{r, Range{Lo: d(t, "2026-03-01"), Hi: d(t, "2026-04-01")}, true},
+		{r, Range{Lo: d(t, "2026-03-01"), Hi: d(t, "2026-03-31")}, false},
+		{Exact(d(t, "2026-04-02")), Exact(d(t, "2026-04-02")), true},
+	}
+	for _, c := range cases {
+		if c.a.Intersects(c.b) != c.want || c.b.Intersects(c.a) != c.want {
+			t.Errorf("%v intersects %v: want %v", c.a, c.b, c.want)
 		}
 	}
 }

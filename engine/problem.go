@@ -9,7 +9,7 @@ import (
 // ProblemCode is a code from the closed catalog of input problems.
 type ProblemCode string
 
-// The input problem catalog (S1).
+// The input problem catalog (S2).
 const (
 	// Required: a required value is missing.
 	Required ProblemCode = "REQUIRED"
@@ -18,19 +18,30 @@ const (
 	// the birth date). Params: value.
 	InvalidValue ProblemCode = "INVALID_VALUE"
 	// UnsupportedPrecision: a date precision this engine version cannot
-	// evaluate yet. Params: precision.
+	// evaluate yet. Params: precision. Every precision is evaluable since
+	// S2, so no input gives it; the code stays in the catalog.
 	UnsupportedPrecision ProblemCode = "UNSUPPORTED_PRECISION"
-	// InvalidDate: a value that is not a parseable date, including an empty
-	// or absent value. On a dose record it is record-scoped.
+	// InvalidDate: a value that is not a parseable date for its precision
+	// (YYYY-MM-DD, YYYY-MM, YYYY), including an empty or absent value. On a
+	// dose record it is record-scoped.
 	InvalidDate ProblemCode = "INVALID_DATE"
-	// OutOfRange: a date outside [1900-01-01, 2199-12-31]. On a dose record
-	// it is record-scoped.
+	// UnexpectedValue: a value given with a precision that has none
+	// (unknown on a dose record, none on the birth date). On a dose record it
+	// is record-scoped.
+	UnexpectedValue ProblemCode = "UNEXPECTED_VALUE"
+	// OutOfRange: a date whose period is not inside [1900-01-01,
+	// 2199-12-31], or a dose number outside 1..999. A dose date out of range
+	// is record-scoped; a dose number is not.
 	OutOfRange ProblemCode = "OUT_OF_RANGE"
-	// DateInFuture: a birth or dose date after today. On a dose record it is
-	// record-scoped.
+	// DateInFuture: a birth or dose date whose whole period is after today.
+	// On a dose record it is record-scoped.
 	DateInFuture ProblemCode = "DATE_IN_FUTURE"
-	// DateBeforeBirth: a dose date before the birth date. Record-scoped.
+	// DateBeforeBirth: a dose date whose whole period is before the whole
+	// birth-date range. Record-scoped.
 	DateBeforeBirth ProblemCode = "DATE_BEFORE_BIRTH"
+	// UnknownReference: a doseNumbers key that is not one of the record's
+	// diseases. Params: disease.
+	UnknownReference ProblemCode = "UNKNOWN_REFERENCE"
 	// UnknownDisease: a dose record names a disease the rule set does not
 	// have. Params: disease.
 	UnknownDisease ProblemCode = "UNKNOWN_DISEASE"
@@ -48,9 +59,9 @@ const (
 	// ScopeInput: Evaluate returns an *InputError instead of an Output.
 	ScopeInput Scope = "input"
 	// ScopeRecord: a problem with a dose record's date value (INVALID_DATE,
-	// OUT_OF_RANGE, DATE_IN_FUTURE, DATE_BEFORE_BIRTH). Evaluate still
-	// assesses the profile: every disease of that record becomes ⚪ with a
-	// reason of the same code (A9, EQ27).
+	// UNEXPECTED_VALUE, OUT_OF_RANGE, DATE_IN_FUTURE, DATE_BEFORE_BIRTH).
+	// Evaluate still assesses the profile: every disease of that record
+	// becomes ⚪ with a reason of the same code (A9, EQ27).
 	ScopeRecord Scope = "record"
 )
 

@@ -171,6 +171,24 @@ var mutations = []mutation{
 	stringMutation("10/02/2026"),
 	stringMutation("P06W"),
 	stringMutation("P1000D"),
+	stringMutation("2026-03"),
+	stringMutation("2026-13"),
+	stringMutation("2026"),
+	// JSON Schema's "integer" is a mathematical integer, so 1.0 and 1e0
+	// are schema-valid dose numbers that the decoder must accept (I1).
+	numberMutation("1.0"),
+	numberMutation("1e0"),
+	numberMutation("2.5"),
+	numberMutation("-1"),
+	numberMutation("1000"),
+	numberMutation("2147483648"),
+	numberMutation("1e300"),
+}
+
+func isNumber(v any) bool { _, ok := v.(json.Number); return ok }
+
+func numberMutation(n string) mutation {
+	return mutation{"replace with " + n, isNumber, func(any) (any, bool) { return json.Number(n), true }}
 }
 
 // forEachMutation calls f with the unchanged document and then with every

@@ -218,8 +218,8 @@ type ReasonParams struct {
 	// (DOSE_INVALID, DOSE_POSSIBLY_INVALID, INTERVAL_UNVERIFIABLE; for a dose
 	// beyond the series length, the position it sits at, or the number of
 	// the level-4 record whose number implies doses that cannot fit), the
-	// count a floating level-4 dose was checked for (DOSE_INVALID), or the
-	// number the user entered (NUMBERING_CONFLICT).
+	// position a floating level-4 dose fails after the last dated dose
+	// (DOSE_INVALID), or the number the user entered (NUMBERING_CONFLICT).
 	Number int `json:"number,omitzero"`
 	// Numbers are the positions of implied doses, ascending:
 	// IMPLIED_EARLIER_DOSES.

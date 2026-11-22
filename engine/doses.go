@@ -72,8 +72,30 @@ type walkResult struct {
 // Doses beyond the series length are not checked and not counted, but stay
 // in the sequence as the dose adjacent in time (S1). The undated slots
 // before such a dose must still fit before it.
+//
+// The floating level-4 doses have no position: they are counted when some
+// placement among the dated doses fits (checkFloating).
 func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
-	w := walkResult{floating: pl.floating}
+	w := s.walkWith(b, today, pl, nil)
+	w.floating = pl.floating
+	s.checkFloating(&w, b, today, pl)
+	highest := 0
+	for _, it := range w.seq {
+		if it.counted && it.pos <= s.length {
+			highest = max(highest, it.pos)
+		}
+	}
+	w.k = highest + len(w.floating) + 1
+	return w
+}
+
+// walkWith is the walk of steps 5 and 6 with the floating doses ins[i]
+// inserted as undated slots in front of dated dose i, and ins[len(pl.dated)]
+// after the last dated dose and the undated slots of the placement. An
+// inserted dose takes the next free position; one beyond the series length
+// is not checked. ins nil walks the placement alone.
+func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]givenDose) walkResult {
+	var w walkResult
 	last := 0 // the highest position reached
 	taken := make(map[int]bool, len(pl.fixed))
 	for q := range pl.fixed {
@@ -84,22 +106,39 @@ func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
 	// (chain), so that minIntervalFromFirst is checked against the most
 	// favourable placement of dose 1 (EQ20b).
 	var first *Range
+	appendSlot := func(it item) {
+		if it.pos == 1 {
+			from, _ := w.tail()
+			if lo, hi, bounded := s.chain(b, from, []item{it}, nil); bounded {
+				first = &Range{Lo: lo, Hi: hi}
+			}
+		}
+		w.seq = append(w.seq, it)
+		last = it.pos
+	}
 	insertSlots := func(below int) {
 		for q := last + 1; q < below && q <= s.length; q++ {
 			if g, ok := pl.fixed[q]; ok {
-				it := item{pos: q, dose: g, counted: true}
-				if q == 1 {
-					from, _ := w.tail()
-					if lo, hi, bounded := s.chain(b, from, []item{it}, nil); bounded {
-						first = &Range{Lo: lo, Hi: hi}
-					}
-				}
-				w.seq = append(w.seq, it)
-				last = q
+				appendSlot(item{pos: q, dose: g, counted: true})
 			}
 		}
 	}
-	for _, g := range pl.dated {
+	insertFloating := func(i int) {
+		if ins == nil {
+			return
+		}
+		for _, g := range ins[i] {
+			q := nextFree(last, taken)
+			insertSlots(q)
+			if q > s.length {
+				last = q
+				continue
+			}
+			appendSlot(item{pos: q, dose: g, counted: true})
+		}
+	}
+	for i, g := range pl.dated {
+		insertFloating(i)
 		pos := g.number
 		if pos == 0 {
 			pos = nextFree(last, taken)
@@ -149,53 +188,102 @@ func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
 		w.seq = append(w.seq, it)
 	}
 	insertSlots(s.length + 1)
+	insertFloating(len(pl.dated))
 	w.checkTrailing(s, b, today, first, pl.beyond)
-
-	w.checkFloating(s, b, today)
-	highest := 0
-	for _, it := range w.seq {
-		if it.counted && it.pos <= s.length {
-			highest = max(highest, it.pos)
-		}
-	}
-	w.k = highest + len(w.floating) + 1
 	return w
 }
 
-// checkFloating checks that the floating level-4 doses could have been
-// given by today. They have no position, so it checks the count: with m
-// counted doses in the series (floating ones included), the m-th dose in
-// time cannot be earlier than the chain of earliest dates from birth for
-// positions 1..m, so it must fit by today. When it does not, the last
-// floating dose by ID is DOSE_INVALID with number m and is not counted.
-// The bound uses only the count and the birth date, not the dates of the
-// dated doses, so it flags only a count that cannot fit by today.
-func (w *walkResult) checkFloating(s seriesModel, b birthEnd, today Date) {
+// checkFloating checks that the floating level-4 doses fit among the dated
+// doses (F05.10, EQ20: no feasible placement → DOSE_INVALID). Only as many
+// of them as the series still needs are placed, the last ones by ID. A
+// placement puts each of them in front of a counted dated dose that has no
+// number and no numbered dated dose after it (moving that dose and the ones
+// after it up one position), or after every dated dose and undated slot. It
+// fits when its walk has no DOSE_INVALID on a record the walk without them
+// has none on: the dated doses still meet their (possibly moved) positions,
+// the slots fit before the dated dose after them, and the last dose fits by
+// today. An uncounted dated dose has no position, so no placement is tried
+// in front of one; trying fewer placements can only report more
+// DOSE_INVALID (P1).
+//
+// When no placement fits, the last floating dose by ID is DOSE_INVALID, not
+// counted, with the position and checks it fails when all of them are
+// placed after the last dated dose (checked like a dose given today, as a
+// trailing slot is).
+func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl placement) {
 	counted := 0
+	movable := map[string]bool{}
 	for _, it := range w.seq {
 		if it.counted && it.pos <= s.length {
 			counted++
+			if it.dose.dated && it.dose.number == 0 {
+				movable[it.dose.id] = true
+			}
 		}
 	}
 	if len(w.floating) == 0 || counted >= s.length {
 		return
 	}
-	m := min(counted+len(w.floating), s.length)
-	run := make([]item, m-1)
-	for q := range run {
-		run[q] = item{pos: q + 1, counted: true}
-	}
-	var first *Range
-	if m > 1 {
-		if lo, hi, bounded := s.chain(b, nil, run[:1], nil); bounded {
-			first = &Range{Lo: lo, Hi: hi}
+	fl := w.floating[len(w.floating)-min(len(w.floating), s.length-counted):]
+	invalid := map[string]bool{}
+	for _, r := range w.reasons {
+		if r.Code == ReasonDoseInvalid {
+			invalid[r.Params.Dose] = true
 		}
 	}
-	if v, checks := s.check(m, b, Range{Lo: today, Hi: today}, nil, run, first); v == verdictDefinite {
-		last := w.floating[len(w.floating)-1]
-		w.floating = w.floating[:len(w.floating)-1]
-		w.reasons = append(w.reasons, Reason{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: checks, Dose: last.id, Number: m}})
+	newInvalid := func(r walkResult) (Reason, bool) {
+		for _, x := range r.reasons {
+			if x.Code == ReasonDoseInvalid && !invalid[x.Params.Dose] {
+				return x, true
+			}
+		}
+		return Reason{}, false
 	}
+
+	n := len(pl.dated)
+	ins := make([][]givenDose, n+1)
+	ins[n] = fl
+	failed, ok := newInvalid(s.walkWith(b, today, pl, ins))
+	if !ok {
+		return
+	}
+	// The insertion points, ascending: in front of the movable dated doses
+	// after the last numbered one, then after everything.
+	var points []int
+	for i := n - 1; i >= 0 && pl.dated[i].number == 0; i-- {
+		if movable[pl.dated[i].id] {
+			points = append(points, i)
+		}
+	}
+	slices.Reverse(points)
+	points = append(points, n)
+	// Every way to share the doses (in ID order) among the points, except
+	// all of them after everything, which was tried above.
+	var try func(p int, rest []givenDose) bool
+	try = func(p int, rest []givenDose) bool {
+		if p == len(points)-1 {
+			if len(rest) == len(fl) {
+				return false
+			}
+			ins[n] = rest
+			_, bad := newInvalid(s.walkWith(b, today, pl, ins))
+			return !bad
+		}
+		for c := len(rest); c >= 0; c-- {
+			ins[points[p]] = rest[:c]
+			if try(p+1, rest[c:]) {
+				return true
+			}
+		}
+		ins[points[p]] = nil
+		return false
+	}
+	clear(ins)
+	if try(0, fl) {
+		return
+	}
+	w.reasons = append(w.reasons, failed)
+	w.floating = slices.DeleteFunc(slices.Clone(w.floating), func(g givenDose) bool { return g.id == failed.Params.Dose })
 }
 
 // tail returns the dated dose before the undated slots at the end of the

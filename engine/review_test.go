@@ -18,7 +18,7 @@ type reviewCase struct {
 	name    string
 	ruleset string
 	today   string
-	birth   string // a day-precise birth date
+	birth   string // a day-precise birth date, or "" for no birth date
 	doses   string // the JSON array of dose records
 	disease string
 	bucket  engine.Bucket
@@ -40,7 +40,11 @@ func TestS2ReviewRegressions(t *testing.T) {
 
 func checkReviewCase(t *testing.T, c reviewCase) {
 	t.Helper()
-	src := fmt.Sprintf(`{"today": %q, "profile": {"birth": {"value": %q, "precision": "day"}}, "doses": %s}`, c.today, c.birth, c.doses)
+	birth := fmt.Sprintf(`{"value": %q, "precision": "day"}`, c.birth)
+	if c.birth == "" {
+		birth = `{"precision": "none"}`
+	}
+	src := fmt.Sprintf(`{"today": %q, "profile": {"birth": %s}, "doses": %s}`, c.today, birth, c.doses)
 	in, err := engine.DecodeInput([]byte(src))
 	if err != nil {
 		t.Fatal(err)
@@ -261,6 +265,79 @@ var s2ReviewCases = []reviewCase{
 		doses: `[{"id": "m1", "diseases": ["measles"], "date": {"value": "2026-11-01", "precision": "day"}},
 			{"id": "f", "diseases": ["measles"], "date": {"precision": "unknown"}}]`,
 		disease: "measles", bucket: engine.BucketComplete, est: true,
+		reasons: `[{"code":"COMPLETE"}]`,
+	},
+	// A floating dose must fit among the dated doses (F05.10, EQ20: no
+	// feasible placement → DOSE_INVALID): before one of them that has no
+	// number, which shifts its position, or after the last one, by today.
+	// When no placement fits, the last floating dose by ID is DOSE_INVALID
+	// with the position and checks it fails after the last dated dose.
+	{
+		// hpv b 2010-01-01: a 08-01 is dose 1, c 09-01 ≥ a + 28d = 08-29 is
+		// dose 2. b before a: c is dose 3 and needs a + 84d = 10-24 ✗. b
+		// between a and c: c is dose 3 and needs a + 5m = 2027-01-01 ✗. b
+		// after c: dose 3 ≥ c + 84d = 11-24 and ≥ a + 5m, both after today
+		// → b DOSE_INVALID{minInterval, minIntervalFromFirst} #3, not
+		// counted. k = 3: E = max(11-24, 2027-01-01) = 2027-01-01, Du =
+		// max(E, a + 6m = 2027-02-01) = 2027-02-01 ≤ T6m = 2027-04-01 → the
+		// masked bucket is upcoming.
+		name: "floating level-4 dose fits nowhere among the dated doses", ruleset: "illustrative-vn", today: "2026-10-01", birth: "2010-01-01",
+		doses: `[{"id": "a", "diseases": ["hpv"], "date": {"value": "2026-08-01", "precision": "day"}},
+			{"id": "b", "diseases": ["hpv"], "date": {"precision": "unknown"}},
+			{"id": "c", "diseases": ["hpv"], "date": {"value": "2026-09-01", "precision": "day"}}]`,
+		disease: "hpv", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval","minIntervalFromFirst"],"dose":"b","number":3}}]`,
+	},
+	{
+		// The same without a birth date: no minimum age, and the dated
+		// doses alone rule out every placement. Dose 3 has no minimum age,
+		// and its due date is anchored on the first dose → upcoming.
+		name: "floating level-4 dose fits nowhere, no birth date", ruleset: "illustrative-vn", today: "2026-10-01",
+		doses: `[{"id": "a", "diseases": ["hpv"], "date": {"value": "2026-08-01", "precision": "day"}},
+			{"id": "b", "diseases": ["hpv"], "date": {"precision": "unknown"}},
+			{"id": "c", "diseases": ["hpv"], "date": {"value": "2026-09-01", "precision": "day"}}]`,
+		disease: "hpv", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval","minIntervalFromFirst"],"dose":"b","number":3}}]`,
+	},
+	{
+		// measles b 2025-01-01: a 10-15 ≥ 10-01 is dose 1. f before a: f ≥
+		// 10-01 and a ≥ f + 28d, so f ≤ 09-17 ✗. f after a: f ≥ 11-12 >
+		// today ✗ → f DOSE_INVALID{minInterval} #2. k = 2: E = 11-12, Du =
+		// b + 18m = 2026-07-01 > T6m = 2026-05-01, 1 dose → complete +
+		// ON_TRACK masked.
+		name: "floating level-4 measles dose fits neither before nor after", ruleset: "illustrative-vn", today: "2025-11-01", birth: "2025-01-01",
+		doses: `[{"id": "a", "diseases": ["measles"], "date": {"value": "2025-10-15", "precision": "day"}},
+			{"id": "f", "diseases": ["measles"], "date": {"precision": "unknown"}}]`,
+		disease: "measles", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"f","number":2}},
+			{"code":"ON_TRACK"}]`,
+	},
+	{
+		// pertussis b 2025-01-01: a 03-05 ≥ 02-12 is dose 1, c 04-02 ≥ a +
+		// 28d is dose 2. The count chain from birth (02-12, 03-12, 04-09)
+		// fits by today, but b before a needs a ≥ b + 28d ≥ 03-12 ✗; b
+		// between needs c ≥ a + 56d = 04-30 ✗; b after c needs 04-30 >
+		// today ✗ → b DOSE_INVALID{minInterval} #3. k = 3: plan 2-3-4 E =
+		// 04-30, Du = b + 4m = 05-01; plan 2-4-6 Du = 07-01. Merged E 04-30,
+		// Du 05-01; today < E, Du ≤ T6m → upcoming, ALTERNATIVE_PLANS.
+		name: "floating level-4 infant dose: count fits, placement does not", ruleset: "illustrative-vn", today: "2025-04-23", birth: "2025-01-01",
+		doses: `[{"id": "a", "diseases": ["pertussis"], "date": {"value": "2025-03-05", "precision": "day"}},
+			{"id": "b", "diseases": ["pertussis"], "date": {"precision": "unknown"}},
+			{"id": "c", "diseases": ["pertussis"], "date": {"value": "2025-04-02", "precision": "day"}}]`,
+		disease: "pertussis", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"b","number":3}},
+			{"code":"ALTERNATIVE_PLANS","params":{"series":"pertussis-primary"}}]`,
+	},
+	{
+		// Control: a 03-01 and c 06-01. b fits only between them (b ≥ a +
+		// 28d = 03-29 and c ≥ b + 28d, so b ≤ 05-04); before a it needs b ≤
+		// 02-01 < 02-12, after c it needs 06-29 > today. One placement is
+		// enough: 3 doses counted → complete.
+		name: "floating level-4 dose fits only between the dated doses", ruleset: "illustrative-vn", today: "2025-06-10", birth: "2025-01-01",
+		doses: `[{"id": "a", "diseases": ["pertussis"], "date": {"value": "2025-03-01", "precision": "day"}},
+			{"id": "b", "diseases": ["pertussis"], "date": {"precision": "unknown"}},
+			{"id": "c", "diseases": ["pertussis"], "date": {"value": "2025-06-01", "precision": "day"}}]`,
+		disease: "pertussis", bucket: engine.BucketComplete, est: true,
 		reasons: `[{"code":"COMPLETE"}]`,
 	},
 	// Two exact doses on the same day have no time order between them, so a

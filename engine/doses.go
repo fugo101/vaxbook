@@ -64,8 +64,10 @@ type walkResult struct {
 // definitely invalid when R.Hi < P.Lo + minInterval and possibly invalid
 // when R.Lo < P.Hi + minInterval. Behind undated slots the interval is
 // waived (INTERVAL_UNVERIFIABLE) and replaced by the feasibility of the
-// slots (chain). The minimum age is checked when the birth date is known,
-// and minIntervalFromFirst when dose 1 is a counted dated dose.
+// slots (chain). The minimum age is checked when the birth date is known.
+// minIntervalFromFirst is checked against dose 1: a counted dated dose, or
+// an undated slot at its earliest dates, so that a dose that no placement
+// of dose 1 allows is DOSE_INVALID.
 //
 // Doses beyond the series length are not checked and not counted, but stay
 // in the sequence as the dose adjacent in time (S1).
@@ -76,15 +78,26 @@ func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
 	for q := range pl.fixed {
 		taken[q] = true
 	}
+	// first is dose 1: the counted dated dose at position 1, or, when
+	// position 1 is an undated slot, the earliest dates that slot can have
+	// (chain), so that minIntervalFromFirst is checked against the most
+	// favourable placement of dose 1 (EQ20b).
+	var first *Range
 	insertSlots := func(below int) {
 		for q := last + 1; q < below && q <= s.length; q++ {
 			if g, ok := pl.fixed[q]; ok {
-				w.seq = append(w.seq, item{pos: q, dose: g, counted: true})
+				it := item{pos: q, dose: g, counted: true}
+				if q == 1 {
+					from, _ := w.tail()
+					if lo, hi, bounded := s.chain(b, from, []item{it}, nil); bounded {
+						first = &Range{Lo: lo, Hi: hi}
+					}
+				}
+				w.seq = append(w.seq, it)
 				last = q
 			}
 		}
 	}
-	var first *Range // the counted dated dose at position 1
 	for _, g := range pl.dated {
 		pos := g.number
 		if pos == 0 {
@@ -210,7 +223,8 @@ func (s seriesModel) hasInterval(pos int) bool {
 // check returns the verdict of a dose on range x for position pos at birth
 // end b, and the checks it fails. from is the dated dose before it in time
 // (nil if none) and run the undated slots between them; first is the counted
-// dated dose at position 1 (nil if none).
+// dated dose at position 1, or the earliest dates of an undated dose 1
+// (nil if neither).
 //
 // A plan's verdict is the worst of its checks; the dose's verdict is the
 // best over plans (A7). The checks reported are those that reach that
@@ -271,7 +285,7 @@ func (s seriesModel) check(pos int, b birthEnd, x Range, from *Range, run []item
 // have (EQ8, EQ20b): best starting from from.Lo, worst from from.Hi. Each
 // slot q is on or after the slot before it, and takes the latest of the
 // previous slot + minInterval_q, birth + minAge_q (birth known) and dose 1 +
-// minIntervalFromFirst_q (dose 1 dated), under the most lenient plan for
+// minIntervalFromFirst_q (first set), under the most lenient plan for
 // that slot. A run at the start of the series has no lower bound but the
 // birth date. bounded is false when nothing bounds the last slot (no birth
 // date and no dated dose before the run), so any placement is feasible.

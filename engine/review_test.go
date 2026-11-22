@@ -302,6 +302,26 @@ var s2ReviewCases = []reviewCase{
 		disease: "single", bucket: engine.BucketUnknown,
 		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"b","number":2}}]`,
 	},
+	// Issue #13 property 4 does not hold for dose ranges: step 7 measures
+	// the next dose from the later (today-capped) end of a dose range
+	// (F04.2), so narrowing it can move the due date earlier and turn 🟡
+	// into 🔴. TestPropertyNarrowingDoseDate checks the forms that hold.
+	// minimal-single, b 2026-05-01: dose 2 min interval 4w, at b + 4m =
+	// 09-01; buffer 0.
+	{
+		// r1 m 2026-08: R = [08-01, 08-31], R.Lo ≥ b + 42d = 06-12, counted.
+		// Dose 2: E = 08-31 + 28d = 09-28, Du = max(E, 09-01) = 09-28, O =
+		// 10-05; today < E and Du ≤ T30 → upcoming.
+		name: "month dose: next dose from the end of the month", ruleset: "minimal-single", today: "2026-09-20", birth: "2026-05-01",
+		doses:   `[{"id": "r1", "diseases": ["single"], "date": {"value": "2026-08", "precision": "month"}}]`,
+		disease: "single", bucket: engine.BucketUpcoming, est: true, reasons: `[]`,
+	},
+	{
+		// Narrowed to 08-01: E = 08-29, Du = 09-01, O = 09-08 ≤ today → overdue.
+		name: "the same dose narrowed to a day", ruleset: "minimal-single", today: "2026-09-20", birth: "2026-05-01",
+		doses:   `[{"id": "r1", "diseases": ["single"], "date": {"value": "2026-08-01", "precision": "day"}}]`,
+		disease: "single", bucket: engine.BucketOverdue, reasons: `[]`,
+	},
 }
 
 // TestManyRecordsWithImpreciseBirthDate: comparing the two birth ends keeps

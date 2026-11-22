@@ -194,32 +194,71 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 }
 
 // checkFloating checks that the floating level-4 doses fit among the dated
-// doses (F05.10, EQ20: no feasible placement → DOSE_INVALID). Only as many
-// of them as the series still needs are placed, the last ones by ID. A
-// placement puts each of them in front of a counted dated dose that has no
-// number and no numbered dated dose after it (moving that dose and the ones
-// after it up one position), or after every dated dose and undated slot. It
-// fits when its walk has no DOSE_INVALID on a record the walk without them
-// has none on: the dated doses still meet their (possibly moved) positions,
-// the slots fit before the dated dose after them, and the last dose fits by
-// today. An uncounted dated dose has no position, so no placement is tried
-// in front of one; trying fewer placements can only report more
-// DOSE_INVALID (P1).
+// doses (F05.10, EQ20: no feasible placement → DOSE_INVALID), with
+// floatingFit.
 //
-// A placement that fits at every end of the ranges adds nothing. When every
-// placement that fits does so only at one end (its walk has a
-// DOSE_POSSIBLY_INVALID on a record the walk without them has no
-// DOSE_INVALID or DOSE_POSSIBLY_INVALID on), the first of them, in the
-// order tried, adds those DOSE_POSSIBLY_INVALID reasons: the floating doses
-// stay counted, but some day inside the ranges leaves no placement, so the
-// result is ⚪, not ✅ (F05.10). Without them, narrowing a dose range could
-// make a counted dose invalid (SAD §5.7).
+// A placement that fits at every end of the ranges adds nothing. When the
+// placements that fit do so only at one end, the dated ranges are split
+// (covered): when every day inside them still has a placement that fits,
+// nothing is added either. Otherwise some day leaves no placement, and the
+// first placement tried that fits at one end adds its DOSE_POSSIBLY_INVALID
+// reasons (on records the walk without the floating doses has no
+// DOSE_INVALID or DOSE_POSSIBLY_INVALID on): the floating doses stay
+// counted, but the result is ⚪, not ✅ (F05.10). Without them, narrowing a
+// dose range could make a counted dose invalid (SAD §5.7).
 //
 // When no placement fits, the last floating dose by ID is DOSE_INVALID, not
 // counted, with the position and checks it fails when all of them are
 // placed after the last dated dose (checked like a dose given today, as a
 // trailing slot is).
 func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl placement) {
+	fit, fallback, failed := s.floatingFit(*w, b, today, pl)
+	switch fit {
+	case fitEverywhere:
+	case fitAtOneEnd:
+		budget := coverBudget
+		if lo, hi, ok := splitWidest(pl); ok && s.covered(b, today, lo, &budget) && s.covered(b, today, hi, &budget) {
+			return
+		}
+		w.reasons = append(w.reasons, fallback...)
+	case fitNowhere:
+		w.reasons = append(w.reasons, failed)
+		w.floating = slices.DeleteFunc(slices.Clone(w.floating), func(g givenDose) bool { return g.id == failed.Params.Dose })
+	}
+}
+
+// fit is how the placements of the floating doses fit over the dated ranges.
+type fit uint8
+
+const (
+	fitEverywhere fit = iota // some placement fits at every end, or none is needed
+	fitAtOneEnd              // no placement fits at every end, but some fits at one end
+	fitNowhere               // every placement adds a DOSE_INVALID
+)
+
+// coverBudget is the most date boxes covered checks for one series at one
+// birth end. One imprecise range takes about two per halving (a year takes
+// about 18); past the budget the result is the conservative ⚪.
+const coverBudget = 512
+
+// floatingFit tries the placements of the floating doses, given w, the walk
+// of pl without them. Only as many of them as the series still needs are
+// placed, the last ones by ID. A placement puts each of them in front of a
+// counted dated dose that has no number and no numbered dated dose after it
+// (moving that dose and the ones after it up one position), or after every
+// dated dose and undated slot. It fits when its walk has no DOSE_INVALID on
+// a record w has none on: the dated doses still meet their (possibly moved)
+// positions, the slots fit before the dated dose after them, and the last
+// dose fits by today. It fits only at one end when its walk also has a
+// DOSE_POSSIBLY_INVALID on a record w has no DOSE_INVALID or
+// DOSE_POSSIBLY_INVALID on. An uncounted dated dose has no position, so no
+// placement is tried in front of one; trying fewer placements can only
+// report more DOSE_INVALID (P1).
+//
+// fallback is the DOSE_POSSIBLY_INVALID reasons of the first placement
+// tried that fits only at one end; failed is the first DOSE_INVALID of all
+// of them after the last dated dose.
+func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placement) (f fit, fallback []Reason, failed Reason) {
 	counted := 0
 	movable := map[string]bool{}
 	for _, it := range w.seq {
@@ -230,10 +269,10 @@ func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl pla
 			}
 		}
 	}
-	if len(w.floating) == 0 || counted >= s.length {
-		return
+	if len(pl.floating) == 0 || counted >= s.length {
+		return fitEverywhere, nil, Reason{}
 	}
-	fl := w.floating[len(w.floating)-min(len(w.floating), s.length-counted):]
+	fl := pl.floating[len(pl.floating)-min(len(pl.floating), s.length-counted):]
 	invalid, flagged := map[string]bool{}, map[string]bool{}
 	for _, r := range w.reasons {
 		switch r.Code {
@@ -257,9 +296,6 @@ func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl pla
 		}
 		return Reason{}, false, possible
 	}
-	// fallback holds the reasons of the first placement that fits only at
-	// one end.
-	var fallback []Reason
 	// fitsEverywhere reports whether a placement fits at every end, and
 	// records the first one that fits only at one end.
 	fitsEverywhere := func(r walkResult) bool {
@@ -280,9 +316,9 @@ func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl pla
 	ins := make([][]givenDose, n+1)
 	ins[n] = fl
 	all := s.walkWith(b, today, pl, ins)
-	failed, _, _ := assess(all)
+	failed, _, _ = assess(all)
 	if fitsEverywhere(all) {
-		return
+		return fitEverywhere, nil, Reason{}
 	}
 	// The insertion points, ascending: in front of the movable dated doses
 	// after the last numbered one, then after everything.
@@ -315,15 +351,60 @@ func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl pla
 		return false
 	}
 	clear(ins)
-	if try(0, fl) {
-		return
+	switch {
+	case try(0, fl):
+		return fitEverywhere, nil, Reason{}
+	case fallback != nil:
+		return fitAtOneEnd, fallback, failed
 	}
-	if fallback != nil {
-		w.reasons = append(w.reasons, fallback...)
-		return
+	return fitNowhere, nil, failed
+}
+
+// covered reports whether every day inside the dated ranges of pl has a
+// placement of the floating doses that fits (floatingFit over that day's
+// walk). A box of ranges where some placement fits at every end is
+// covered, and one where every placement adds a DOSE_INVALID is not; any
+// other box is split in two at the middle of its widest range. The walk
+// order stays that of pl: imprecise ranges overlap no other range (an
+// overlap is blocking unless numbers order it). budget counts the boxes
+// checked; when it runs out the answer is false, which only keeps the
+// conservative ⚪.
+func (s seriesModel) covered(b birthEnd, today Date, pl placement, budget *int) bool {
+	if *budget <= 0 {
+		return false
 	}
-	w.reasons = append(w.reasons, failed)
-	w.floating = slices.DeleteFunc(slices.Clone(w.floating), func(g givenDose) bool { return g.id == failed.Params.Dose })
+	*budget--
+	w := s.walkWith(b, today, pl, nil)
+	switch f, _, _ := s.floatingFit(w, b, today, pl); f {
+	case fitEverywhere:
+		return true
+	case fitNowhere:
+		return false
+	}
+	lo, hi, ok := splitWidest(pl)
+	return ok && s.covered(b, today, lo, budget) && s.covered(b, today, hi, budget)
+}
+
+// splitWidest returns pl with its widest dated range (the first by walk
+// order on a tie) cut into its first and second half; ok is false when every
+// dated range is a single day.
+func splitWidest(pl placement) (lo, hi placement, ok bool) {
+	widest, width := -1, int32(0)
+	for i, g := range pl.dated {
+		if d := g.date.Hi.days - g.date.Lo.days; d > width {
+			widest, width = i, d
+		}
+	}
+	if widest < 0 {
+		return pl, pl, false
+	}
+	r := pl.dated[widest].date
+	mid := r.Lo.AddDays(int(width / 2))
+	lo, hi = pl, pl
+	lo.dated, hi.dated = slices.Clone(pl.dated), slices.Clone(pl.dated)
+	lo.dated[widest].date = Range{Lo: r.Lo, Hi: mid}
+	hi.dated[widest].date = Range{Lo: mid.AddDays(1), Hi: r.Hi}
+	return lo, hi, true
 }
 
 // tail returns the dated dose before the undated slots at the end of the

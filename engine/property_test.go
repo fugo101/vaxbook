@@ -602,6 +602,65 @@ func TestNarrowingFloatingDoseShapes(t *testing.T) {
 	}
 }
 
+// TestFloatingDoseWideMatchesEveryDay checks both directions for one
+// unnumbered level-4 dose beside an imprecise dated dose (SAD §5.3 step 5,
+// §5.7): the wide result has DOSE_POSSIBLY_INVALID exactly when some day
+// inside the range leaves no placement, that is when narrowing the range
+// to that day makes a dose DOSE_INVALID. The narrowing property checks
+// only that the wide result is not missing the reason; this also checks
+// that it is not added when two placements that each fit at one end
+// together cover every day.
+func TestFloatingDoseWideMatchesEveryDay(t *testing.T) {
+	t.Parallel()
+	e := loadEngine(t, "minimal-single")
+	cases := []struct {
+		birth, value string
+		precision    engine.Precision
+		from, to     string // the todays tried, every third day
+	}{
+		{"2026-01-01", "2026-03", engine.Month, "2026-03-20", "2026-05-10"},
+		{"2025-12-01", "2026", engine.Year, "2026-02-01", "2026-04-30"},
+	}
+	for _, c := range cases {
+		for today := mustDate(t, c.from); !today.After(mustDate(t, c.to)); today = today.AddDays(3) {
+			in := engine.Input{
+				Today:   today,
+				Profile: engine.Profile{Birth: engine.RecalledDate{Value: c.birth, Precision: engine.Day}},
+				Doses: []engine.DoseRecord{
+					{ID: "r1", Diseases: []string{"single"}, Date: engine.RecalledDate{Value: c.value, Precision: c.precision}},
+					{ID: "r5", Diseases: []string{"single"}, Date: engine.RecalledDate{Precision: engine.Unknown}},
+				},
+			}
+			wide, _ := evaluate(t, e, in)
+			period, _, err := in.Doses[0].Date.Period()
+			if err != nil {
+				t.Fatal(err)
+			}
+			gap := ""
+			for d := period.Lo; !d.After(minDateOf(period.Hi, today)) && gap == ""; d = d.AddDays(1) {
+				narrow := cloneInput(in)
+				narrow.Doses[0].Date = engine.RecalledDate{Value: d.String(), Precision: engine.Day}
+				got, _ := evaluate(t, e, narrow)
+				if len(invalidDoses(got.Assessments[0])) > 0 {
+					gap = d.String()
+				}
+			}
+			a := wide.Assessments[0]
+			if possibly := hasCode(a, engine.ReasonDosePossiblyInvalid); possibly != (gap != "") {
+				t.Errorf("r1 %s, today %s: DOSE_POSSIBLY_INVALID %v, but the first day leaving no placement is %q\nwide %+v",
+					c.value, today, possibly, gap, a)
+			}
+		}
+	}
+}
+
+func minDateOf(a, b engine.Date) engine.Date {
+	if b.Before(a) {
+		return b
+	}
+	return a
+}
+
 // TestPropertyDoseOnEarliestDateCounts: a dose given on the earliest allowed
 // date is counted (the next dose number rises or the series completes) and
 // adds no DOSE_INVALID. It uses day-precise inputs: with a month-precision

@@ -458,6 +458,37 @@ var s3aReviewCases = []reviewCase{
 			{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"u3","number":3}},
 			{"code":"PREVIOUS_DOSE_DATE_UNKNOWN","params":{"dose":"u1"}}]`,
 	},
+	// A floating level-4 dose whose placements each fit only at one end of
+	// a neighbour's range (SAD §5.3 step 5). minimal-single: dose 1 min age
+	// 6w, dose 2 4w. r1 m 2026-03 gives R = [03-01, 03-31]; R.Lo ≥ b + 6w =
+	// 02-12, so r1 counts at position 1, and r5 (U, no number) floats.
+	//   after r1, checked as if given today: today ≥ r1 + 28d holds for
+	//     r1 ≤ today − 28d, so only at the early end;
+	//   in front of r1 (r1 moves to position 2): u1 ≥ 02-12, so r1 ≥ 03-12,
+	//     only at the late end.
+	{
+		// today 04-15: "after r1" fits for r1 ≤ 03-18 and "in front of r1"
+		// for r1 ≥ 03-12, so every day of R has a placement. Every
+		// narrowing is ✅ COMPLETE, so the wide result is too: no
+		// DOSE_POSSIBLY_INVALID, est (month date, level-4 dose).
+		name: "floating dose covered by two one-end placements", ruleset: "minimal-single", today: "2026-04-15", birth: "2026-01-01",
+		doses: `[{"id": "r1", "diseases": ["single"], "date": {"value": "2026-03", "precision": "month"}},
+			{"id": "r5", "diseases": ["single"], "date": {"precision": "unknown"}}]`,
+		disease: "single", bucket: engine.BucketComplete, est: true,
+		reasons: `[{"code":"COMPLETE"}]`,
+	},
+	{
+		// today 04-05: "after r1" fits for r1 ≤ 03-08 and "in front of r1"
+		// for r1 ≥ 03-12, so r1 on 03-09..03-11 leaves no placement. The
+		// first placement tried (after r1) adds its DOSE_POSSIBLY_INVALID:
+		// r5 as dose 2 checked as if given today, minInterval. Both stay
+		// counted → masked complete → unknown.
+		name: "floating dose with a gap between two one-end placements", ruleset: "minimal-single", today: "2026-04-05", birth: "2026-01-01",
+		doses: `[{"id": "r1", "diseases": ["single"], "date": {"value": "2026-03", "precision": "month"}},
+			{"id": "r5", "diseases": ["single"], "date": {"precision": "unknown"}}]`,
+		disease: "single", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"DOSE_POSSIBLY_INVALID","params":{"checks":["minInterval"],"dose":"r5","number":2}},{"code":"COMPLETE"}]`,
+	},
 }
 
 // TestManyRecordsWithImpreciseBirthDate: comparing the two birth ends keeps

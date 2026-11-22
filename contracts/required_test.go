@@ -41,6 +41,9 @@ var s1Required = map[string][]string{
 		"/series/*/plans/*/doses/*/recommended/offset",
 		"/series/*/plans/*/id",
 		"/series/*/stage",
+		// Added in S3b inside the new optional startAge member, which no
+		// stored document has yet (R5).
+		"/series/*/startAge/min",
 		"/version",
 	},
 	"input": {

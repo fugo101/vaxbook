@@ -14,7 +14,7 @@ func (c ReasonCode) blocks() bool {
 		ReasonDoseInvalid, ReasonDosePossiblyInvalid, ReasonPreviousDoseDateUnknown, ReasonNoBirthDate:
 		return true
 	case ReasonImpliedEarlierDoses, ReasonSafestSeries, ReasonIntervalUnverifiable, ReasonFirstDoseDateAssumed,
-		ReasonAlternativePlans, ReasonComplete, ReasonProductNotInCatalog, ReasonOnTrack:
+		ReasonAlternativePlans, ReasonComplete, ReasonProductNotInCatalog, ReasonOnTrack, ReasonAgeAtStartUncertain, ReasonOutOfAge:
 		return false
 	}
 	panic(fmt.Sprintf("engine: reason code %q is not classified as blocking or informational", string(c)))

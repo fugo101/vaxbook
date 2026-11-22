@@ -34,18 +34,63 @@ func MinAgeImplied(p Plan, k int) bool {
 	for j := 1; j < k; j++ {
 		rhs.add(p.Doses[j].MinInterval)
 	}
-	switch {
-	case lhs.days == 0 && rhs.days == 0:
-		return lhs.months <= rhs.months
-	case lhs.months == 0 && rhs.months == 0:
-		return lhs.days <= rhs.days
-	}
-	return lhs.months*31+lhs.days <= rhs.months*28+rhs.days
+	return lhs.atMost(rhs)
+}
+
+// SpanAtMost reports whether a ≤ b for every month length (SAD §5.2 span
+// comparison): exact when both spans are in months and years or both in
+// days and weeks, and otherwise with a month of a counting 31 days and a
+// month of b counting 28. So a date plus a is never after the same date plus
+// b, whatever the date (AddSpan clamps a month to 28–31 days).
+func SpanAtMost(a, b Span) bool {
+	return of(a).atMost(of(b))
+}
+
+// spanLess reports whether a < b for every month length, as SpanAtMost.
+func spanLess(a, b Span) bool {
+	return of(a).less(of(b))
+}
+
+// spanEqual reports whether a and b are the same span within one unit
+// family (P1Y = P12M, P1W = P7D). Spans of different families are never
+// equal, except that zero equals zero (issue #23, FIRST_DOSE_MIN_AGE_DIFFERS).
+func spanEqual(a, b Span) bool {
+	return of(a) == of(b)
+}
+
+func of(s Span) monthsDays {
+	var m monthsDays
+	m.add(&s)
+	return m
 }
 
 // monthsDays is a sum of spans split into its month family (months, years)
 // and its day family (days, weeks).
 type monthsDays struct{ months, days int }
+
+// atMost reports whether l ≤ r for every month length: exact within one
+// unit family (a zero sum counts as either), and otherwise with a month of l
+// counting 31 days and a month of r counting 28.
+func (l monthsDays) atMost(r monthsDays) bool {
+	switch {
+	case l.days == 0 && r.days == 0:
+		return l.months <= r.months
+	case l.months == 0 && r.months == 0:
+		return l.days <= r.days
+	}
+	return l.months*31+l.days <= r.months*28+r.days
+}
+
+// less reports whether l < r for every month length, as atMost.
+func (l monthsDays) less(r monthsDays) bool {
+	switch {
+	case l.days == 0 && r.days == 0:
+		return l.months < r.months
+	case l.months == 0 && r.months == 0:
+		return l.days < r.days
+	}
+	return l.months*31+l.days < r.months*28+r.days
+}
 
 func (m *monthsDays) add(s *Span) {
 	if s == nil {

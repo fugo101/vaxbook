@@ -1,0 +1,43 @@
+{
+  "snapshot": {
+    "version": "validate-first-dose-min-age-above-start-age",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-series",
+        "disease": "a",
+        "stage": "childhood",
+        "startAge": {
+          "min": "P9Y"
+        },
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P10Y",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P10Y"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "FIRST_DOSE_MIN_AGE_ABOVE_START_AGE",
+      "severity": "warn",
+      "path": "/series/0/plans/0/doses/0/minAge"
+    }
+  ]
+}

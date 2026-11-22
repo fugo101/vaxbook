@@ -187,11 +187,15 @@ func TestValidateProducts(t *testing.T) {
 		want           []Problem
 	}{
 		{"valid", "", "", nil},
-		// A catalog product needs no series of its own (rotasiil, A2), and
-		// a product group may hold several series until S3b (engine.New
-		// rejects them).
+		// A catalog product needs no series of its own (rotasiil, A2). A
+		// product group may hold several series, each with a start-age
+		// bracket (S3b, EQ26; TestValidateStartAge).
 		{"product without series", `"id": "q", "name": "Q", "diseases": ["d", "e"]`, `"id": "q", "name": "Q", "diseases": ["e"]`, nil},
-		{"product group with two series", `{"id": "t", "disease": "e", "stage"`, `{"id": "t", "disease": "d", "product": "p", "stage"`, nil},
+		{"product group with two series", `{"id": "t", "disease": "e", "stage"`, `{"id": "t", "disease": "d", "product": "p", "stage"`,
+			[]Problem{
+				reject(StartAgeRequired, "/series/0", ProblemParams{Disease: "d", Product: "p"}),
+				reject(StartAgeRequired, "/series/1", ProblemParams{Disease: "d", Product: "p"}),
+			}},
 		{"missing product id", `"id": "p", "name": "P"`, `"id": "", "name": "P"`,
 			[]Problem{
 				reject(Required, "/products/0/id", ProblemParams{}),
@@ -260,6 +264,12 @@ func TestProblemCodeStrings(t *testing.T) {
 		Empty:                   "EMPTY",
 		DuplicateValue:          "DUPLICATE_VALUE",
 		ProductDiseaseMismatch:  "PRODUCT_DISEASE_MISMATCH",
+		StartAgeEmpty:           "START_AGE_EMPTY",
+		StartAgeRequired:        "START_AGE_REQUIRED",
+		StartAgeOverlap:         "START_AGE_OVERLAP",
+		// The two Warns of S3b.
+		FirstDoseMinAgeAboveStartAge: "FIRST_DOSE_MIN_AGE_ABOVE_START_AGE",
+		FirstDoseMinAgeDiffers:       "FIRST_DOSE_MIN_AGE_DIFFERS",
 	}
 	for c, s := range want {
 		if string(c) != s {
@@ -322,10 +332,13 @@ func TestValidateDuplicateSeriesAndPlanIDs(t *testing.T) {
 	      {"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]}
 	    ]}
 	  ]}`
+	// Two generic series of one disease also need start-age brackets (S3b).
 	want := []Problem{
+		{Code: StartAgeRequired, Severity: Reject, Path: "/series/0", Params: ProblemParams{Disease: "d"}},
 		{Code: PlanDoseCountMismatch, Severity: Reject, Path: "/series/0/plans/1"},
 		{Code: DuplicateID, Severity: Reject, Path: "/series/0/plans/1/id", Params: ProblemParams{ID: "p"}},
 		{Code: Empty, Severity: Reject, Path: "/series/0/plans/1/doses"},
+		{Code: StartAgeRequired, Severity: Reject, Path: "/series/1", Params: ProblemParams{Disease: "d"}},
 		{Code: DuplicateID, Severity: Reject, Path: "/series/1/id", Params: ProblemParams{ID: "s"}},
 	}
 	if got := Validate(mustDecode(t, in)); !reflect.DeepEqual(got, want) {
@@ -339,6 +352,7 @@ func TestValidateDuplicateSeriesAndPlanIDs(t *testing.T) {
 func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
 	t.Parallel()
 	const dose = "/series/0/plans/0/doses/"
+	const startAge = "/series/0/startAge/"
 	invalid := func(path string, s Span) Problem {
 		return Problem{Code: InvalidValue, Severity: Reject, Path: path, Params: ProblemParams{Value: s.String()}}
 	}
@@ -387,10 +401,48 @@ func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
 			}
 		})
 	}
+	// A bracket with an invalid span gets only the span problem (issue
+	// #23): dose 1's minimum age P6W would otherwise be above a zero or
+	// one-day min (FIRST_DOSE_MIN_AGE_ABOVE_START_AGE), and the spans below
+	// would otherwise make the bracket START_AGE_EMPTY.
+	bracketCases := []struct {
+		name     string
+		want     []Problem
+		startAge *StartAge
+	}{
+		{"zero start age min", []Problem{{Code: Required, Severity: Reject, Path: "/series/0/startAge/min"}},
+			&StartAge{}},
+		{"start age min bad unit", []Problem{invalid(startAge+"min", Span{N: 1, Unit: 'x'})},
+			&StartAge{Min: Span{N: 1, Unit: 'x'}}},
+		{"start age min too long", []Problem{invalid(startAge+"min", Span{N: 1000, Unit: Years})},
+			&StartAge{Min: Span{N: 1000, Unit: Years}, Max: &Span{N: 1, Unit: Years}}},
+		{"start age max bad unit", []Problem{invalid(startAge+"max", Span{N: 5, Unit: 'x'})},
+			&StartAge{Min: Span{N: 1, Unit: Days}, Max: &Span{N: 5, Unit: 'x'}}},
+		{"start age max negative", []Problem{invalid(startAge+"max", Span{N: -1, Unit: Days})},
+			&StartAge{Min: Span{N: 1, Unit: Years}, Max: &Span{N: -1, Unit: Days}}},
+		{"start age max zero", []Problem{invalid(startAge+"max", Span{})},
+			&StartAge{Min: Span{N: 1, Unit: Years}, Max: &Span{}}},
+		{"start age min and max invalid", []Problem{
+			{Code: Required, Severity: Reject, Path: "/series/0/startAge/min"},
+			invalid(startAge+"max", Span{N: 1000, Unit: Months}),
+		}, &StartAge{Max: &Span{N: 1000, Unit: Months}}},
+		{"start age at the cap", nil, &StartAge{Min: Span{N: 6, Unit: Weeks}, Max: &Span{N: MaxSpanN, Unit: Years}}},
+	}
+	for _, tc := range bracketCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := mustDecode(t, validCase)
+			s.Series[0].StartAge = tc.startAge
+			if got := Validate(s); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Validate =\n  %v\nwant\n  %v", got, tc.want)
+			}
+		})
+	}
 }
 
-// validateCase is one file of testdata/validate: a rejected snapshot and the
-// complete expected result of Validate, written by hand.
+// validateCase is one file of testdata/validate: a rejected snapshot
+// (reject-*) or an accepted snapshot with Warns (warn-*), and the complete
+// expected result of Validate, written by hand.
 type validateCase struct {
 	Snapshot jsontext.Value `json:"snapshot"`
 	Problems []Problem      `json:"problems"`
@@ -423,6 +475,18 @@ func TestValidateTestdata(t *testing.T) {
 			got := Validate(snap)
 			if !reflect.DeepEqual(got, c.Problems) {
 				t.Errorf("Validate =\n  %v\nwant\n  %v", got, c.Problems)
+			}
+			switch name := filepath.Base(f); {
+			case strings.HasPrefix(name, "reject-"):
+				if len(Rejects(c.Problems)) == 0 {
+					t.Error("a reject-* case expects no Reject")
+				}
+			case strings.HasPrefix(name, "warn-"):
+				if len(c.Problems) == 0 || len(Rejects(c.Problems)) > 0 {
+					t.Errorf("a warn-* case is accepted with at least one Warn, got %v", c.Problems)
+				}
+			default:
+				t.Error("a validate case is named reject-* or warn-*")
 			}
 		})
 	}

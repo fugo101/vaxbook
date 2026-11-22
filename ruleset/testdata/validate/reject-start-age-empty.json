@@ -1,0 +1,44 @@
+{
+  "snapshot": {
+    "version": "validate-start-age-empty",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-series",
+        "disease": "a",
+        "stage": "childhood",
+        "startAge": {
+          "min": "P4W",
+          "max": "P1M"
+        },
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P0D",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P4W"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "START_AGE_EMPTY",
+      "severity": "reject",
+      "path": "/series/0/startAge"
+    }
+  ]
+}

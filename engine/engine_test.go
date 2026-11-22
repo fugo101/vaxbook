@@ -643,6 +643,64 @@ func TestMergeMaskedByDoseInvalid(t *testing.T) {
 	}
 }
 
+// TestCandidateResultsKeptWhole: S3a keeps each candidate's result without
+// collapsing it, for the EQ15 cap of S4 (issue #14 In scope 6): complete or
+// not, k, per-plan dates and per-dose validity. The doses of
+// TestMergeMaskedByDoseInvalid, birth 2026-01-01, buffer 0 so O = Du + 7d:
+//   - pertussis-primary counts r1 and r2, k = 3, E = r2 + 4w = 04-29 in
+//     both plans; p-2-3-4 Du = max(E, b + 4m = 05-01) = 05-01, O = 05-08;
+//     p-2-4-6 Du = b + 6m = 07-01, O = 07-08.
+//   - pertussis-pertu2 rejects r2 (DOSE_INVALID), k = 2, E = r2 + 8w =
+//     05-27, Du = max(E, b + 4m) = 05-27, O = 06-03.
+func TestCandidateResultsKeptWhole(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile(filepath.Join("testdata", "rulesets", "illustrative-products.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := ruleset.Decode(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := New(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dz := e.diseases[1]
+	doses := []givenDose{{id: "r1", date: Exact(d(t, "2026-03-01")), dated: true}, {id: "r2", date: Exact(d(t, "2026-04-01")), dated: true}}
+	cands := dz.candidates(doses, false)
+	ev := evaluation{dz: dz, cands: cands, today: d(t, "2026-04-20")}
+	for _, c := range cands {
+		ev.pls = append(ev.pls, dz.series[c].place(doses))
+	}
+	res := ev.at(birthEnd{date: d(t, "2026-01-01"), known: true})
+	pd := func(e, du, o string) planDates { return planDates{earliest: d(t, e), due: d(t, du), overdue: d(t, o)} }
+	want := []struct {
+		k       int
+		plans   []planDates
+		invalid []string
+	}{
+		{3, []planDates{pd("2026-04-29", "2026-05-01", "2026-05-08"), pd("2026-04-29", "2026-07-01", "2026-07-08")}, nil},
+		{2, []planDates{pd("2026-05-27", "2026-05-27", "2026-06-03")}, []string{"r2"}},
+	}
+	if len(res.cands) != len(want) {
+		t.Fatalf("%d candidate results, want %d", len(res.cands), len(want))
+	}
+	for i, w := range want {
+		r := res.cands[i]
+		var invalid []string
+		for _, x := range r.walk.reasons {
+			if x.Code == ReasonDoseInvalid {
+				invalid = append(invalid, x.Params.Dose)
+			}
+		}
+		if r.complete || r.walk.k != w.k || !slices.Equal(r.next.plans, w.plans) || !slices.Equal(invalid, w.invalid) {
+			t.Errorf("candidate %d: complete %v, k %d, plans %v, DOSE_INVALID %v; want not complete, k %d, plans %v, DOSE_INVALID %v",
+				i, r.complete, r.walk.k, r.next.plans, invalid, w.k, w.plans, w.invalid)
+		}
+	}
+}
+
 // New copies what it needs: changing the snapshot afterwards does not change
 // the engine.
 func TestNewCopiesSnapshot(t *testing.T) {

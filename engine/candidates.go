@@ -86,9 +86,11 @@ type evaluation struct {
 	safest *Reason
 }
 
-// candidateResult is steps 5–7 of one candidate series at one birth end.
-// The merge reads it, and it stays whole in endResult for the slices that
-// merge more (S4: the EQ15 cap over the candidates at k).
+// candidateResult is steps 5–7 of one candidate series at one birth end:
+// complete or not, k and per-dose validity (walk), and the per-plan dates
+// of dose k (next.plans). The merge reads it, and it stays whole in
+// endResult for the slices that merge more (S4: the EQ15 cap over the
+// candidates at k, issue #14 In scope 6).
 type candidateResult struct {
 	walk     walkResult
 	complete bool       // every dose of the series counted (step 6)

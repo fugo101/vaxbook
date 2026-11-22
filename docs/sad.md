@@ -462,6 +462,12 @@ The same session also decided items beyond B1–B13: the two-end comparison (EQ1
   - a dose capped by EQ15, a `treatAsDue` booster and a seasonal booster are never 🔴.
   - narrowing the birth date to a day inside its range never turns ✅, 🟡 or `notYetScheduled` into 🟠 or 🔴 unless the wider result is ⚪ (issue #13);
   - narrowing a dose range (month or year → a day inside it) never makes a counted dose invalid, and never moves the earliest allowed, due or overdue date later. It **may** move them earlier and turn 🟡 into 🔴 with no ⚪: step 7 measures the next dose from the later (today-capped) end of a dose range on purpose (F04.2), so an imprecise dose never brings a reminder before the minimum interval (P1). Decided by the owner on 2026-11-22: step 7 stays, and the property is stated in this form.
+  - products and candidate series (engine S3a, issue #14):
+    - unknown is never less safe (P1): replacing a dose's catalog product with no product never turns a result that is not ✅ into ✅, and when both results have a next dose with the same number it never moves earliest, due or overdue earlier;
+    - the merged earliest, due and overdue dates are each at or after the same date of every candidate at k, and without a blocking reason all candidates that still need a dose agree on k;
+    - when step 3 ran, `SAFEST_SERIES` appears if and only if two or more candidates remain, and its `candidates` match `seriesUsed`; when it did not run, neither appears;
+    - `products` present implies `nextDose` present, and `products` never lists a retired product; every listed product lists the disease;
+    - `seriesUsed`, when present, is not empty, and with no dose given it holds no retired product's series unless every series of the disease belongs to a retired product (Q38).
 - **Golden cases for every reason code** added in spec v1.2 (§5.4): at least one golden file per code, including the F13.2 cases listed in spec v1.2 (e.g. Rotarix dose 1 at 16 weeks 4 days → `DOSE_AFTER_MAX_AGE`; RotaTeq dose 1 at 14 weeks, today 29 weeks → `SERIES_MAY_NOT_COMPLETE`; Rotarix dose 1 + RotaTeq dose 2 → `MIXED_PRODUCTS`; HPV with a level-4 dose 2 → `INTERVAL_UNVERIFIABLE` or `DOSE_INVALID`), and a `ruleset` test that rejects alternative plans with different dose counts (EQ5).
 
 ### 5.8 Delivery to the browser

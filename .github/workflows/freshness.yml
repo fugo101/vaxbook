@@ -46,8 +46,14 @@ jobs:
             exit 0
           fi
 
-          if gh issue list --state open --label needs-triage --limit 200 --json title --jq '.[].title' | grep -Fxq "$title"; then
-            echo "an open issue already reports this; not opening another"
+          # Match the title across all open issues, whatever their labels:
+          # triage replaces needs-triage, so a label filter would miss an issue
+          # the owner has already triaged and open a duplicate every week. The
+          # plain list avoids the search index and its fuzzy matching.
+          existing=$(gh issue list --state open --limit 1000 --json number,title \
+            | jq -r --arg t "$title" '[.[] | select(.title == $t)][0].number // empty')
+          if [ -n "$existing" ]; then
+            echo "open issue #$existing already reports this; not opening another"
             exit 0
           fi
 

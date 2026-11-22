@@ -261,4 +261,43 @@ var s2ReviewCases = []reviewCase{
 		disease: "measles", bucket: engine.BucketComplete, est: true,
 		reasons: `[{"code":"COMPLETE"}]`,
 	},
+	// Two exact doses on the same day have no time order between them, so a
+	// number on one of them never contradicts it; the result must not depend
+	// on the record IDs (SAD §5.3 step 2, F04.2). minimal-single: dose 1 min
+	// age 6w (b 2026-01-01 → 02-12); dose 2 min interval 4w, at b + 4m. Both
+	// doses on 03-01.
+	{
+		// b #1 is dose 1, the unnumbered a takes position 2 and fails the
+		// interval (03-01 < 03-29) → DOSE_INVALID{a}. Dose 2: E = 03-29, Du =
+		// 05-01, O = 05-08 ≤ today, so the masked bucket is overdue.
+		name: "same day, #1 and an unnumbered dose with a lower ID", ruleset: "minimal-single", today: "2026-06-15", birth: "2026-01-01",
+		doses: `[{"id": "a", "diseases": ["single"], "date": {"value": "2026-03-01", "precision": "day"}},
+			{"id": "b", "diseases": ["single"], "date": {"value": "2026-03-01", "precision": "day"}, "doseNumbers": {"single": 1}}]`,
+		disease: "single", bucket: engine.BucketUnknown,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"a","number":2}}]`,
+	},
+	{
+		// The same with the unnumbered dose's ID sorting after b.
+		name: "same day, #1 and an unnumbered dose with a higher ID", ruleset: "minimal-single", today: "2026-06-15", birth: "2026-01-01",
+		doses: `[{"id": "z", "diseases": ["single"], "date": {"value": "2026-03-01", "precision": "day"}},
+			{"id": "b", "diseases": ["single"], "date": {"value": "2026-03-01", "precision": "day"}, "doseNumbers": {"single": 1}}]`,
+		disease: "single", bucket: engine.BucketUnknown,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"z","number":2}}]`,
+	},
+	{
+		// #2 and an unnumbered dose: the unnumbered one takes the free
+		// position 1 (no implied dose) and the #2 dose fails the interval.
+		name: "same day, #2 and an unnumbered dose with a lower ID", ruleset: "minimal-single", today: "2026-06-15", birth: "2026-01-01",
+		doses: `[{"id": "a", "diseases": ["single"], "date": {"value": "2026-03-01", "precision": "day"}},
+			{"id": "b", "diseases": ["single"], "date": {"value": "2026-03-01", "precision": "day"}, "doseNumbers": {"single": 2}}]`,
+		disease: "single", bucket: engine.BucketUnknown,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"b","number":2}}]`,
+	},
+	{
+		name: "same day, #2 and an unnumbered dose with a higher ID", ruleset: "minimal-single", today: "2026-06-15", birth: "2026-01-01",
+		doses: `[{"id": "z", "diseases": ["single"], "date": {"value": "2026-03-01", "precision": "day"}},
+			{"id": "b", "diseases": ["single"], "date": {"value": "2026-03-01", "precision": "day"}, "doseNumbers": {"single": 2}}]`,
+		disease: "single", bucket: engine.BucketUnknown,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"b","number":2}}]`,
+	},
 }

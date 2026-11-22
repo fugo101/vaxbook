@@ -2,6 +2,7 @@ package engine
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -12,7 +13,8 @@ import (
 type placement struct {
 	// dated are the dated doses in walk order: time order (Lo, Hi, ID),
 	// except that the members of an overlap resolved by user-entered
-	// numbers are ordered by number (F04.2).
+	// numbers are ordered by number, and a run of exact doses on the same
+	// day with numbers by position (orderSameDay, F04.2).
 	dated []givenDose
 	// fixed holds the undated slots, by position: a numbered level-4 dose
 	// at its number, an unnumbered level-4 dose filling a gap, or an
@@ -42,9 +44,10 @@ func (pl placement) blocked() bool { return len(pl.reasons) > 0 }
 //     connected groups. A group is resolved only when every member has a
 //     user-entered number, and is then ordered by number; otherwise it is
 //     OVERLAPPING_ESTIMATED_DATES{doses}, with the IDs in time order. Two
-//     exact doses on the same day keep their S1 order by ID, unless both
-//     have numbers, which then order them (a same-day pair never
-//     contradicts the time order).
+//     exact doses on the same day do not overlap and have no time order
+//     between them: when some of them have numbers, the numbers place
+//     those and the others fill the free positions around them by ID
+//     (orderSameDay); otherwise they keep their S1 order by ID.
 //  2. A user-entered number that repeats an earlier record's number, or
 //     that is not above the position reached by the dated doses before it
 //     in time, is NUMBERING_CONFLICT{dose, number}, at most one per record,
@@ -80,8 +83,17 @@ func (s seriesModel) place(doses []givenDose) placement {
 	slices.SortFunc(numbered, byID)
 	slices.SortFunc(unnumbered, byID)
 
+	occupied := map[int]bool{}
+	reserved := map[int]bool{}
+	for _, g := range numbered {
+		occupied[g.number] = true
+		reserved[g.number] = true
+	}
 	pl := placement{dated: dated}
 	unresolved := pl.resolveOverlaps()
+	if !unresolved {
+		orderSameDay(pl.dated, reserved)
+	}
 
 	// Numbering conflicts, collected per record and reported in walk order.
 	conflict := map[string]int{}
@@ -94,12 +106,6 @@ func (s seriesModel) place(doses []givenDose) placement {
 			conflict[g.id] = g.number
 		}
 		seen[g.number] = true
-	}
-	occupied := map[int]bool{}
-	reserved := map[int]bool{}
-	for _, g := range numbered {
-		occupied[g.number] = true
-		reserved[g.number] = true
 	}
 	if !unresolved {
 		c := 0
@@ -171,11 +177,11 @@ func (pl *placement) resolveOverlaps() bool {
 		return parent[i]
 	}
 	for i := range d {
-		for j := i + 1; j < len(d); j++ {
-			// Two exact doses on the same day are ordered by ID, unless both
-			// have numbers: then the numbers order them.
-			bothExact := d[i].date.IsExact() && d[j].date.IsExact()
-			if d[i].date.Intersects(d[j].date) && (!bothExact || d[i].number > 0 && d[j].number > 0) {
+		// d is sorted by Lo, so no later range intersects d[i] once one
+		// starts after d[i].Hi.
+		for j := i + 1; j < len(d) && !d[i].date.Hi.Before(d[j].date.Lo); j++ {
+			// Two exact doses on the same day do not overlap (orderSameDay).
+			if !(d[i].date.IsExact() && d[j].date.IsExact()) {
 				parent[find(j)] = find(i)
 			}
 		}
@@ -216,6 +222,53 @@ func (pl *placement) resolveOverlaps() bool {
 		}
 	}
 	return unresolved
+}
+
+// orderSameDay orders each run of two or more exact doses on the same day,
+// which have no time order between them (F04.2). When some of them have
+// numbers, each numbered dose sits at its number and the unnumbered ones
+// take, in ID order, the free positions after the position reached before
+// the run (skipping reserved positions and the run's numbers); the run is
+// then walked in position order. So a number never contradicts the time
+// order inside the run, and the result does not depend on the record IDs.
+// A run with no numbers keeps its order by ID. reserved are the numbers of
+// the undated records; the position reached advances as in place.
+func orderSameDay(d []givenDose, reserved map[int]bool) {
+	c := 0
+	for i := 0; i < len(d); {
+		j := i + 1
+		for j < len(d) && d[i].date.IsExact() && d[j].date.IsExact() && d[j].date.Lo == d[i].date.Lo {
+			j++
+		}
+		run := d[i:j]
+		taken := maps.Clone(reserved)
+		for _, g := range run {
+			if g.number > 0 {
+				taken[g.number] = true
+			}
+		}
+		if len(run) > 1 && len(taken) > len(reserved) {
+			pos := make(map[string]int, len(run))
+			cc := c
+			for _, g := range run {
+				if g.number > 0 {
+					pos[g.id] = g.number
+				} else {
+					cc = nextFree(cc, taken)
+					pos[g.id] = cc
+				}
+			}
+			slices.SortStableFunc(run, func(x, y givenDose) int { return cmp.Compare(pos[x.id], pos[y.id]) })
+		}
+		for _, g := range run {
+			if g.number > 0 {
+				c = max(c, g.number)
+			} else {
+				c = nextFree(c, reserved)
+			}
+		}
+		i = j
+	}
 }
 
 // nextFree returns the first position after c that taken does not hold.

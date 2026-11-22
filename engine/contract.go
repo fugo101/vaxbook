@@ -138,8 +138,11 @@ type Output struct {
 // NextDose is absent when the series is complete and whenever Bucket is
 // BucketUnknown: a ⚪ assessment never carries dates (SAD §5.1).
 //
-// Bucket is BucketUnknown iff Reasons hold a blocking reason (ReasonCode
-// doc); informational reasons never make it ⚪ on their own.
+// Bucket BucketUnknown always comes with a blocking reason, and a blocking
+// reason makes Bucket BucketUnknown unless a block of a higher precedence
+// layer wins over it (SAD §5.3 step 10, layers 1–5, none in S2); the
+// reasons it masks then stay in Reasons. Informational reasons never make
+// it ⚪ on their own.
 type Assessment struct {
 	Disease  string    `json:"disease"`
 	Bucket   Bucket    `json:"bucket,omitempty"`
@@ -212,7 +215,10 @@ type ReasonParams struct {
 	// BIRTH_DATE_IMPRECISE.
 	Hint Hint `json:"hint,omitzero"`
 	// Number is a series position, ≥ 1: the position a dose was checked for
-	// (DOSE_INVALID, DOSE_POSSIBLY_INVALID, INTERVAL_UNVERIFIABLE) or the
+	// (DOSE_INVALID, DOSE_POSSIBLY_INVALID, INTERVAL_UNVERIFIABLE; for a dose
+	// beyond the series length, the position it sits at, or the number of
+	// the level-4 record whose number implies doses that cannot fit), the
+	// count a floating level-4 dose was checked for (DOSE_INVALID), or the
 	// number the user entered (NUMBERING_CONFLICT).
 	Number int `json:"number,omitzero"`
 	// Numbers are the positions of implied doses, ascending:

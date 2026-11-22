@@ -237,8 +237,10 @@ func reasonsWith(a engine.Assessment, code engine.ReasonCode) []engine.Reason {
 // checkAssessmentShape checks what every assessment satisfies:
 //   - its reasons carry exactly their code's params;
 //   - exactly one of bucket and block;
-//   - bucket ⚪ iff some reason is blocking: informational reasons never
-//     make it ⚪ on their own;
+//   - bucket ⚪ only with a blocking reason (informational reasons never
+//     make it ⚪ on their own), and a blocking reason makes it ⚪ unless a
+//     block of a higher layer masks it (SAD §5.3 step 10, layers 1–5; S2
+//     has none, and notYetScheduled is layer 8);
 //   - a next dose unless the series is complete or the bucket is ⚪ (a ⚪
 //     assessment never carries a next dose, SAD §5.1);
 //   - due ≥ earliest and overdue ≥ due + 7 days.
@@ -249,8 +251,9 @@ func checkAssessmentShape(t testing.TB, name string, a engine.Assessment) {
 		t.Fatalf("%s %s: bucket %q, block %q", name, a.Disease, a.Bucket, a.Block)
 	}
 	blocked := slices.ContainsFunc(a.Reasons, func(r engine.Reason) bool { return blockingCodes[r.Code] })
-	if blocked != (a.Bucket == engine.BucketUnknown) {
-		t.Fatalf("%s %s: bucket %q with reasons %v", name, a.Disease, a.Bucket, a.Reasons)
+	masked := a.Block != "" && a.Block != engine.BlockNotYetScheduled
+	if a.Bucket == engine.BucketUnknown && !blocked || blocked && a.Bucket != engine.BucketUnknown && !masked {
+		t.Fatalf("%s %s: bucket %q, block %q with reasons %v", name, a.Disease, a.Bucket, a.Block, a.Reasons)
 	}
 	noNext := len(reasonsWith(a, engine.ReasonComplete)) > 0 || a.Bucket == engine.BucketUnknown
 	if noNext != (a.NextDose == nil) {

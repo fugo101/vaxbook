@@ -36,7 +36,10 @@ type nextResult struct {
 //   - dose k−1 is undated, or an unnumbered level-4 dose may be the latest
 //     dose: PREVIOUS_DOSE_DATE_UNKNOWN for each such record (F04.2);
 //   - there is no birth date and no dose is counted, or dose k's minimum
-//     age is not implied by the intervals in some plan: NO_BIRTH_DATE (EQ19).
+//     age is not implied by the intervals in some plan, or a needed dose
+//     anchor is missing: NO_BIRTH_DATE (EQ19);
+//   - a needed dose anchor is missing although the birth date is known:
+//     no reason of its own, because a DOSE_INVALID already blocks.
 //
 // When dose 1 is undated and a plan anchors dose k on the first dose or has
 // a minIntervalFromFirst, the earliest counted dated dose stands in for it:
@@ -111,8 +114,16 @@ func (s seriesModel) next(b birthEnd, w walkResult) nextResult {
 	var overdue Date
 	for i, p := range s.plans {
 		pd, ok := p.doses[k-1].dates(b, an)
-		if !ok {
+		if !ok && !b.known {
 			return noBirth
+		}
+		if !ok {
+			// A first-dose or previous-dose anchor is missing although the
+			// birth date is known: every counted dose it could come from is
+			// implied, which happens only when the record that implies them
+			// is not counted (DOSE_INVALID). That reason already makes the
+			// assessment ⚪, so step 7 stops without a reason of its own.
+			return nextResult{stop: true}
 		}
 		if i == 0 || pd.due.Before(best.due) || (pd.due == best.due && pd.earliest.After(best.earliest)) {
 			best = pd

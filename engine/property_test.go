@@ -181,13 +181,19 @@ func evaluate(t testing.TB, e *engine.Engine, in engine.Input) (engine.Output, [
 	return out, b
 }
 
-func seriesOf(s *ruleset.Snapshot, disease string) ruleset.Series {
-	for _, sr := range s.Series {
-		if sr.Disease == disease {
-			return sr
+// seriesUsed returns the snapshot series an assessment names in seriesUsed,
+// in its order.
+func seriesUsed(t testing.TB, s *ruleset.Snapshot, a engine.Assessment) []ruleset.Series {
+	t.Helper()
+	var out []ruleset.Series
+	for _, id := range a.SeriesUsed {
+		i := slices.IndexFunc(s.Series, func(sr ruleset.Series) bool { return sr.ID == id })
+		if i < 0 || s.Series[i].Disease != a.Disease {
+			t.Fatalf("%s: seriesUsed names %q, not a series of the disease", a.Disease, id)
 		}
+		out = append(out, s.Series[i])
 	}
-	panic("no series for " + disease)
+	return out
 }
 
 // testPeriod returns the dates a recalled date may fall on, capped at today
@@ -270,8 +276,9 @@ func checkAssessmentShape(t testing.TB, name string, a engine.Assessment) {
 }
 
 // TestPropertyNextDoseBounds checks every assessment of random S1 and S2
-// inputs (checkAssessmentShape) and P1 for every next dose: for the plan
-// the dates come from (some plan), the earliest allowed date is never before
+// inputs (checkAssessmentShape) and P1 for every next dose: for every
+// candidate series in seriesUsed with at least k doses, and for some plan of
+// it, the earliest allowed date is never before
 //   - the minimum age at the later end of the birth-date range, capped at
 //     today (SAD §5.7, EQ17), when there is a birth date;
 //   - the later (today-capped) end of the latest dose range + the minimum
@@ -305,21 +312,25 @@ func TestPropertyNextDoseBounds(t *testing.T) {
 						latest, haveLatest = hi, true
 					}
 				}
-				sr := seriesOf(fx.snap, a.Disease)
-				ok := false
-				for _, p := range sr.Plans {
-					r := p.Doses[nd.Number-1]
-					if birthKnown && r.MinAge != nil && nd.Earliest.Before(birthHi.AddSpan(*r.MinAge)) {
+				for _, sr := range seriesUsed(t, fx.snap, a) {
+					if len(sr.Plans[0].Doses) < nd.Number {
 						continue
 					}
-					if !numbered && haveLatest && r.MinInterval != nil && nd.Earliest.Before(latest.AddSpan(*r.MinInterval)) {
-						continue
+					ok := false
+					for _, p := range sr.Plans {
+						r := p.Doses[nd.Number-1]
+						if birthKnown && r.MinAge != nil && nd.Earliest.Before(birthHi.AddSpan(*r.MinAge)) {
+							continue
+						}
+						if !numbered && haveLatest && r.MinInterval != nil && nd.Earliest.Before(latest.AddSpan(*r.MinInterval)) {
+							continue
+						}
+						ok = true
 					}
-					ok = true
-				}
-				if !ok {
-					t.Fatalf("%s %s: earliest %s violates every plan's minimums for dose %d (input %+v)",
-						fx.name, a.Disease, nd.Earliest, nd.Number, in)
+					if !ok {
+						t.Fatalf("%s %s: earliest %s violates every plan's minimums of %s for dose %d (input %+v)",
+							fx.name, a.Disease, nd.Earliest, sr.ID, nd.Number, in)
+					}
 				}
 			}
 		}
@@ -441,9 +452,11 @@ func TestPropertyNarrowingBirthDate(t *testing.T) {
 //     out to contradict the narrowed time order;
 //   - when neither result is ⚪ and the next dose number is the same, the
 //     narrowed due and overdue dates are never later than the wide ones,
-//     and neither is the earliest date of a series with one plan. (With
-//     alternative plans the earliest date comes from the earliest-due plan,
-//     A7, and that plan can change.)
+//     and neither is the earliest date when every candidate series has one
+//     plan. (With alternative plans the earliest date comes from the
+//     earliest-due plan, A7, and that plan can change.) In S3a the
+//     candidates do not depend on the birth date, and on dose dates only
+//     through the placement, which the checked cases share (issue #14).
 func TestPropertyNarrowingDoseDate(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
@@ -488,8 +501,9 @@ func TestPropertyNarrowingDoseDate(t *testing.T) {
 					continue
 				}
 				wn, nn := *a.NextDose, *b.NextDose
-				if nn.Due.After(wn.Due) || nn.Overdue.After(wn.Overdue) ||
-					(len(seriesOf(fx.snap, a.Disease).Plans) == 1 && nn.Earliest.After(wn.Earliest)) {
+				onePlan := !slices.ContainsFunc(seriesUsed(t, fx.snap, a), func(sr ruleset.Series) bool { return len(sr.Plans) > 1 })
+				if !slices.Equal(a.SeriesUsed, b.SeriesUsed) || nn.Due.After(wn.Due) || nn.Overdue.After(wn.Overdue) ||
+					(onePlan && nn.Earliest.After(wn.Earliest)) {
 					t.Fatalf("%s %s: narrowing %s to %s moved a date later\nwide   %+v\nnarrow %+v",
 						fx.name, a.Disease, in.Doses[i].Date.Value, narrow.Doses[i].Date.Value, wn, nn)
 				}

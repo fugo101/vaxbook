@@ -14,6 +14,8 @@ type endResult struct {
 	k        int
 	complete bool // COMPLETE
 	reasons  []Reason
+	products []string          // the products for next; set with hasNext
+	cands    []candidateResult // per candidate series, for later merges (S4)
 }
 
 // class is the result as the user sees it: ⚪ whenever a reason blocks, and
@@ -45,8 +47,7 @@ func distanceOnly(class string) bool {
 // dates driven by a minimum age or interval come from the later end. Then
 // the later end's result is used. A ⚪ result keeps the older end's reasons
 // that the later end lacks; any other result keeps only those that are not
-// bucket reasons (COMPLETE, ON_TRACK, ALTERNATIVE_PLANS), which describe
-// the later end's bucket.
+// bucket reasons (bucketReason), which describe the later end's bucket.
 //
 // Otherwise the result is ⚪ BIRTH_DATE_IMPRECISE{hint} with no dates,
 // followed by the later end's reasons and then the older end's reasons that
@@ -67,8 +68,7 @@ func compareEnds(older, later endResult, hint Hint) endResult {
 			listed[reasonKey(r)] = true
 		}
 		for _, r := range older.reasons {
-			keep := later.bucket == BucketUnknown ||
-				(r.Code != ReasonComplete && r.Code != ReasonOnTrack && r.Code != ReasonAlternativePlans)
+			keep := later.bucket == BucketUnknown || !bucketReason(r.Code)
 			if k := reasonKey(r); keep && !listed[k] {
 				listed[k] = true
 				res.reasons = append(res.reasons, r)
@@ -84,6 +84,18 @@ func compareEnds(older, later endResult, hint Hint) endResult {
 		}
 	}
 	return res
+}
+
+// bucketReason reports whether a reason describes one end's bucket: COMPLETE,
+// ON_TRACK, ALTERNATIVE_PLANS, PRODUCT_NOT_IN_CATALOG and SAFEST_SERIES. With
+// doses given, SAFEST_SERIES is emitted once before step 4 and is never in an
+// end's reasons.
+func bucketReason(c ReasonCode) bool {
+	switch c {
+	case ReasonComplete, ReasonOnTrack, ReasonAlternativePlans, ReasonProductNotInCatalog, ReasonSafestSeries:
+		return true
+	}
+	return false
 }
 
 func blockingOnly(reasons []Reason) []Reason {
@@ -103,5 +115,5 @@ func sameReason(a, b Reason) bool { return reasonKey(a) == reasonKey(b) }
 // key iff they have the same code and params.
 func reasonKey(r Reason) string {
 	p := r.Params
-	return fmt.Sprintf("%q %q %q %d %q %q %q %v", r.Code, p.Dose, p.Hint, p.Number, p.Series, p.Checks, p.Doses, p.Numbers)
+	return fmt.Sprintf("%q %q %q %d %q %q %q %v %q", r.Code, p.Dose, p.Hint, p.Number, p.Series, p.Checks, p.Doses, p.Numbers, candidateKey(p.Candidates))
 }

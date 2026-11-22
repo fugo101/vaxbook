@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -451,7 +453,7 @@ func TestAlternativePlansTieTakesLatestEarliest(t *testing.T) {
 func TestNextAfterUncountedDose(t *testing.T) {
 	t.Parallel()
 	e := testEngine(t)
-	s := e.diseases[0].series
+	s := e.diseases[0].series[0]
 	birth := birthEnd{date: d(t, "2026-01-10"), known: true}
 	doses := []givenDose{{id: "r1", date: Exact(d(t, "2026-03-10")), dated: true}, {id: "r2", date: Exact(d(t, "2026-03-31")), dated: true}}
 	w := s.walk(birth, d(t, "2026-04-01"), s.place(doses))
@@ -555,21 +557,89 @@ func TestNewRejectsGoBuiltSnapshotWithBadSpan(t *testing.T) {
 	}
 }
 
+// TestNewRejectsUnsupportedShapes: S3a accepts several series per disease,
+// at most one per product group (issue #14); S3b tells the series of a
+// group apart by start age.
 func TestNewRejectsUnsupportedShapes(t *testing.T) {
 	t.Parallel()
-	for name, snap := range map[string]string{
-		"disease without series": `{"version": "v", "diseases": [{"id": "a", "name": "A"}], "series": []}`,
-		"two series for a disease": `{"version": "v", "diseases": [{"id": "a", "name": "A"}], "series": [
-		  {"id": "s1", "disease": "a", "stage": "childhood", "plans": [{"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]}]},
-		  {"id": "s2", "disease": "a", "stage": "adult", "plans": [{"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]}]}]}`,
+	const products = `"products": [{"id": "generic", "name": "G", "diseases": ["a"], "live": false}],`
+	series := func(id, product string) string {
+		p := ""
+		if product != "" {
+			p = `"product": "` + product + `", `
+		}
+		return `{"id": "` + id + `", "disease": "a", ` + p + `"stage": "childhood", "plans": [{"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]}]}`
+	}
+	for name, c := range map[string]struct{ snap, msg string }{
+		"disease without series": {`{"version": "v", "diseases": [{"id": "a", "name": "A"}], "series": []}`,
+			`disease "a" has no series`},
+		"two generic series": {`{"version": "v", "diseases": [{"id": "a", "name": "A"}], "series": [` + series("s1", "") + `, ` + series("s2", "") + `]}`,
+			`disease "a": more than one generic series`},
+		// "generic" is a valid product ID, so the generic group is never
+		// named by it.
+		"product group with two series": {`{"version": "v", "diseases": [{"id": "a", "name": "A"}], ` + products + ` "series": [` +
+			series("s1", "generic") + `, ` + series("s0", "") + `, ` + series("s2", "generic") + `]}`,
+			`disease "a": product "generic" has more than one series`},
 	} {
-		s, err := ruleset.Decode([]byte(snap))
+		s, err := ruleset.Decode([]byte(c.snap))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := New(s); !errors.Is(err, ErrUnsupported) {
-			t.Errorf("%s: New error = %v, want ErrUnsupported", name, err)
+		if _, err := New(s); !errors.Is(err, ErrUnsupported) || !strings.HasSuffix(err.Error(), c.msg) {
+			t.Errorf("%s: New error = %v, want ErrUnsupported ending in %s", name, err, c.msg)
 		}
+	}
+	// A product series and a generic series of one disease are two groups.
+	s, err := ruleset.Decode([]byte(`{"version": "v", "diseases": [{"id": "a", "name": "A"}], ` + products + ` "series": [` +
+		series("s1", "generic") + `, ` + series("s0", "") + `]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(s); err != nil {
+		t.Errorf("product and generic series: New error = %v", err)
+	}
+}
+
+// TestMergeMaskedByDoseInvalid pins the masked result of a ⚪ merge, which
+// no output shows (golden candidates-disagree-on-minimum): only the
+// candidates at the smallest k are merged, and the dates are measured from
+// the latest dose in time, counted or not. pertussis-primary counts r1
+// (03-01) and r2 (04-01) and needs dose 3; pertussis-pertu2 rejects r2 (r1
+// + 8w = 04-26) and needs dose 2: E = r2 + 8w = 05-27, Du = max(E, b + 4m
+// = 05-01) = 05-27, O = 06-03, upcoming on 04-20, with its product only
+// and no ALTERNATIVE_PLANS.
+func TestMergeMaskedByDoseInvalid(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile(filepath.Join("testdata", "rulesets", "illustrative-products.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := ruleset.Decode(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := New(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dz := e.diseases[1]
+	doses := []givenDose{{id: "r1", date: Exact(d(t, "2026-03-01")), dated: true}, {id: "r2", date: Exact(d(t, "2026-04-01")), dated: true}}
+	cands := dz.candidates(doses, false)
+	ev := evaluation{dz: dz, cands: cands, today: d(t, "2026-04-20")}
+	for _, c := range cands {
+		ev.pls = append(ev.pls, dz.series[c].place(doses))
+	}
+	res := ev.at(birthEnd{date: d(t, "2026-01-01"), known: true})
+	want := NextDose{Number: 2, Earliest: d(t, "2026-05-27"), Due: d(t, "2026-05-27"), Overdue: d(t, "2026-06-03")}
+	if len(cands) != 2 || res.bucket != BucketUnknown || !res.hasNext || res.next != want || !slices.Equal(res.products, []string{"pertu2"}) {
+		t.Errorf("candidates %v, result %+v; want ⚪ masking %+v with products [pertu2]", cands, res, want)
+	}
+	wantReasons := []Reason{{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: []Check{CheckMinInterval}, Dose: "r2", Number: 2}}}
+	if !reflect.DeepEqual(res.reasons, wantReasons) {
+		t.Errorf("reasons %v, want %v", res.reasons, wantReasons)
+	}
+	if bucket, _, _ := classify(ev.today, res.next, true); bucket != BucketUpcoming {
+		t.Errorf("masked bucket %s, want upcoming", bucket)
 	}
 }
 

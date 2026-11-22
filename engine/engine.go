@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -10,7 +11,9 @@ import (
 )
 
 // ErrUnsupported reports a valid rule set shape that this engine slice does
-// not evaluate yet (S1, S2: exactly one series per disease).
+// not evaluate yet. In S3a: a disease with no series, and a product group
+// (the series of one disease with the same product, or its generic series)
+// with more than one series, which S3b tells apart by start age.
 var ErrUnsupported = errors.New("engine: rule set shape not supported yet")
 
 // Engine evaluates inputs against one rule set snapshot. New copies what it
@@ -25,13 +28,28 @@ type Engine struct {
 
 type diseaseModel struct {
 	id     string
-	series seriesModel
+	series []seriesModel // in rule-set order; candidates index it
+	all    []int         // every series
+	// tier maps each non-retired catalog product that lists the disease to
+	// the candidates of a dose with it (SAD §5.3 step 3, A2): its own
+	// series, else the generic series, else every series. A dose with any
+	// other product, or none, has every series (EQ14, Q36).
+	tier map[string][]int
+	// noDose are the candidates when no dose is given: every series but
+	// those of retired products, or every series when none is left (Q38).
+	noDose []int
+	// catalog are the non-retired products that list the disease, and
+	// genericProducts those of them with no series of their own, in
+	// snapshot order. A generic candidate offers genericProducts.
+	catalog, genericProducts []string
 }
 
 type seriesModel struct {
-	id     string
-	length int // doses per plan; every plan has the same count (EQ5)
-	plans  []planModel
+	id      string
+	product string // "" for a generic series
+	retired bool   // the series' product is retired
+	length  int    // doses per plan; every plan has the same count (EQ5)
+	plans   []planModel
 }
 
 type planModel struct {
@@ -79,23 +97,81 @@ func New(s *ruleset.Snapshot) (*Engine, error) {
 		e.products[p.ID] = true
 	}
 	for _, dz := range s.Diseases {
-		var found []ruleset.Series
-		for _, sr := range s.Series {
-			if sr.Disease == dz.ID {
-				found = append(found, sr)
-			}
-		}
-		if len(found) != 1 {
-			return nil, fmt.Errorf("%w: disease %q has %d series, S2 needs exactly one", ErrUnsupported, dz.ID, len(found))
+		m, err := compileDisease(s, dz.ID)
+		if err != nil {
+			return nil, err
 		}
 		e.known[dz.ID] = true
-		e.diseases = append(e.diseases, diseaseModel{id: dz.ID, series: compileSeries(found[0])})
+		e.diseases = append(e.diseases, m)
 	}
 	return e, nil
 }
 
+// compileDisease prepares the series of one disease and its candidate
+// tiers (SAD §5.3 step 3).
+func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
+	retired := map[string]bool{}
+	for _, p := range s.Products {
+		retired[p.ID] = p.Retired
+	}
+	m := diseaseModel{id: disease, tier: map[string][]int{}}
+	own := map[string][]int{} // product → its series for the disease
+	var generic []int
+	for _, sr := range s.Series {
+		if sr.Disease != disease {
+			continue
+		}
+		sm := compileSeries(sr)
+		sm.retired = retired[sm.product]
+		i := len(m.series)
+		m.series = append(m.series, sm)
+		m.all = append(m.all, i)
+		if sm.product == "" {
+			generic = append(generic, i)
+		} else {
+			own[sm.product] = append(own[sm.product], i)
+		}
+		if !sm.retired {
+			m.noDose = append(m.noDose, i)
+		}
+	}
+	switch {
+	case len(m.series) == 0:
+		return m, fmt.Errorf("%w: disease %q has no series", ErrUnsupported, disease)
+	case len(generic) > 1:
+		return m, fmt.Errorf("%w: disease %q: more than one generic series", ErrUnsupported, disease)
+	}
+	for _, sm := range m.series {
+		if sm.product != "" && len(own[sm.product]) > 1 {
+			return m, fmt.Errorf("%w: disease %q: product %q has more than one series", ErrUnsupported, disease, sm.product)
+		}
+	}
+	if len(m.noDose) == 0 {
+		m.noDose = m.all
+	}
+	for _, p := range s.Products {
+		if p.Retired || !slices.Contains(p.Diseases, disease) {
+			continue
+		}
+		m.catalog = append(m.catalog, p.ID)
+		switch {
+		case len(own[p.ID]) > 0:
+			m.tier[p.ID] = own[p.ID]
+		case len(generic) > 0:
+			m.tier[p.ID] = generic
+			m.genericProducts = append(m.genericProducts, p.ID)
+		default:
+			m.tier[p.ID] = m.all
+		}
+	}
+	return m, nil
+}
+
 func compileSeries(sr ruleset.Series) seriesModel {
 	m := seriesModel{id: sr.ID, length: len(sr.Plans[0].Doses)}
+	if sr.Product != nil {
+		m.product = *sr.Product
+	}
 	for _, p := range sr.Plans {
 		pm := planModel{id: p.ID}
 		for k, r := range p.Doses {
@@ -239,7 +315,8 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 	a := Assessment{Disease: dz.id}
 
 	// Step 1 (EQ20d): estimated when the birth date or a dose date of the
-	// disease is not day-precise; step 2 adds implied doses.
+	// disease is not day-precise; step 2 adds implied doses and step 6
+	// PRODUCT_NOT_IN_CATALOG.
 	a.Estimated = birth.precision != Day || slices.ContainsFunc(doses, func(g givenDose) bool { return g.imprecise })
 
 	// Step 1: a dose record whose date is unparseable, out of range, after
@@ -247,9 +324,9 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 	// product the rule set does not have, makes the disease ⚪ (A9, EQ27,
 	// Q35). Steps 2–9 are skipped. The ⚪ is a data ⚪ (step 10 layer 7)
 	// with the record reasons, sorted by record ID and then in path order;
-	// S3a has no higher layer, so it returns here. A slice that adds layers 1–5 must
-	// let them win over it and keep these reasons as masked reasons (SAD
-	// §5.3 steps 1 and 10).
+	// S3a has no higher layer, so it returns here. A slice that adds layers
+	// 1–5 must let them win over it and keep these reasons as masked
+	// reasons (SAD §5.3 steps 1 and 10).
 	var bad []givenDose
 	for _, g := range doses {
 		if len(g.problems) > 0 {
@@ -267,90 +344,82 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 		return a
 	}
 
-	// Step 2: positions. A step-2 ⚪ skips steps 5–9, like a step-1 ⚪.
-	pl := dz.series.place(doses)
-	if pl.blocked() {
-		a.Bucket, a.Reasons = BucketUnknown, pl.reasons
+	// Step 2: positions. The blocking outcomes do not depend on the series,
+	// so they are reported once; a step-2 ⚪ skips steps 3–9, like a step-1
+	// ⚪.
+	arr := arrange(doses)
+	if arr.blocked() {
+		a.Bucket, a.Reasons = BucketUnknown, arr.reasons
 		return a
 	}
-	// Step 3: the candidate series. S2 has one series per disease. With no
-	// dose and no birth date, step 7 stops with NO_BIRTH_DATE before any
-	// series is chosen.
-	if len(doses) > 0 || birth.known {
-		a.SeriesUsed = []string{dz.series.id}
+	// With no dose and no birth date, step 7 stops with NO_BIRTH_DATE
+	// whatever the series (EQ19), so no candidates are chosen.
+	if len(doses) == 0 && !birth.known {
+		a.Bucket, a.Reasons = BucketUnknown, []Reason{{Code: ReasonNoBirthDate}}
+		return a
 	}
-	if len(pl.implied) > 0 {
+
+	// Step 3: the candidate series. Implied doses are unknown-product doses
+	// (Q30); whether there are any is decided from the records alone, with
+	// no series length.
+	implied := len(arr.forLength(math.MaxInt).implied) > 0
+	ev := evaluation{dz: dz, cands: dz.candidates(doses, implied), today: today}
+	longest := 0
+	refs := make([]SeriesRef, 0, len(ev.cands))
+	for _, c := range ev.cands {
+		s := dz.series[c]
+		a.SeriesUsed = append(a.SeriesUsed, s.id)
+		refs = append(refs, SeriesRef{Product: s.product, Series: s.id})
+		longest = max(longest, s.length)
+		ev.pls = append(ev.pls, arr.forLength(s.length))
+	}
+	// IMPLIED_EARLIER_DOSES once, capped at the longest candidate: for one
+	// series, the S2 output.
+	if numbers := arr.forLength(longest).implied; len(numbers) > 0 {
 		a.Estimated = true
-		a.Reasons = append(a.Reasons, Reason{Code: ReasonImpliedEarlierDoses, Params: ReasonParams{Numbers: pl.implied}})
+		a.Reasons = append(a.Reasons, Reason{Code: ReasonImpliedEarlierDoses, Params: ReasonParams{Numbers: numbers}})
 	}
+	// SAFEST_SERIES: with doses given the candidates do not depend on the
+	// birth end, so it is emitted once, before step 4; with no dose given
+	// it is a bucket reason of each end.
+	if len(refs) > 1 {
+		safest := Reason{Code: ReasonSafestSeries, Params: ReasonParams{Candidates: refs}}
+		if len(doses) > 0 {
+			a.Reasons = append(a.Reasons, safest)
+		} else {
+			ev.safest = &safest
+		}
+	}
+	for _, g := range doses {
+		if g.free {
+			ev.free = append(ev.free, g.id)
+		}
+	}
+	slices.Sort(ev.free)
 
 	// Step 4: steps 5–9 at each end of the birth-date range, or once.
 	var res endResult
 	switch {
 	case !birth.known:
-		res = dz.series.evaluate(birthEnd{}, today, pl)
+		res = ev.at(birthEnd{})
 	case birth.r.IsExact():
-		res = dz.series.evaluate(birthEnd{date: birth.r.Lo, known: true}, today, pl)
+		res = ev.at(birthEnd{date: birth.r.Lo, known: true})
 	default:
 		hint := HintFullBirthDate
 		if birth.precision == Year {
 			hint = HintBirthMonth
 		}
-		res = compareEnds(
-			dz.series.evaluate(birthEnd{date: birth.r.Lo, known: true}, today, pl),
-			dz.series.evaluate(birthEnd{date: birth.r.Hi, known: true}, today, pl),
-			hint)
+		res = compareEnds(ev.at(birthEnd{date: birth.r.Lo, known: true}), ev.at(birthEnd{date: birth.r.Hi, known: true}), hint)
 	}
 	a.Reasons = append(a.Reasons, res.reasons...)
 	a.Bucket, a.Block = res.bucket, res.block
 	if res.bucket != BucketUnknown && res.hasNext {
 		nd := res.next
 		a.NextDose = &nd
+		a.Products = res.products
+	}
+	if slices.ContainsFunc(a.Reasons, func(r Reason) bool { return r.Code == ReasonProductNotInCatalog }) {
+		a.Estimated = true
 	}
 	return a
-}
-
-// evaluate runs steps 5–9 at one birth end. Step 10 has one layer in S2:
-// any blocking reason makes the result ⚪ (layer 7, data ⚪), and the
-// masked bucket's reasons stay.
-func (s seriesModel) evaluate(b birthEnd, today Date, pl placement) endResult {
-	// Step 5: dose validity.
-	w := s.walk(b, today, pl)
-	res := endResult{k: w.k, reasons: w.reasons}
-
-	// Step 6: complete.
-	if w.k > s.length {
-		res.complete = true
-		res.bucket = BucketComplete
-		res.reasons = append(res.reasons, Reason{Code: ReasonComplete})
-		if blocking(res.reasons) {
-			res.bucket = BucketUnknown
-		}
-		return res
-	}
-
-	// Step 7: next dose, merged over alternative plans. A ⚪ assessment does
-	// not emit it (SAD §5.1): the dates still decide the masked bucket.
-	n := s.next(b, w)
-	res.reasons = append(res.reasons, n.reasons...)
-	if n.stop {
-		res.bucket = BucketUnknown
-		return res
-	}
-	if len(s.plans) > 1 {
-		res.reasons = append(res.reasons, Reason{Code: ReasonAlternativePlans, Params: ReasonParams{Series: s.id}})
-	}
-
-	// Step 9: bucket; step 10: a blocking reason masks it.
-	bucket, block, reason := classify(today, n.next, w.k > 1)
-	if reason != "" {
-		res.reasons = append(res.reasons, Reason{Code: reason})
-	}
-	res.next, res.hasNext = n.next, true
-	if blocking(res.reasons) {
-		res.bucket = BucketUnknown
-		return res
-	}
-	res.bucket, res.block = bucket, block
-	return res
 }

@@ -155,10 +155,21 @@ func TestSchemaRejects(t *testing.T) {
 		"dose numbers array":        {"DoseRecord", `{"id": "r", "diseases": ["a"], "date": {"precision": "unknown"}, "doseNumbers": [1]}`},
 		"estimated false":           {"Assessment", `{"disease": "a", "bucket": "due", "estimated": false}`},
 		"unknown hint":              {"ReasonParams", `{"hint": "fullName"}`},
-		"one overlapping dose":      {"ReasonParams", `{"doses": ["r1"]}`},
+		"no doses":                  {"ReasonParams", `{"doses": []}`},
 		"repeated overlapping dose": {"ReasonParams", `{"doses": ["r1", "r1"]}`},
 		"no implied numbers":        {"ReasonParams", `{"numbers": []}`},
 		"implied number zero":       {"ReasonParams", `{"numbers": [0]}`},
+		"one candidate":             {"ReasonParams", `{"candidates": [{"series": "s"}]}`},
+		"candidate without series":  {"ReasonParams", `{"candidates": [{"product": "p"}, {"series": "s"}]}`},
+		"repeated candidate":        {"ReasonParams", `{"candidates": [{"series": "s"}, {"series": "s"}]}`},
+		"candidate empty product":   {"SeriesRef", `{"product": "", "series": "s"}`},
+		"candidates as strings":     {"ReasonParams", `{"candidates": ["p/s", "generic/t"]}`},
+		"empty seriesUsed":          {"Assessment", `{"disease": "a", "bucket": "due", "seriesUsed": []}`},
+		"repeated seriesUsed":       {"Assessment", `{"disease": "a", "bucket": "due", "seriesUsed": ["s", "s"]}`},
+		"empty products":            {"Assessment", `{"disease": "a", "bucket": "due", "products": []}`},
+		"empty dose product":        {"DoseRecord", `{"id": "r", "diseases": ["a"], "product": "", "date": {"precision": "unknown"}}`},
+		"empty free product":        {"DoseRecord", `{"id": "r", "diseases": ["a"], "freeProduct": "", "date": {"precision": "unknown"}}`},
+		"numeric dose product":      {"DoseRecord", `{"id": "r", "diseases": ["a"], "product": 1, "date": {"precision": "unknown"}}`},
 		"product without live":      {"Product", `{"id": "p", "name": "P", "diseases": ["a"]}`},
 		"product live as a string":  {"Product", `{"id": "p", "name": "P", "diseases": ["a"], "live": "true"}`},
 		"product without diseases":  {"Product", `{"id": "p", "name": "P", "diseases": [], "live": false}`},
@@ -191,6 +202,22 @@ func TestRecalledDateAcceptsAnyString(t *testing.T) {
 		doc := map[string]any{"value": value, "precision": "day"}
 		if err := recalled.Validate(doc); err != nil {
 			t.Errorf("RecalledDate rejected value %q: %v", value, err)
+		}
+	}
+}
+
+// TestDoseProductAcceptsAnyString: engine.Validate reports a product ID the
+// rule set does not have as UNKNOWN_PRODUCT, record-scoped, and Evaluate
+// still assesses the profile (⚪, issue #14 Q35). So the schema gives the
+// member no Id pattern, or a client validating against it would reject the
+// record instead.
+func TestDoseProductAcceptsAnyString(t *testing.T) {
+	t.Parallel()
+	record := compile(t, "DoseRecord")
+	for _, value := range []string{"rotavin", "Rotavin", "vaccine x", "-", "２"} {
+		doc := map[string]any{"id": "r", "diseases": []any{"a"}, "product": value, "date": map[string]any{"precision": "unknown"}}
+		if err := record.Validate(doc); err != nil {
+			t.Errorf("DoseRecord rejected product %q: %v", value, err)
 		}
 	}
 }
@@ -277,6 +304,7 @@ func TestSchemaMatchesStructs(t *testing.T) {
 		"NextDose":     reflect.TypeFor[engine.NextDose](),
 		"Reason":       reflect.TypeFor[engine.Reason](),
 		"ReasonParams": reflect.TypeFor[engine.ReasonParams](),
+		"SeriesRef":    reflect.TypeFor[engine.SeriesRef](),
 	}
 	defs := schemaDefs(t)
 	for name, def := range defs {
@@ -353,9 +381,10 @@ func TestSchemaEnumsMatchConstants(t *testing.T) {
 		{"Assessment", "bucket", str(engine.BucketOverdue, engine.BucketDue, engine.BucketUpcoming, engine.BucketUnknown, engine.BucketComplete)},
 		{"Assessment", "block", str(engine.BlockNotYetScheduled)},
 		{"Reason", "code", str(engine.ReasonInvalidDate, engine.ReasonOutOfRange, engine.ReasonDateInFuture, engine.ReasonDateBeforeBirth,
-			engine.ReasonUnexpectedValue, engine.ReasonOverlappingEstimatedDates, engine.ReasonNumberingConflict, engine.ReasonImpliedEarlierDoses,
-			engine.ReasonBirthDateImprecise, engine.ReasonDoseInvalid, engine.ReasonDosePossiblyInvalid, engine.ReasonIntervalUnverifiable,
-			engine.ReasonComplete, engine.ReasonPreviousDoseDateUnknown, engine.ReasonNoBirthDate, engine.ReasonFirstDoseDateAssumed,
+			engine.ReasonUnexpectedValue, engine.ReasonUnknownProduct, engine.ReasonOverlappingEstimatedDates, engine.ReasonNumberingConflict,
+			engine.ReasonImpliedEarlierDoses, engine.ReasonSafestSeries, engine.ReasonBirthDateImprecise, engine.ReasonDoseInvalid,
+			engine.ReasonDosePossiblyInvalid, engine.ReasonIntervalUnverifiable, engine.ReasonComplete, engine.ReasonProductNotInCatalog,
+			engine.ReasonPreviousDoseDateUnknown, engine.ReasonNoBirthDate, engine.ReasonFirstDoseDateAssumed,
 			engine.ReasonAlternativePlans, engine.ReasonOnTrack)},
 		{"ReasonParams", "checks", str(engine.CheckMinAge, engine.CheckMinInterval, engine.CheckMinIntervalFromFirst)},
 		{"ReasonParams", "hint", str(engine.HintBirthMonth, engine.HintFullBirthDate)},

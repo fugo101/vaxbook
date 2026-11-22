@@ -82,6 +82,91 @@ func TestValidateReportsEveryProblem(t *testing.T) {
 	}
 }
 
+// productSnapshot: disease a with a series of product pa; disease b with a
+// generic series; product pb lists b and is retired.
+const productSnapshot = `{
+  "version": "test-products",
+  "diseases": [{"id": "a", "name": "A"}, {"id": "b", "name": "B"}],
+  "products": [
+    {"id": "pa", "name": "PA", "diseases": ["a"], "live": false},
+    {"id": "pb", "name": "PB", "diseases": ["b"], "live": false, "retired": true}
+  ],
+  "series": [
+    {"id": "a-series", "disease": "a", "product": "pa", "stage": "childhood", "plans": [
+      {"id": "main", "doses": [{"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}}]}]},
+    {"id": "b-series", "disease": "b", "stage": "childhood", "plans": [
+      {"id": "main", "doses": [{"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}}]}]}
+  ]
+}`
+
+// TestValidateProducts: the product members of a dose record (issue #14).
+// An empty member is REQUIRED, both members are MUTUALLY_EXCLUSIVE, and an
+// ID the rule set does not have is UNKNOWN_PRODUCT, record-scoped. A retired
+// product and a product that does not list the record's disease are valid
+// (Q36).
+func TestValidateProducts(t *testing.T) {
+	t.Parallel()
+	s, err := ruleset.Decode([]byte(productSnapshot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := New(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	str := func(v string) *string { return &v }
+	rec := func(product, free *string, date string, diseases ...string) Input {
+		r := dose("r1", date, diseases...)
+		r.Product, r.FreeProduct = product, free
+		return input(t, "2026-04-01", "2026-01-10", r)
+	}
+	cases := []struct {
+		name string
+		in   Input
+		want []Problem
+	}{
+		{"catalog product", rec(str("pa"), nil, "2026-03-01", "a"), nil},
+		{"retired product of another disease", rec(str("pb"), nil, "2026-03-01", "a", "b"), nil},
+		{"free product", rec(nil, str("Vắc xin khác"), "2026-03-01", "a"), nil},
+		{"empty product", rec(str(""), nil, "2026-03-01", "a"),
+			[]Problem{{Code: Required, Path: "/doses/0/product", Scope: ScopeInput}}},
+		{"empty free product", rec(nil, str(""), "2026-03-01", "a"),
+			[]Problem{{Code: Required, Path: "/doses/0/freeProduct", Scope: ScopeInput}}},
+		{"both members", rec(str("pa"), str("x"), "2026-03-01", "a"),
+			[]Problem{{Code: MutuallyExclusive, Path: "/doses/0/freeProduct", Scope: ScopeInput}}},
+		{"both members, both empty", rec(str(""), str(""), "2026-03-01", "a"),
+			[]Problem{
+				{Code: Required, Path: "/doses/0/product", Scope: ScopeInput},
+				{Code: Required, Path: "/doses/0/freeProduct", Scope: ScopeInput},
+				{Code: MutuallyExclusive, Path: "/doses/0/freeProduct", Scope: ScopeInput},
+			}},
+		{"unknown product", rec(str("rotavin"), nil, "2026-03-01", "a"),
+			[]Problem{{Code: UnknownProduct, Path: "/doses/0/product", Params: ProblemParams{Product: "rotavin"}, Scope: ScopeRecord}}},
+		{"unknown product and a date in the future", rec(str("rotavin"), nil, "2026-04-02", "a"),
+			[]Problem{
+				{Code: UnknownProduct, Path: "/doses/0/product", Params: ProblemParams{Product: "rotavin"}, Scope: ScopeRecord},
+				{Code: DateInFuture, Path: "/doses/0/date/value", Scope: ScopeRecord},
+			}},
+	}
+	for _, c := range cases {
+		if got := e.Validate(c.in); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: Validate =\n  %v\nwant\n  %v", c.name, got, c.want)
+		}
+	}
+	// A record with two record-scoped problems gives both reasons, in path
+	// order, on every disease of the record.
+	out, err := e.Evaluate(rec(str("rotavin"), nil, "2026-04-02", "a", "b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Reason{{Code: ReasonUnknownProduct, Params: ReasonParams{Dose: "r1"}}, {Code: ReasonDateInFuture, Params: ReasonParams{Dose: "r1"}}}
+	for _, a := range out.Assessments {
+		if a.Bucket != BucketUnknown || a.SeriesUsed != nil || !reflect.DeepEqual(a.Reasons, want) {
+			t.Errorf("%s: %+v, want ⚪ with %v and no seriesUsed", a.Disease, a, want)
+		}
+	}
+}
+
 type validateCase struct {
 	name string
 	in   Input
@@ -216,8 +301,15 @@ func TestValidateDates(t *testing.T) {
 func TestValidateScopeMatchesEvaluate(t *testing.T) {
 	t.Parallel()
 	e := testEngine(t)
+	withProduct := func(r DoseRecord, product string) DoseRecord {
+		r.Product = &product
+		return r
+	}
 	inputs := []Input{everyProblemInput(),
 		input(t, "2026-04-01", "2026-01-10", dose("r2", "2026-04-02", "a", "b"), dose("r1", "2026-01-09", "a"), dose("r3", "abc", "b"), dose("r4", "2026-03-01", "a")),
+		// testSnapshot has no products, so every product is unknown.
+		input(t, "2026-04-01", "2026-01-10", withProduct(dose("r1", "2026-03-01", "a", "b"), "zz"),
+			withProduct(dose("r2", "2026-04-02", "a"), "zz"), dose("r3", "2026-03-01", "b")),
 	}
 	for _, c := range validateDateCases(t) {
 		inputs = append(inputs, c.in)
@@ -247,7 +339,8 @@ func TestValidateScopeMatchesEvaluate(t *testing.T) {
 				t.Fatalf("problem %v has scope %q", p, p.Scope)
 			}
 			var i int
-			if _, err := fmt.Sscanf(p.Path, "/doses/%d/date/value", &i); err != nil {
+			var member string
+			if _, err := fmt.Sscanf(p.Path, "/doses/%d/%s", &i, &member); err != nil || member != "date/value" && member != "product" {
 				t.Fatalf("record problem at %s: %v", p.Path, err)
 			}
 			r := in.Doses[i]
@@ -507,10 +600,10 @@ func TestNewCopiesSnapshot(t *testing.T) {
 // informational (issue #13); blocks panics on an unclassified code.
 func TestReasonCodesClassified(t *testing.T) {
 	t.Parallel()
-	informational := []ReasonCode{ReasonImpliedEarlierDoses, ReasonIntervalUnverifiable, ReasonFirstDoseDateAssumed,
-		ReasonAlternativePlans, ReasonComplete, ReasonOnTrack}
+	informational := []ReasonCode{ReasonImpliedEarlierDoses, ReasonSafestSeries, ReasonIntervalUnverifiable, ReasonFirstDoseDateAssumed,
+		ReasonAlternativePlans, ReasonComplete, ReasonProductNotInCatalog, ReasonOnTrack}
 	blockingCodes := []ReasonCode{ReasonInvalidDate, ReasonOutOfRange, ReasonDateInFuture, ReasonDateBeforeBirth,
-		ReasonUnexpectedValue, ReasonOverlappingEstimatedDates, ReasonNumberingConflict, ReasonBirthDateImprecise,
+		ReasonUnexpectedValue, ReasonUnknownProduct, ReasonOverlappingEstimatedDates, ReasonNumberingConflict, ReasonBirthDateImprecise,
 		ReasonDoseInvalid, ReasonDosePossiblyInvalid, ReasonPreviousDoseDateUnknown, ReasonNoBirthDate}
 	for _, c := range informational {
 		if c.blocks() {

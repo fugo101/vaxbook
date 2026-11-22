@@ -20,6 +20,7 @@ type Engine struct {
 	version  string
 	diseases []diseaseModel
 	known    map[string]bool
+	products map[string]bool // every catalog product ID, retired ones included
 }
 
 type diseaseModel struct {
@@ -73,7 +74,10 @@ func New(s *ruleset.Snapshot) (*Engine, error) {
 	if rejects := ruleset.Rejects(ruleset.Validate(s)); len(rejects) > 0 {
 		return nil, &ruleset.RejectedError{Problems: rejects}
 	}
-	e := &Engine{version: s.Version, known: make(map[string]bool, len(s.Diseases))}
+	e := &Engine{version: s.Version, known: make(map[string]bool, len(s.Diseases)), products: make(map[string]bool, len(s.Products))}
+	for _, p := range s.Products {
+		e.products[p.ID] = true
+	}
 	for _, dz := range s.Diseases {
 		var found []ruleset.Series
 		for _, sr := range s.Series {
@@ -155,7 +159,11 @@ type givenDose struct {
 	dated     bool  // precision day, month or year; false for level 4
 	imprecise bool  // precision other than day
 	number    int   // the user-entered dose number for this disease, 0 if none
-	problem   ReasonCode
+	// problems are the codes of the record's record-scoped problems, in
+	// path order (step 1).
+	problems []ReasonCode
+	product  string // the catalog product ID, "" for none or free text
+	free     bool   // an off-catalog product (freeProduct)
 }
 
 // birthRange is the birth date as the engine uses it (EQ17): its period
@@ -172,9 +180,9 @@ type birthRange struct {
 //
 // It returns an *InputError holding the ScopeInput problems of Validate when
 // there are any. A ScopeRecord problem (a dose date that is unparseable, out
-// of range, after today or before birth, or a level-4 dose with a value)
-// makes every disease of that record ⚪ with a reason of the same code
-// instead (A9, EQ27).
+// of range, after today or before birth, a level-4 dose with a value, or a
+// product the rule set does not have) makes every disease of that record ⚪
+// with a reason of the same code instead (A9, EQ27, issue #14 Q35).
 func (e *Engine) Evaluate(in Input) (Output, error) {
 	v := e.validate(in)
 	var fatal []Problem
@@ -196,9 +204,14 @@ func (e *Engine) Evaluate(in Input) (Output, error) {
 	}
 	byDisease := make(map[string][]givenDose, len(e.diseases))
 	for i, r := range in.Doses {
-		g := givenDose{id: r.ID, imprecise: r.Date.Precision != Day}
-		if code, ok := v.records[i]; ok {
-			g.problem = ReasonCode(code)
+		g := givenDose{id: r.ID, imprecise: r.Date.Precision != Day, free: r.FreeProduct != nil}
+		if r.Product != nil {
+			g.product = *r.Product
+		}
+		if codes, ok := v.records[i]; ok {
+			for _, c := range codes {
+				g.problems = append(g.problems, ReasonCode(c))
+			}
 		} else {
 			period, dated, err := r.Date.Period()
 			if err != nil {
@@ -230,15 +243,16 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 	a.Estimated = birth.precision != Day || slices.ContainsFunc(doses, func(g givenDose) bool { return g.imprecise })
 
 	// Step 1: a dose record whose date is unparseable, out of range, after
-	// today or before birth, or a level-4 dose with a value, makes the
-	// disease ⚪ (A9, EQ27). Steps 2–9 are skipped. The ⚪ is a data ⚪ (step
-	// 10 layer 7) with the record reasons, sorted by record ID; S2 has no
-	// higher layer, so it returns here. A slice that adds layers 1–5 must
+	// today or before birth, a level-4 dose with a value, or a record with a
+	// product the rule set does not have, makes the disease ⚪ (A9, EQ27,
+	// Q35). Steps 2–9 are skipped. The ⚪ is a data ⚪ (step 10 layer 7)
+	// with the record reasons, sorted by record ID and then in path order;
+	// S3a has no higher layer, so it returns here. A slice that adds layers 1–5 must
 	// let them win over it and keep these reasons as masked reasons (SAD
 	// §5.3 steps 1 and 10).
 	var bad []givenDose
 	for _, g := range doses {
-		if g.problem != "" {
+		if len(g.problems) > 0 {
 			bad = append(bad, g)
 		}
 	}
@@ -246,7 +260,9 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 		slices.SortFunc(bad, func(x, y givenDose) int { return strings.Compare(x.id, y.id) })
 		a.Bucket = BucketUnknown
 		for _, g := range bad {
-			a.Reasons = append(a.Reasons, Reason{Code: g.problem, Params: ReasonParams{Dose: g.id}})
+			for _, c := range g.problems {
+				a.Reasons = append(a.Reasons, Reason{Code: c, Params: ReasonParams{Dose: g.id}})
+			}
 		}
 		return a
 	}

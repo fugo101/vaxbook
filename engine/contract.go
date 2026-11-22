@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// The engine contract (SAD §5.1), S2 subset. It grows additively: each slice
+// The engine contract (SAD §5.1), S3a subset. It grows additively: each slice
 // adds only the members it uses. Struct field order is the JSON member order
 // of the encoded output.
 
@@ -38,9 +38,23 @@ type Profile struct {
 // DoseRecord is one dose the person received. One record may protect against
 // several diseases (a combination vaccine).
 type DoseRecord struct {
-	ID       string       `json:"id"`
-	Diseases []string     `json:"diseases"`
-	Date     RecalledDate `json:"date"`
+	ID       string   `json:"id"`
+	Diseases []string `json:"diseases"`
+	// Product is the catalog product given, a product ID of the rule set
+	// (retired ones included). An ID the rule set does not have is
+	// UNKNOWN_PRODUCT, record-scoped: the record's diseases become ⚪
+	// (issue #14, Q35). For a disease the product does not list, the dose
+	// has an unknown product (Q36). Added in S3a.
+	Product *string `json:"product,omitzero"`
+	// FreeProduct is the free-text name of an off-catalog product (F04.1).
+	// The engine reads only whether it is present; it never matches the
+	// text against catalog names. With Product it is MUTUALLY_EXCLUSIVE. A
+	// record with neither has an unknown product. Added in S3a.
+	//
+	// Both are pointers so that a present empty string, which is REQUIRED,
+	// is told apart from an absent member.
+	FreeProduct *string      `json:"freeProduct,omitzero"`
+	Date        RecalledDate `json:"date"`
 	// DoseNumbers maps a disease of this record to the dose number the user
 	// entered for it (F04.1), from 1. A key that is not one of Diseases is
 	// UNKNOWN_REFERENCE; a number outside 1..999 is OUT_OF_RANGE. Added in
@@ -158,9 +172,16 @@ type Assessment struct {
 	// omitted after a step-1 or step-2 ⚪ and for ⚪ NO_BIRTH_DATE with no
 	// dose given, where step 3 does not run. Added in S3a.
 	SeriesUsed []string `json:"seriesUsed,omitzero"`
+	// Products are the non-retired catalog products for the next dose, in
+	// snapshot order: the product of each candidate product series at the
+	// next dose number, and for a generic candidate every non-retired
+	// product of the disease with no series of its own. Present only with
+	// NextDose and when not empty. Added in S3a.
+	Products []string `json:"products,omitzero"`
 	// Estimated is true when the assessment rests on a birth date or a dose
 	// date that is not day-precise (or no birth date), on a level-4 dose or
-	// on an implied dose (SAD §5.3 step 1, EQ20d). It is set on ⚪
+	// on an implied dose (SAD §5.3 step 1, EQ20d), or when PRODUCT_NOT_IN_CATALOG
+	// is given (EQ14). It is set on ⚪
 	// assessments too, and omitted when false. Added in S2.
 	Estimated bool     `json:"estimated,omitzero"`
 	Reasons   []Reason `json:"reasons,omitempty"`
@@ -210,16 +231,21 @@ type Reason struct {
 // JSON-name order, every field is omitzero, and there are no booleans
 // (omitzero would drop false). It grows additively.
 type ReasonParams struct {
+	// Candidates are the candidate series in rule-set order, at least two:
+	// SAFEST_SERIES. Added in S3a.
+	Candidates []SeriesRef `json:"candidates,omitzero"`
 	// Checks are the minimums a dose fails, in catalog order: DOSE_INVALID,
 	// DOSE_POSSIBLY_INVALID.
 	Checks []Check `json:"checks,omitzero"`
 	// Dose is a dose record ID: INVALID_DATE, OUT_OF_RANGE, DATE_IN_FUTURE,
-	// DATE_BEFORE_BIRTH, UNEXPECTED_VALUE, DOSE_INVALID,
+	// DATE_BEFORE_BIRTH, UNEXPECTED_VALUE, UNKNOWN_PRODUCT, DOSE_INVALID,
 	// DOSE_POSSIBLY_INVALID, INTERVAL_UNVERIFIABLE, NUMBERING_CONFLICT,
 	// PREVIOUS_DOSE_DATE_UNKNOWN, FIRST_DOSE_DATE_ASSUMED.
 	Dose string `json:"dose,omitzero"`
-	// Doses are dose record IDs in time order, at least two:
-	// OVERLAPPING_ESTIMATED_DATES.
+	// Doses are dose record IDs: OVERLAPPING_ESTIMATED_DATES in time order,
+	// at least two; PRODUCT_NOT_IN_CATALOG by ID, at least one (an
+	// off-catalog dose can be undated, so time order is not always
+	// defined).
 	Doses []string `json:"doses,omitzero"`
 	// Hint is what the user can enter to resolve the reason:
 	// BIRTH_DATE_IMPRECISE.
@@ -236,6 +262,13 @@ type ReasonParams struct {
 	Numbers []int `json:"numbers,omitzero"`
 	// Series is a series ID: ALTERNATIVE_PLANS.
 	Series string `json:"series,omitzero"`
+}
+
+// SeriesRef names a candidate series and its product. Product is omitted
+// for a generic series, so no member is ever empty. Added in S3a.
+type SeriesRef struct {
+	Product string `json:"product,omitzero"`
+	Series  string `json:"series"`
 }
 
 // Check is a dose-validity check that a dose can fail.
@@ -269,7 +302,7 @@ const (
 // never does so on its own.
 type ReasonCode string
 
-// Reason codes (S2 subset). Blocking unless the doc says informational.
+// Reason codes (S3a subset). Blocking unless the doc says informational.
 const (
 	// ReasonInvalidDate: a dose record of the disease has an unparseable
 	// date (A9). Params: dose.
@@ -286,6 +319,10 @@ const (
 	// ReasonUnexpectedValue: a dose record of the disease has precision
 	// unknown and a value (record-scoped, like INVALID_DATE). Params: dose.
 	ReasonUnexpectedValue ReasonCode = "UNEXPECTED_VALUE"
+	// ReasonUnknownProduct: a dose record of the disease names a product
+	// the rule set does not have (record-scoped, like INVALID_DATE; issue
+	// #14, Q35). Params: dose.
+	ReasonUnknownProduct ReasonCode = "UNKNOWN_PRODUCT"
 	// ReasonOverlappingEstimatedDates: the date ranges of two or more dose
 	// records overlap and not all of them have a user-entered number, so
 	// their order is unknown (SAD §5.3 step 2, F04.2). Params: doses.
@@ -298,6 +335,11 @@ const (
 	// the records makes the missing earlier doses implied: counted, undated
 	// (F04.1). Params: numbers.
 	ReasonImpliedEarlierDoses ReasonCode = "IMPLIED_EARLIER_DOSES"
+	// ReasonSafestSeries: informational. Two or more candidate series
+	// remain after step 3, and the result is the safest over them (SAD §5.3
+	// steps 3 and 7, F05.3). Params: candidates (every candidate, complete
+	// ones included).
+	ReasonSafestSeries ReasonCode = "SAFEST_SERIES"
 	// ReasonBirthDateImprecise: the two ends of the birth-date range give
 	// different results (SAD §5.3 step 4, F05.5). Params: hint.
 	ReasonBirthDateImprecise ReasonCode = "BIRTH_DATE_IMPRECISE"
@@ -312,8 +354,14 @@ const (
 	// time is undated (level 4 or implied), so the minimum interval to it is
 	// waived and the dose is counted (EQ8, EQ20b). Params: dose, number.
 	ReasonIntervalUnverifiable ReasonCode = "INTERVAL_UNVERIFIABLE"
-	// ReasonComplete: informational. Every dose of the series is counted.
+	// ReasonComplete: informational. Every dose of every candidate series is
+	// counted.
 	ReasonComplete ReasonCode = "COMPLETE"
+	// ReasonProductNotInCatalog: informational. The disease is complete and
+	// some of its dose records have an off-catalog product (freeProduct), so
+	// completion rests on every candidate series (EQ14). The assessment is
+	// estimated. Params: doses (those records, by ID).
+	ReasonProductNotInCatalog ReasonCode = "PRODUCT_NOT_IN_CATALOG"
 	// ReasonPreviousDoseDateUnknown: the next dose cannot be dated because
 	// dose k−1 is undated, or an unnumbered level-4 dose may be the latest
 	// dose (SAD §5.3 step 7). Params: dose (that undated record).
@@ -327,7 +375,8 @@ const (
 	// minIntervalFromFirst (EQ20c). Params: dose (the stand-in record).
 	ReasonFirstDoseDateAssumed ReasonCode = "FIRST_DOSE_DATE_ASSUMED"
 	// ReasonAlternativePlans: informational. The next dose merges
-	// alternative plans (A7). Params: series.
+	// alternative plans (A7) of a candidate series at the next dose
+	// number, one reason per such series (issue #14, Q28). Params: series.
 	ReasonAlternativePlans ReasonCode = "ALTERNATIVE_PLANS"
 	// ReasonOnTrack: informational. At least one dose counted and the next
 	// dose is more than 6 months away.

@@ -23,15 +23,15 @@ func inInputRange(d Date) bool { return !d.Before(minInputDate) && !d.After(maxI
 // ScopeRecord problem makes its record's diseases ⚪ instead.
 func (e *Engine) Validate(in Input) []Problem { return e.validate(in).problems }
 
-// validation is the result of validate: every problem, and the code of the
-// record-scoped problem of each dose record that has one.
+// validation is the result of validate: every problem, and the codes of the
+// record-scoped problems of each dose record that has some, in path order.
 type validation struct {
 	problems []Problem
-	records  map[int]ProblemCode // dose record index → its ScopeRecord problem
+	records  map[int][]ProblemCode // dose record index → its ScopeRecord problems
 }
 
 func (e *Engine) validate(in Input) validation {
-	v := validation{records: map[int]ProblemCode{}}
+	v := validation{records: map[int][]ProblemCode{}}
 	todayOK := false
 	switch {
 	case in.Today.IsZero():
@@ -73,6 +73,23 @@ func (e *Engine) validate(in Input) validation {
 			}
 			seen[dz] = true
 		}
+		// The product: a catalog ID (retired ones included) or free text,
+		// not both. An ID the rule set does not have is record-scoped: it
+		// comes from version skew between a cached client and the rule set
+		// (issue #14, Q35).
+		switch {
+		case r.Product == nil:
+		case *r.Product == "":
+			v.add(Required, p+"/product", ProblemParams{})
+		case !e.products[*r.Product]:
+			v.record(i, UnknownProduct, p+"/product", ProblemParams{Product: *r.Product})
+		}
+		if r.FreeProduct != nil && *r.FreeProduct == "" {
+			v.add(Required, p+"/freeProduct", ProblemParams{})
+		}
+		if r.Product != nil && r.FreeProduct != nil {
+			v.add(MutuallyExclusive, p+"/freeProduct", ProblemParams{})
+		}
 		// A dose date is a problem only when its whole period is after today
 		// or before the whole birth-date range; a partial overlap is not
 		// (issue #13). The engine then caps the period at today.
@@ -109,14 +126,20 @@ func (v *validation) add(code ProblemCode, path string, params ProblemParams) {
 
 // value records a problem with the date value of dose record i, or of the
 // birth date for i < 0. On a dose record it is record-scoped (at most one
-// per record): Evaluate makes that record's diseases ⚪.
+// per date): Evaluate makes that record's diseases ⚪.
 func (v *validation) value(i int, code ProblemCode, path string) {
 	if i < 0 {
 		v.add(code, path, ProblemParams{})
 		return
 	}
-	v.problems = append(v.problems, Problem{Code: code, Path: path, Scope: ScopeRecord})
-	v.records[i] = code
+	v.record(i, code, path, ProblemParams{})
+}
+
+// record records a record-scoped problem of dose record i: Evaluate makes
+// that record's diseases ⚪ with a reason of the same code.
+func (v *validation) record(i int, code ProblemCode, path string, params ProblemParams) {
+	v.problems = append(v.problems, Problem{Code: code, Path: path, Params: params, Scope: ScopeRecord})
+	v.records[i] = append(v.records[i], code)
 }
 
 // recalled checks the RecalledDate at path, of dose record i or of the

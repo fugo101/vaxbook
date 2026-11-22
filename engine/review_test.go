@@ -379,6 +379,27 @@ var s2ReviewCases = []reviewCase{
 		disease: "single", bucket: engine.BucketUnknown,
 		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"b","number":2}}]`,
 	},
+	{
+		// The run's only number repeats a level-4 dose's number: b #1 still
+		// sits at 1 and a takes 2, so b's number does not contradict the
+		// time order. u #1 repeats b's number (undated records come after
+		// the dated ones) → NUMBERING_CONFLICT{u, 1} only, whatever the ID
+		// of the unnumbered dose.
+		name: "same day, a number shared with a level-4 dose, lower ID", ruleset: "illustrative-vn", today: "2025-12-01", birth: "2025-01-01",
+		doses: `[{"id": "a", "diseases": ["measles"], "date": {"value": "2025-11-01", "precision": "day"}},
+			{"id": "b", "diseases": ["measles"], "date": {"value": "2025-11-01", "precision": "day"}, "doseNumbers": {"measles": 1}},
+			{"id": "u", "diseases": ["measles"], "date": {"precision": "unknown"}, "doseNumbers": {"measles": 1}}]`,
+		disease: "measles", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"NUMBERING_CONFLICT","params":{"dose":"u","number":1}}]`,
+	},
+	{
+		name: "same day, a number shared with a level-4 dose, higher ID", ruleset: "illustrative-vn", today: "2025-12-01", birth: "2025-01-01",
+		doses: `[{"id": "c", "diseases": ["measles"], "date": {"value": "2025-11-01", "precision": "day"}},
+			{"id": "b", "diseases": ["measles"], "date": {"value": "2025-11-01", "precision": "day"}, "doseNumbers": {"measles": 1}},
+			{"id": "u", "diseases": ["measles"], "date": {"precision": "unknown"}, "doseNumbers": {"measles": 1}}]`,
+		disease: "measles", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"NUMBERING_CONFLICT","params":{"dose":"u","number":1}}]`,
+	},
 	// Issue #13 property 4 does not hold for dose ranges: step 7 measures
 	// the next dose from the later (today-capped) end of a dose range
 	// (F04.2), so narrowing it can move the due date earlier and turn 🟡

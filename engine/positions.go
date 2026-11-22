@@ -241,13 +241,13 @@ func orderSameDay(d []givenDose, reserved map[int]bool) {
 			j++
 		}
 		run := d[i:j]
-		taken := maps.Clone(reserved)
-		for _, g := range run {
-			if g.number > 0 {
-				taken[g.number] = true
+		if len(run) > 1 && slices.ContainsFunc(run, func(g givenDose) bool { return g.number > 0 }) {
+			taken := maps.Clone(reserved)
+			for _, g := range run {
+				if g.number > 0 {
+					taken[g.number] = true
+				}
 			}
-		}
-		if len(run) > 1 && len(taken) > len(reserved) {
 			pos := make(map[string]int, len(run))
 			cc := c
 			for _, g := range run {

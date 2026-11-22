@@ -424,73 +424,89 @@ var s2ReviewCases = []reviewCase{
 
 // TestManyRecordsWithImpreciseBirthDate: comparing the two birth ends keeps
 // every distinct reason of both ends, one DOSE_INVALID per record. Removing
-// duplicates must stay linear, so 20 000 records evaluate in well under a
-// second; a quadratic scan takes several seconds.
+// duplicates must stay linear: 4× the records may take about 4× the time,
+// while a quadratic scan takes about 16×.
 func TestManyRecordsWithImpreciseBirthDate(t *testing.T) {
-	t.Parallel()
 	if testing.Short() || runtime.GOOS == "js" {
 		t.Skip("timing test")
 	}
-	const n = 20000
 	start, err := engine.ParseDate("1990-01-01")
 	if err != nil {
 		t.Fatal(err)
-	}
-	doses := make([]engine.DoseRecord, n)
-	for i := range doses {
-		doses[i] = engine.DoseRecord{ID: fmt.Sprintf("r%05d", i), Diseases: []string{"pertussis", "measles", "hpv"},
-			Date: engine.RecalledDate{Value: start.AddDays(i).String(), Precision: engine.Day}}
 	}
 	today, err := engine.ParseDate("2046-01-01")
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := engine.Input{Today: today, Profile: engine.Profile{Birth: engine.RecalledDate{Value: "1960", Precision: engine.Year}}, Doses: doses}
 	e := loadEngine(t, "illustrative-vn")
-	began := time.Now()
-	if _, err := e.Evaluate(in); err != nil {
-		t.Fatal(err)
+	assertLinear(t, 2500, func(n int) time.Duration {
+		doses := make([]engine.DoseRecord, n)
+		for i := range doses {
+			doses[i] = engine.DoseRecord{ID: fmt.Sprintf("r%05d", i), Diseases: []string{"pertussis", "measles", "hpv"},
+				Date: engine.RecalledDate{Value: start.AddDays(i).String(), Precision: engine.Day}}
+		}
+		in := engine.Input{Today: today, Profile: engine.Profile{Birth: engine.RecalledDate{Value: "1960", Precision: engine.Year}}, Doses: doses}
+		began := time.Now()
+		if _, err := e.Evaluate(in); err != nil {
+			t.Fatal(err)
+		}
+		return time.Since(began)
+	})
+}
+
+// assertLinear fails when evaluating 4n items takes more than 8× as long as
+// n items (linear ≈ 4×, quadratic ≈ 16×). It compares the best of three runs
+// at each size, so it does not depend on how fast the machine is (a fixed
+// wall-clock limit failed on slow CI runners under -race).
+func assertLinear(t *testing.T, n int, run func(n int) time.Duration) {
+	t.Helper()
+	best := func(n int) time.Duration {
+		b := run(n)
+		for range 2 {
+			b = min(b, run(n))
+		}
+		return b
 	}
-	if d := time.Since(began); d > 5*time.Second {
-		t.Errorf("Evaluate of %d records took %s", n, d)
+	small, large := best(n), best(4*n)
+	t.Logf("n=%d: %s, 4n: %s (%.1f×)", n, small, large, float64(large)/float64(small))
+	if large > 8*small {
+		t.Errorf("4× the input took %.1f× as long (%s vs %s): not linear", float64(large)/float64(small), large, small)
 	}
 }
 
 // TestManyOverlappingRecords: grouping overlapping dose ranges must stay
 // linear after the sort when every range overlaps (year-precision records
 // in one year) and when many exact doses share one day (which do not
-// overlap), so 60 000 of each evaluate in well under the limit; a
-// quadratic scan takes several seconds natively.
+// overlap).
 func TestManyOverlappingRecords(t *testing.T) {
-	t.Parallel()
 	if testing.Short() || runtime.GOOS == "js" {
 		t.Skip("timing test")
-	}
-	const n = 60000
-	doses := make([]engine.DoseRecord, 0, 2*n)
-	for i := range n {
-		doses = append(doses,
-			engine.DoseRecord{ID: fmt.Sprintf("y%05d", i), Diseases: []string{"pertussis"}, Date: engine.RecalledDate{Value: "2025", Precision: engine.Year}},
-			engine.DoseRecord{ID: fmt.Sprintf("d%05d", i), Diseases: []string{"measles"}, Date: engine.RecalledDate{Value: "2025-06-01", Precision: engine.Day}})
 	}
 	today, err := engine.ParseDate("2026-04-16")
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := engine.Input{Today: today, Profile: engine.Profile{Birth: engine.RecalledDate{Value: "2024-01-01", Precision: engine.Day}}, Doses: doses}
 	e := loadEngine(t, "illustrative-vn")
-	began := time.Now()
-	out, err := e.Evaluate(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d := time.Since(began); d > 5*time.Second {
-		t.Errorf("Evaluate of %d records took %s", 2*n, d)
-	}
-	// Every pertussis range overlaps every other: one group of n records.
-	for _, a := range out.Assessments {
-		if a.Disease == "pertussis" && (len(a.Reasons) != 1 || a.Reasons[0].Code != engine.ReasonOverlappingEstimatedDates || len(a.Reasons[0].Params.Doses) != n) {
-			t.Errorf("pertussis: want one OVERLAPPING_ESTIMATED_DATES with %d doses", n)
+	assertLinear(t, 15000, func(n int) time.Duration {
+		doses := make([]engine.DoseRecord, 0, 2*n)
+		for i := range n {
+			doses = append(doses,
+				engine.DoseRecord{ID: fmt.Sprintf("y%05d", i), Diseases: []string{"pertussis"}, Date: engine.RecalledDate{Value: "2025", Precision: engine.Year}},
+				engine.DoseRecord{ID: fmt.Sprintf("d%05d", i), Diseases: []string{"measles"}, Date: engine.RecalledDate{Value: "2025-06-01", Precision: engine.Day}})
 		}
-	}
+		in := engine.Input{Today: today, Profile: engine.Profile{Birth: engine.RecalledDate{Value: "2024-01-01", Precision: engine.Day}}, Doses: doses}
+		began := time.Now()
+		out, err := e.Evaluate(in)
+		d := time.Since(began)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Every pertussis range overlaps every other: one group of n records.
+		for _, a := range out.Assessments {
+			if a.Disease == "pertussis" && (len(a.Reasons) != 1 || a.Reasons[0].Code != engine.ReasonOverlappingEstimatedDates || len(a.Reasons[0].Params.Doses) != n) {
+				t.Errorf("pertussis: want one OVERLAPPING_ESTIMATED_DATES with %d doses", n)
+			}
+		}
+		return d
+	})
 }

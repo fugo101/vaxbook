@@ -213,9 +213,10 @@ func (s seriesModel) hasInterval(pos int) bool {
 // dated dose at position 1 (nil if none).
 //
 // A plan's verdict is the worst of its checks; the dose's verdict is the
-// best over plans (A7). The checks reported are those the plans with that
-// verdict fail, merged in catalog order. For exact dates this is the S1
-// check.
+// best over plans (A7). The checks reported are those that reach that
+// verdict in the plans that have it, merged in catalog order: a
+// DOSE_INVALID lists the checks failed at every end, not one failed at one
+// end only. For exact dates this is the S1 check.
 func (s seriesModel) check(pos int, b birthEnd, x Range, from *Range, run []item, first *Range) (verdict, []Check) {
 	var chainBest, chainWorst Date
 	chained := false
@@ -250,7 +251,7 @@ func (s seriesModel) check(pos int, b birthEnd, x Range, from *Range, run []item
 		}
 		if v == best {
 			for i, c := range vs {
-				failed[i] = failed[i] || c != verdictOK
+				failed[i] = failed[i] || c >= best
 			}
 		}
 	}

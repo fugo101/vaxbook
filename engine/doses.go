@@ -70,7 +70,8 @@ type walkResult struct {
 // of dose 1 allows is DOSE_INVALID.
 //
 // Doses beyond the series length are not checked and not counted, but stay
-// in the sequence as the dose adjacent in time (S1).
+// in the sequence as the dose adjacent in time (S1). The undated slots
+// before such a dose must still fit before it.
 func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
 	w := walkResult{floating: pl.floating}
 	last := 0 // the highest position reached
@@ -107,6 +108,19 @@ func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
 		from, run := w.tail()
 		it := item{pos: pos, dose: g}
 		if pos > s.length {
+			// Not checked itself, but the undated slots before it must fit
+			// on or before it; when they do not, it carries the chain
+			// failure, as a dated dose after the run in the series does.
+			if len(run) > 0 {
+				if best, worst, bounded := s.chain(b, from, run, first); bounded {
+					switch against(g.date, best, worst) {
+					case verdictDefinite:
+						w.reasons = append(w.reasons, Reason{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: []Check{CheckMinInterval}, Dose: g.id, Number: pos}})
+					case verdictPossible:
+						w.reasons = append(w.reasons, Reason{Code: ReasonDosePossiblyInvalid, Params: ReasonParams{Checks: []Check{CheckMinInterval}, Dose: g.id, Number: pos}})
+					}
+				}
+			}
 			w.seq = append(w.seq, it)
 			if g.number > 0 {
 				last = max(last, pos)
@@ -135,7 +149,7 @@ func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
 		w.seq = append(w.seq, it)
 	}
 	insertSlots(s.length + 1)
-	w.checkTrailing(s, b, today, first)
+	w.checkTrailing(s, b, today, first, pl.beyond)
 
 	highest := 0
 	for _, it := range w.seq {
@@ -166,17 +180,24 @@ func (w *walkResult) tail() (from *Range, run []item) {
 // earliest placement is after today it is DOSE_INVALID (not counted), and
 // when only the placement from the latest end of the ranges is, it is
 // DOSE_POSSIBLY_INVALID. Its checks name the minimums that push it past
-// today; a failure of the chain before it is minInterval. The last trailing
-// slot is always a record, because implied doses lie below a position some
-// record takes.
-func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first *Range) {
+// today; a failure of the chain before it is minInterval.
+//
+// When the last trailing slot is an implied dose, the record whose number
+// implies it is a level-4 dose beyond the series (an in-series or dated
+// record would follow it). The lowest such record carries the reason, with
+// its number, and the implied doses stay counted.
+func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first *Range, beyond []givenDose) {
 	from, run := w.tail()
 	if len(run) == 0 {
 		return
 	}
 	lastSlot := &w.seq[len(w.seq)-1]
-	if lastSlot.dose.id == "" {
-		return
+	carrier, number := lastSlot.dose.id, lastSlot.pos
+	if carrier == "" {
+		if len(beyond) == 0 {
+			return
+		}
+		carrier, number = beyond[0].id, beyond[0].number
 	}
 	v, checks := s.check(lastSlot.pos, b, Range{Lo: today, Hi: today}, from, run[:len(run)-1], first)
 	if v == verdictOK {
@@ -185,9 +206,11 @@ func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first 
 	code := ReasonDosePossiblyInvalid
 	if v == verdictDefinite {
 		code = ReasonDoseInvalid
-		lastSlot.counted = false
+		if lastSlot.dose.id != "" {
+			lastSlot.counted = false
+		}
 	}
-	w.reasons = append(w.reasons, Reason{Code: code, Params: ReasonParams{Checks: checks, Dose: lastSlot.dose.id, Number: lastSlot.pos}})
+	w.reasons = append(w.reasons, Reason{Code: code, Params: ReasonParams{Checks: checks, Dose: carrier, Number: number}})
 }
 
 // hasInterval reports whether some plan has a minimum interval for position

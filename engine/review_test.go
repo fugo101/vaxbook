@@ -158,4 +158,69 @@ var s2ReviewCases = []reviewCase{
 		reasons: `[{"code":"DOSE_POSSIBLY_INVALID","params":{"checks":["minIntervalFromFirst"],"dose":"r3","number":3}},
 			{"code":"COMPLETE"}]`,
 	},
+	// Doses beyond the series length (SAD §5.3 steps 2 and 5). pertussis: dose
+	// 1 min age 6w; doses 2 and 3 min interval 4w; 3 doses.
+	{
+		// r1 #5 implies doses 1–3, which must lie before r1: u1 ≥ b + 42d =
+		// 12-13 > r1 11-20, so no placement exists → DOSE_INVALID on r1, the
+		// dated dose after the run (a chain failure is minInterval). The
+		// implied doses stay counted, so k = 4 and the masked bucket is
+		// complete.
+		name: "number beyond the series, implied doses cannot fit before it", ruleset: "illustrative-vn", today: "2026-11-22", birth: "2026-11-01",
+		doses:   `[{"id": "r1", "diseases": ["pertussis"], "date": {"value": "2026-11-20", "precision": "day"}, "doseNumbers": {"pertussis": 5}}]`,
+		disease: "pertussis", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"IMPLIED_EARLIER_DOSES","params":{"numbers":[1,2,3]}},
+			{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"r1","number":5}},
+			{"code":"COMPLETE"}]`,
+	},
+	{
+		// u #4 is level 4 and implies doses 1–3, which trail: u3 ≥ 12-13 +
+		// 28d + 28d = 2027-02-07 > today. The last trailing slot is implied,
+		// so the record whose number implies it carries the DOSE_INVALID,
+		// with that number.
+		name: "level-4 number beyond the series, implied doses not feasible by today", ruleset: "illustrative-vn", today: "2026-11-22", birth: "2026-11-01",
+		doses:   `[{"id": "u", "diseases": ["pertussis"], "date": {"precision": "unknown"}, "doseNumbers": {"pertussis": 4}}]`,
+		disease: "pertussis", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"IMPLIED_EARLIER_DOSES","params":{"numbers":[1,2,3]}},
+			{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"u","number":4}},
+			{"code":"COMPLETE"}]`,
+	},
+	{
+		// a 11-20 is dose 1 (≥ b + 42d ✓); u #7 implies doses 2 and 3, which
+		// trail a: u3 ≥ 11-20 + 28d + 28d = 2027-01-15 > today.
+		name: "implied doses after a dated dose not feasible by today", ruleset: "illustrative-vn", today: "2026-11-22", birth: "2026-01-01",
+		doses: `[{"id": "a", "diseases": ["pertussis"], "date": {"value": "2026-11-20", "precision": "day"}},
+			{"id": "u", "diseases": ["pertussis"], "date": {"precision": "unknown"}, "doseNumbers": {"pertussis": 7}}]`,
+		disease: "pertussis", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"IMPLIED_EARLIER_DOSES","params":{"numbers":[2,3]}},
+			{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"u","number":7}},
+			{"code":"COMPLETE"}]`,
+	},
+	{
+		// a 11-01 #2 (dose 1 implied, u1 ≥ 02-12, a ≥ 03-12 ✓,
+		// INTERVAL_UNVERIFIABLE). u #3 is level 4. b 11-05 takes position 4,
+		// beyond the series, so u lies between a and b: u ≥ a + 28d = 11-29 >
+		// b → DOSE_INVALID on b, the dated dose after the run. Doses 1–3 stay
+		// counted → the masked bucket is complete.
+		name: "undated dose before a dose beyond the series cannot fit", ruleset: "illustrative-vn", today: "2026-11-22", birth: "2026-01-01",
+		doses: `[{"id": "a", "diseases": ["pertussis"], "date": {"value": "2026-11-01", "precision": "day"}, "doseNumbers": {"pertussis": 2}},
+			{"id": "b", "diseases": ["pertussis"], "date": {"value": "2026-11-05", "precision": "day"}},
+			{"id": "u", "diseases": ["pertussis"], "date": {"precision": "unknown"}, "doseNumbers": {"pertussis": 3}}]`,
+		disease: "pertussis", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"IMPLIED_EARLIER_DOSES","params":{"numbers":[1]}},
+			{"code":"INTERVAL_UNVERIFIABLE","params":{"dose":"a","number":2}},
+			{"code":"DOSE_INVALID","params":{"checks":["minInterval"],"dose":"b","number":4}},
+			{"code":"COMPLETE"}]`,
+	},
+	{
+		// Control: a 10-01 #2, so u ≥ 10-29 ≤ b 11-05 fits → complete.
+		name: "undated dose before a dose beyond the series fits", ruleset: "illustrative-vn", today: "2026-11-22", birth: "2026-01-01",
+		doses: `[{"id": "a", "diseases": ["pertussis"], "date": {"value": "2026-10-01", "precision": "day"}, "doseNumbers": {"pertussis": 2}},
+			{"id": "b", "diseases": ["pertussis"], "date": {"value": "2026-11-05", "precision": "day"}},
+			{"id": "u", "diseases": ["pertussis"], "date": {"precision": "unknown"}, "doseNumbers": {"pertussis": 3}}]`,
+		disease: "pertussis", bucket: engine.BucketComplete, est: true,
+		reasons: `[{"code":"IMPLIED_EARLIER_DOSES","params":{"numbers":[1]}},
+			{"code":"INTERVAL_UNVERIFIABLE","params":{"dose":"a","number":2}},
+			{"code":"COMPLETE"}]`,
+	},
 }

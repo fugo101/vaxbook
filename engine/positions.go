@@ -23,6 +23,11 @@ type placement struct {
 	floating []givenDose
 	// implied are the positions of the implied doses, ascending (F04.1).
 	implied []int
+	// beyond are the numbered level-4 doses whose number is above the
+	// series length, by number and then ID. They are not walked, but the
+	// lowest one carries the reason when the implied doses below it cannot
+	// fit by today (walk).
+	beyond []givenDose
 	// reasons are the blocking step-2 reasons: OVERLAPPING_ESTIMATED_DATES,
 	// then NUMBERING_CONFLICT. Any of them skips steps 5–9 (blocked).
 	reasons []Reason
@@ -52,8 +57,10 @@ func (pl placement) blocked() bool { return len(pl.reasons) > 0 }
 //     ID order; the rest are implied doses (IMPLIED_EARLIER_DOSES). The
 //     unnumbered level-4 doses left over float.
 //
-// Numbers above the series length sit beyond the series and are ignored,
-// like S1's doses beyond the series.
+// A dose numbered above the series length sits beyond the series, like
+// S1's doses beyond the series: it is not checked or counted itself, but
+// its number implies the positions below it, and the doses there must fit
+// before it (walk).
 func (s seriesModel) place(doses []givenDose) placement {
 	var dated, numbered, unnumbered []givenDose
 	for _, g := range doses {
@@ -122,8 +129,11 @@ func (s seriesModel) place(doses []givenDose) placement {
 	for _, g := range numbered {
 		if g.number <= s.length {
 			pl.fixed[g.number] = g
+		} else {
+			pl.beyond = append(pl.beyond, g)
 		}
 	}
+	slices.SortStableFunc(pl.beyond, func(x, y givenDose) int { return cmp.Compare(x.number, y.number) })
 	top := 0
 	for q := range occupied {
 		top = max(top, q)

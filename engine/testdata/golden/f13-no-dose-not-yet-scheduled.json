@@ -11,7 +11,7 @@
     "doses": []
   },
   "output": {
-    "ruleSetVersion": "illustrative-vn-s1",
+    "ruleSetVersion": "illustrative-vn-s2",
     "today": "2026-03-01",
     "assessments": [
       {
@@ -40,6 +40,16 @@
           "earliest": "2026-12-01",
           "due": "2026-12-01",
           "overdue": "2026-12-08"
+        }
+      },
+      {
+        "disease": "hpv",
+        "block": "notYetScheduled",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2035-03-01",
+          "due": "2035-03-01",
+          "overdue": "2035-03-08"
         }
       }
     ]

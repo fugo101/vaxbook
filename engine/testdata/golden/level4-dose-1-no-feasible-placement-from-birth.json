@@ -81,9 +81,9 @@
             }
           },
           {
-            "code": "FIRST_DOSE_DATE_ASSUMED",
+            "code": "PREVIOUS_DOSE_DATE_UNKNOWN",
             "params": {
-              "dose": "r2"
+              "dose": "r1"
             }
           }
         ]

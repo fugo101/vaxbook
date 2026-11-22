@@ -90,6 +90,12 @@
               "dose": "r3",
               "number": 3
             }
+          },
+          {
+            "code": "PREVIOUS_DOSE_DATE_UNKNOWN",
+            "params": {
+              "dose": "r2"
+            }
           }
         ]
       }

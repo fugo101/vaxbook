@@ -32,7 +32,7 @@
     ]
   },
   "output": {
-    "ruleSetVersion": "illustrative-vn-s1",
+    "ruleSetVersion": "illustrative-vn-s2",
     "today": "2026-04-01",
     "assessments": [
       {
@@ -58,6 +58,16 @@
             }
           }
         ]
+      },
+      {
+        "disease": "hpv",
+        "block": "notYetScheduled",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2035-01-10",
+          "due": "2035-01-10",
+          "overdue": "2035-01-17"
+        }
       }
     ]
   }

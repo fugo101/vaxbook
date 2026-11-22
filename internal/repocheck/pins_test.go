@@ -109,3 +109,20 @@ func TestActionsArePinnedBySHA(t *testing.T) {
 		t.Fatal("no uses: lines found; the pattern is stale")
 	}
 }
+
+// TestDockerfileSyntaxFrontendIsPinned: a `# syntax=` line makes BuildKit pull
+// that frontend image on every build, as a supply-chain input like a base
+// image. Dependabot does not read the directive, so the Dockerfile uses the
+// frontend built into BuildKit (enough for RUN --mount=type=cache); a directive
+// may come back only pinned by digest.
+func TestDockerfileSyntaxFrontendIsPinned(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(root, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range regexp.MustCompile(`(?mi)^#\s*syntax\s*=\s*(\S+)`).FindAllStringSubmatch(string(b), -1) {
+		if !regexp.MustCompile(`@sha256:[0-9a-f]{64}$`).MatchString(m[1]) {
+			t.Errorf("Dockerfile syntax directive %s is not pinned by digest; remove it or pin it", m[1])
+		}
+	}
+}

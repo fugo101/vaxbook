@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Single static binary on distroless, non-root (SAD §10).
 
 FROM golang:1.27.4@sha256:205c7636d74e0ffbe3d007162df7d74f859f5a8c8322dfb9f907977686c126cf AS build

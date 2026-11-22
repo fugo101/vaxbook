@@ -120,4 +120,42 @@ var s2ReviewCases = []reviewCase{
 		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minIntervalFromFirst"],"dose":"r3","number":3}},
 			{"code":"PREVIOUS_DOSE_DATE_UNKNOWN","params":{"dose":"r2"}}]`,
 	},
+	{
+		// Every dose undated: u3 ≥ max(u2 + 84d = 09-09, u1 + 5m = 10-20) =
+		// 10-20 > today → r3 DOSE_INVALID, not counted. Only
+		// minIntervalFromFirst fails: the intervals alone fit by 09-09.
+		name: "trailing level-4 doses with minIntervalFromFirst after today", ruleset: "illustrative-vn", today: "2019-09-15", birth: "2010-05-20",
+		doses: `[{"id": "r1", "diseases": ["hpv"], "date": {"precision": "unknown"}, "doseNumbers": {"hpv": 1}},
+			{"id": "r2", "diseases": ["hpv"], "date": {"precision": "unknown"}, "doseNumbers": {"hpv": 2}},
+			{"id": "r3", "diseases": ["hpv"], "date": {"precision": "unknown"}, "doseNumbers": {"hpv": 3}}]`,
+		disease: "hpv", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minIntervalFromFirst"],"dose":"r3","number":3}},
+			{"code":"PREVIOUS_DOSE_DATE_UNKNOWN","params":{"dose":"r2"}}]`,
+	},
+	{
+		// r1 m 2026-06 is dose 1, R = [06-01, 06-30]; r2 and r3 trail it.
+		// Intervals: u2 ≥ 06-29 (worst 07-28), u3 ≥ 09-21 (worst 10-20), both
+		// ≤ today. From dose 1: u3 ≥ 06-01 + 5m = 11-01 > today at every end
+		// → r3 DOSE_INVALID{minIntervalFromFirst}, not counted; dose k − 1 = 2
+		// is r2, undated.
+		name: "trailing slot fails minIntervalFromFirst at every end", ruleset: "illustrative-vn", today: "2026-10-25", birth: "2010-05-20",
+		doses: `[{"id": "r1", "diseases": ["hpv"], "date": {"value": "2026-06", "precision": "month"}},
+			{"id": "r2", "diseases": ["hpv"], "date": {"precision": "unknown"}, "doseNumbers": {"hpv": 2}},
+			{"id": "r3", "diseases": ["hpv"], "date": {"precision": "unknown"}, "doseNumbers": {"hpv": 3}}]`,
+		disease: "hpv", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"DOSE_INVALID","params":{"checks":["minIntervalFromFirst"],"dose":"r3","number":3}},
+			{"code":"PREVIOUS_DOSE_DATE_UNKNOWN","params":{"dose":"r2"}}]`,
+	},
+	{
+		// Same, today 2026-11-20: 06-01 + 5m = 11-01 ≤ today < 06-30 + 5m =
+		// 11-30 → r3 DOSE_POSSIBLY_INVALID{minIntervalFromFirst}, counted →
+		// the masked bucket is complete.
+		name: "trailing slot fails minIntervalFromFirst at one end", ruleset: "illustrative-vn", today: "2026-11-20", birth: "2010-05-20",
+		doses: `[{"id": "r1", "diseases": ["hpv"], "date": {"value": "2026-06", "precision": "month"}},
+			{"id": "r2", "diseases": ["hpv"], "date": {"precision": "unknown"}, "doseNumbers": {"hpv": 2}},
+			{"id": "r3", "diseases": ["hpv"], "date": {"precision": "unknown"}, "doseNumbers": {"hpv": 3}}]`,
+		disease: "hpv", bucket: engine.BucketUnknown, est: true,
+		reasons: `[{"code":"DOSE_POSSIBLY_INVALID","params":{"checks":["minIntervalFromFirst"],"dose":"r3","number":3}},
+			{"code":"COMPLETE"}]`,
+	},
 }

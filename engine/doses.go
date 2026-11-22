@@ -161,57 +161,33 @@ func (w *walkResult) tail() (from *Range, run []item) {
 }
 
 // checkTrailing checks that the undated slots after the last dated dose can
-// lie on or before today: when even their earliest placement is after today
-// the last of them is DOSE_INVALID (not counted), and when only the
-// placement from the latest end of the dated range before them is, it is
-// DOSE_POSSIBLY_INVALID. The last trailing slot is always a record, because
-// implied doses lie below a position some record takes.
+// lie on or before today. The last of them is checked like a dose given
+// today (check), with the slots before it as its run: when even its
+// earliest placement is after today it is DOSE_INVALID (not counted), and
+// when only the placement from the latest end of the ranges is, it is
+// DOSE_POSSIBLY_INVALID. Its checks name the minimums that push it past
+// today; a failure of the chain before it is minInterval. The last trailing
+// slot is always a record, because implied doses lie below a position some
+// record takes.
 func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first *Range) {
 	from, run := w.tail()
 	if len(run) == 0 {
 		return
 	}
-	best, worst, bounded := s.chain(b, from, run, first)
-	if !bounded {
-		return
-	}
 	lastSlot := &w.seq[len(w.seq)-1]
-	var v verdict
-	switch {
-	case best.After(today):
-		v = verdictDefinite
-	case worst.After(today):
-		v = verdictPossible
-	}
-	if v == verdictOK || lastSlot.dose.id == "" {
+	if lastSlot.dose.id == "" {
 		return
 	}
-	check := CheckMinInterval
-	if b.known && s.ageBound(b, lastSlot.pos).After(today) {
-		check = CheckMinAge
+	v, checks := s.check(lastSlot.pos, b, Range{Lo: today, Hi: today}, from, run[:len(run)-1], first)
+	if v == verdictOK {
+		return
 	}
 	code := ReasonDosePossiblyInvalid
 	if v == verdictDefinite {
 		code = ReasonDoseInvalid
 		lastSlot.counted = false
 	}
-	w.reasons = append(w.reasons, Reason{Code: code, Params: ReasonParams{Checks: []Check{check}, Dose: lastSlot.dose.id, Number: lastSlot.pos}})
-}
-
-// ageBound returns the earliest date the minimum age of position q allows
-// under the most lenient plan, or the birth date when some plan has none.
-func (s seriesModel) ageBound(b birthEnd, q int) Date {
-	bound := Date{}
-	for i, p := range s.plans {
-		d := b.date
-		if r := p.doses[q-1]; r.minAge.ok {
-			d = b.date.AddSpan(r.minAge.span)
-		}
-		if i == 0 || d.Before(bound) {
-			bound = d
-		}
-	}
-	return bound
+	w.reasons = append(w.reasons, Reason{Code: code, Params: ReasonParams{Checks: checks, Dose: lastSlot.dose.id, Number: lastSlot.pos}})
 }
 
 // hasInterval reports whether some plan has a minimum interval for position

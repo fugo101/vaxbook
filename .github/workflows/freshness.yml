@@ -1,6 +1,7 @@
 name: Freshness
 # Dependabot does not track golangci-lint (.golangci-lint-version) or the Node
-# major (ci.yml node-version). This opens one issue when either falls behind.
+# major (ci.yml node-version). This opens, or updates, one issue when either
+# falls behind.
 on:
   schedule:
     - cron: '0 23 * * 0' # Monday 06:00 Asia/Ho_Chi_Minh, as Dependabot
@@ -46,16 +47,26 @@ jobs:
             exit 0
           fi
 
+          body=$(printf 'Found by the Freshness workflow. No bot tracks these two pins.\n\n%s\n\nThe weekly run keeps this list current while the issue is open. Close it once the pins are bumped; the next run opens a new one if something falls behind again.\n' "$(printf '%s\n' "${behind[@]}")")
+
           # Match the title across all open issues, whatever their labels:
           # triage replaces needs-triage, so a label filter would miss an issue
           # the owner has already triaged and open a duplicate every week. The
           # plain list avoids the search index and its fuzzy matching.
           existing=$(gh issue list --state open --limit 1000 --json number,title \
             | jq -r --arg t "$title" '[.[] | select(.title == $t)][0].number // empty')
-          if [ -n "$existing" ]; then
-            echo "open issue #$existing already reports this; not opening another"
+          if [ -z "$existing" ]; then
+            gh issue create --title "$title" --label needs-triage --body "$body"
             exit 0
           fi
 
-          body=$(printf 'Found by the Freshness workflow. No bot tracks these two pins.\n\n%s\n\nClose this issue once the pins are bumped; the next weekly run opens a new one if something else falls behind.\n' "$(printf '%s\n' "${behind[@]}")")
-          gh issue create --title "$title" --label needs-triage --body "$body"
+          # The title names both pins, so an open issue may list only the one
+          # that was behind when it was opened. Bring its body up to date so a
+          # second pin that falls behind later is not hidden.
+          current=$(gh issue view "$existing" --json body --jq .body | tr -d '\r')
+          if [ "$current" = "$body" ]; then
+            echo "open issue #$existing already reports this; nothing to update"
+          else
+            gh issue edit "$existing" --body "$body"
+            echo "updated open issue #$existing"
+          fi

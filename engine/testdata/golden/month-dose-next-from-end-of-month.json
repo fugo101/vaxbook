@@ -34,6 +34,9 @@
           "due": "2026-05-10",
           "overdue": "2026-05-17"
         },
+        "seriesUsed": [
+          "single-series"
+        ],
         "estimated": true
       }
     ]

@@ -38,6 +38,9 @@
       {
         "disease": "alt",
         "bucket": "complete",
+        "seriesUsed": [
+          "alt-series"
+        ],
         "reasons": [
           {
             "code": "COMPLETE"

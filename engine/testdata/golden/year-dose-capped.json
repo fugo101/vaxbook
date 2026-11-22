@@ -44,6 +44,9 @@
           "due": "2025-04-12",
           "overdue": "2025-04-19"
         },
+        "seriesUsed": [
+          "pertussis-primary"
+        ],
         "estimated": true,
         "reasons": [
           {
@@ -62,7 +65,10 @@
           "earliest": "2025-03-10",
           "due": "2025-03-10",
           "overdue": "2025-03-17"
-        }
+        },
+        "seriesUsed": [
+          "measles-primary"
+        ]
       },
       {
         "disease": "hpv",
@@ -72,7 +78,10 @@
           "earliest": "2033-06-10",
           "due": "2033-06-10",
           "overdue": "2033-06-17"
-        }
+        },
+        "seriesUsed": [
+          "hpv-generic"
+        ]
       }
     ]
   }

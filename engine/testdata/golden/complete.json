@@ -38,6 +38,9 @@
       {
         "disease": "single",
         "bucket": "complete",
+        "seriesUsed": [
+          "single-series"
+        ],
         "reasons": [
           {
             "code": "COMPLETE"

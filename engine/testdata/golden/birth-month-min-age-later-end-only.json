@@ -28,6 +28,9 @@
       {
         "disease": "buffered",
         "bucket": "unknown",
+        "seriesUsed": [
+          "buffered-series"
+        ],
         "estimated": true,
         "reasons": [
           {

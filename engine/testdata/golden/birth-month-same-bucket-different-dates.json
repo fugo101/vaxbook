@@ -23,6 +23,9 @@
           "due": "2026-05-31",
           "overdue": "2026-06-07"
         },
+        "seriesUsed": [
+          "pertussis-primary"
+        ],
         "estimated": true,
         "reasons": [
           {
@@ -42,6 +45,9 @@
           "due": "2026-12-31",
           "overdue": "2027-01-07"
         },
+        "seriesUsed": [
+          "measles-primary"
+        ],
         "estimated": true
       },
       {
@@ -53,6 +59,9 @@
           "due": "2035-03-31",
           "overdue": "2035-04-07"
         },
+        "seriesUsed": [
+          "hpv-generic"
+        ],
         "estimated": true
       }
     ]

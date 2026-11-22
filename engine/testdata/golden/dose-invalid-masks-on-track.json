@@ -68,6 +68,9 @@
       {
         "disease": "pertussis",
         "bucket": "complete",
+        "seriesUsed": [
+          "pertussis-primary"
+        ],
         "reasons": [
           {
             "code": "COMPLETE"
@@ -77,6 +80,9 @@
       {
         "disease": "measles",
         "bucket": "unknown",
+        "seriesUsed": [
+          "measles-primary"
+        ],
         "reasons": [
           {
             "code": "DOSE_INVALID",
@@ -101,7 +107,10 @@
           "earliest": "2034-01-15",
           "due": "2034-01-15",
           "overdue": "2034-01-22"
-        }
+        },
+        "seriesUsed": [
+          "hpv-generic"
+        ]
       }
     ]
   }

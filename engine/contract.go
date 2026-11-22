@@ -153,6 +153,11 @@ type Assessment struct {
 	Bucket   Bucket    `json:"bucket,omitempty"`
 	Block    Block     `json:"block,omitempty"`
 	NextDose *NextDose `json:"nextDose,omitzero"`
+	// SeriesUsed holds the candidate series after SAD §5.3 step 3, in
+	// rule-set order, complete candidates included (issue #14, Q26). It is
+	// omitted after a step-1 or step-2 ⚪ and for ⚪ NO_BIRTH_DATE with no
+	// dose given, where step 3 does not run. Added in S3a.
+	SeriesUsed []string `json:"seriesUsed,omitzero"`
 	// Estimated is true when the assessment rests on a birth date or a dose
 	// date that is not day-precise (or no birth date), on a level-4 dose or
 	// on an implied dose (SAD §5.3 step 1, EQ20d). It is set on ⚪

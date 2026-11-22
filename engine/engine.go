@@ -257,6 +257,12 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 		a.Bucket, a.Reasons = BucketUnknown, pl.reasons
 		return a
 	}
+	// Step 3: the candidate series. S2 has one series per disease. With no
+	// dose and no birth date, step 7 stops with NO_BIRTH_DATE before any
+	// series is chosen.
+	if len(doses) > 0 || birth.known {
+		a.SeriesUsed = []string{dz.series.id}
+	}
 	if len(pl.implied) > 0 {
 		a.Estimated = true
 		a.Reasons = append(a.Reasons, Reason{Code: ReasonImpliedEarlierDoses, Params: ReasonParams{Numbers: pl.implied}})

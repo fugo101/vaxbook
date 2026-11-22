@@ -43,6 +43,9 @@
           "due": "2026-12-15",
           "overdue": "2026-12-22"
         },
+        "seriesUsed": [
+          "measles-primary"
+        ],
         "estimated": true,
         "reasons": [
           {

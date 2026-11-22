@@ -22,7 +22,10 @@
           "earliest": "2027-03-01",
           "due": "2027-03-01",
           "overdue": "2027-03-15"
-        }
+        },
+        "seriesUsed": [
+          "late-series"
+        ]
       }
     ]
   }

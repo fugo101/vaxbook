@@ -58,6 +58,9 @@
       {
         "disease": "pertussis",
         "bucket": "complete",
+        "seriesUsed": [
+          "pertussis-primary"
+        ],
         "reasons": [
           {
             "code": "COMPLETE"
@@ -73,6 +76,9 @@
           "due": "2026-07-15",
           "overdue": "2026-07-22"
         },
+        "seriesUsed": [
+          "measles-primary"
+        ],
         "reasons": [
           {
             "code": "ON_TRACK"
@@ -87,7 +93,10 @@
           "earliest": "2034-01-15",
           "due": "2034-01-15",
           "overdue": "2034-01-22"
-        }
+        },
+        "seriesUsed": [
+          "hpv-generic"
+        ]
       }
     ]
   }

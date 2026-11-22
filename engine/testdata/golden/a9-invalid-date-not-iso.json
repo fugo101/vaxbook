@@ -67,7 +67,10 @@
           "earliest": "2035-01-10",
           "due": "2035-01-10",
           "overdue": "2035-01-17"
-        }
+        },
+        "seriesUsed": [
+          "hpv-generic"
+        ]
       }
     ]
   }

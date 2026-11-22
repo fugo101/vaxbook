@@ -159,6 +159,7 @@
         "bucket": {"enum": ["overdue", "due", "upcoming", "unknown", "complete"]},
         "block": {"enum": ["notYetScheduled"]},
         "nextDose": {"$ref": "#/$defs/NextDose"},
+        "seriesUsed": {"description": "The candidate series after step 3 (SAD §5.3), in rule-set order, complete ones included; omitted when step 3 did not run. Added in engine slice S3a.", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/Id"}},
         "estimated": {"description": "Present, and true, only when the result rests on an imprecise or missing date, a level-4 dose or an implied dose; added in engine slice S2.", "const": true},
         "reasons": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/Reason"}}
       }

@@ -34,6 +34,9 @@
           "due": "2027-02-28",
           "overdue": "2027-03-14"
         },
+        "seriesUsed": [
+          "buffered-series"
+        ],
         "reasons": [
           {
             "code": "ON_TRACK"

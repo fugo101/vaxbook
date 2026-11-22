@@ -50,6 +50,9 @@
           "due": "2025-07-13",
           "overdue": "2025-07-20"
         },
+        "seriesUsed": [
+          "ageonly-series"
+        ],
         "estimated": true
       }
     ]

@@ -46,7 +46,10 @@
           "earliest": "2026-10-10",
           "due": "2026-10-10",
           "overdue": "2026-10-17"
-        }
+        },
+        "seriesUsed": [
+          "measles-primary"
+        ]
       },
       {
         "disease": "hpv",
@@ -56,7 +59,10 @@
           "earliest": "2035-01-10",
           "due": "2035-01-10",
           "overdue": "2035-01-17"
-        }
+        },
+        "seriesUsed": [
+          "hpv-generic"
+        ]
       }
     ]
   }

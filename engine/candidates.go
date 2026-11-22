@@ -126,7 +126,7 @@ func (s seriesModel) run(b birthEnd, today Date, pl placement) candidateResult {
 
 // at runs steps 5–9 at one birth end, per candidate series, and merges the
 // candidates (SAD §5.3 steps 5–7, EQ6 item 2, F05.3, A1). Step 10 has one
-// layer in S3a: any blocking reason makes the result ⚪ (layer 7, data ⚪),
+// layer in S3b: any blocking reason makes the result ⚪ (layer 7, data ⚪),
 // and the masked bucket's reasons and dates stay.
 //
 //   - Dose validity is per candidate, and every candidate's DOSE_INVALID,

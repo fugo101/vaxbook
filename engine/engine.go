@@ -384,7 +384,7 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 	// product the rule set does not have, makes the disease ⚪ (A9, EQ27,
 	// Q35). Steps 2–9 are skipped. The ⚪ is a data ⚪ (step 10 layer 7)
 	// with the record reasons, sorted by record ID and then in path order;
-	// S3a has no higher layer, so it returns here. A slice that adds layers
+	// S3b has no higher layer, so it returns here. A slice that adds layers
 	// 1–5 must let them win over it and keep these reasons as masked
 	// reasons (SAD §5.3 steps 1 and 10).
 	var bad []givenDose

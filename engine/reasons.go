@@ -4,7 +4,7 @@ import "fmt"
 
 // blocks reports whether reason code c is blocking: it makes the assessment
 // ⚪ BucketUnknown with no next dose, unless a block of a higher precedence
-// layer wins over it (SAD §5.3 step 10, issue #13; none in S3a). The
+// layer wins over it (SAD §5.3 step 10, issue #13; none in S3b). The
 // informational codes explain a result without masking it. The split is a
 // closed switch, so a new code must be classified here.
 func (c ReasonCode) blocks() bool {

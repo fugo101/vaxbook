@@ -160,7 +160,7 @@ type Output struct {
 //
 // Bucket BucketUnknown always comes with a blocking reason, and a blocking
 // reason makes Bucket BucketUnknown unless a block of a higher precedence
-// layer wins over it (SAD §5.3 step 10, layers 1–5, none in S3a); the
+// layer wins over it (SAD §5.3 step 10, layers 1–5, none in S3b); the
 // reasons it masks then stay in Reasons. Informational reasons never make
 // it ⚪ on their own.
 type Assessment struct {

@@ -470,6 +470,38 @@ func invalidDoses(a engine.Assessment) []string {
 	return out
 }
 
+// uncountedKeys is invalidDoses for the narrowing property: dose and
+// position, except that an unnumbered level-4 record is keyed by its ID
+// alone. Such a record that fills no gap floats and has no position (SAD
+// §5.3 step 5): when no placement fits, the last one by ID is named with the
+// number of the position that fails when every floating dose goes after the
+// last dated dose (issue #15 In scope 4), and narrowing a dated range can
+// change which position that is (a possible failure hidden on the named
+// dose, Q62) without changing which records are counted.
+func uncountedKeys(a engine.Assessment, in engine.Input) []string {
+	floating := map[string]bool{}
+	for _, r := range in.Doses {
+		if r.Date.Precision == engine.Unknown && r.DoseNumbers[a.Disease] == 0 {
+			floating[r.ID] = true
+		}
+	}
+	var out []string
+	for _, r := range a.Reasons {
+		if r.Code != engine.ReasonDoseInvalid && r.Code != engine.ReasonDoseAfterMaxAge {
+			continue
+		}
+		k := fmt.Sprintf("%s#%d", r.Params.Dose, r.Params.Number)
+		if floating[r.Params.Dose] {
+			k = r.Params.Dose
+		}
+		if !slices.Contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // productDisagreement reports whether a has CHECK_PRODUCT_NAME or
 // MIXED_PRODUCTS, which name no dose.
 func productDisagreement(a engine.Assessment) bool {
@@ -676,7 +708,7 @@ func checkNarrowingDoseDate(t *testing.T, fx fixture, rng *rand.Rand, in engine.
 		placed := len(reasonsWith(a, engine.ReasonOverlappingEstimatedDates)) == 0 && len(reasonsWith(a, engine.ReasonNumberingConflict)) == 0 &&
 			len(reasonsWith(b, engine.ReasonNumberingConflict)) == 0
 		if placed && len(reasonsWith(a, engine.ReasonDosePossiblyInvalid)) == 0 {
-			ia, ib := invalidDoses(a), invalidDoses(b)
+			ia, ib := uncountedKeys(a, in), uncountedKeys(b, in)
 			same := slices.Equal(ia, ib) && productDisagreement(a) == productDisagreement(b)
 			// A dose that is not counted drops its possible checks (Q62),
 			// and so does every candidate that does not count a record

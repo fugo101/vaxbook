@@ -293,14 +293,13 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 // counted, but the result is ⚪, not ✅ (F05.10). Without them, narrowing a
 // dose range could make a counted dose invalid (SAD §5.7).
 //
-// When no placement fits, the floating doses get the reasons they get when
-// all of them are placed after the last dated dose (failedIn): the last one
-// by ID is DOSE_INVALID, not counted, when it cannot lie by today (checked
-// like a dose given today, as a trailing slot is). Since S4a each of them is
-// also checked against the maximum ages there (issue #15 In scope 4): one
-// that is certainly past one is DOSE_AFTER_MAX_AGE and not counted, and one
-// that possibly is stays counted with DOSE_POSSIBLY_INVALID. Without maximum
-// ages only the last one can fail there, as in S2.
+// When no placement fits, the last floating dose by ID is not counted, with
+// the number and checks it fails when all of them are placed after the last
+// dated dose (failedIn): DOSE_INVALID when it cannot lie by today (checked
+// like a dose given today, as a trailing slot is), and since S4a
+// DOSE_AFTER_MAX_AGE when a maximum age fails there (issue #15 In scope 4).
+// The other floating doses stay counted, with any DOSE_POSSIBLY_INVALID they
+// get there.
 func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl placement) {
 	fit, fallback, failed := s.floatingFit(*w, b, today, pl)
 	switch fit {
@@ -463,29 +462,46 @@ func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placem
 	return fitNowhere, nil, failed
 }
 
-// failedIn returns the reasons walk r gives the doses of fl, all of them
-// placed after the last dated dose, in r's order: DOSE_INVALID and
-// DOSE_AFTER_MAX_AGE on the doses that fail there, and DOSE_POSSIBLY_INVALID
-// on those that only may. Every one of them is reported, so that which
-// floating dose is not counted never depends on a possible failure that the
-// result does not show (the narrowing property, SAD §5.7). When no dose of
-// fl fails, it is the first bad reason of r.
+// failedIn returns the reasons for the floating doses fl when no placement
+// fits, from walk r, all of them placed after the last dated dose. As in S2,
+// the last floating dose by ID is named, with the numbers and checks it fails
+// there (issue #15 In scope 4: DOSE_INVALID, or DOSE_AFTER_MAX_AGE when a
+// maximum age fails), so it alone is not counted. Since S4a another dose of
+// fl can be the one that fails while the last does not: the dose at position
+// 1 past the start limit. The first such reason is then given to the last
+// floating dose, with its checks and number. The DOSE_POSSIBLY_INVALID
+// reasons r gives the other doses of fl are kept on them, as they stay
+// counted; the named dose drops its own (Q62). When no dose of fl fails, it
+// is the first bad reason of r.
 func failedIn(r walkResult, fl []givenDose, isBad func(Reason) bool) []Reason {
-	var out, firstBad []Reason
-	failing := false
+	last := fl[len(fl)-1].id
+	var own, other, possible, firstBad []Reason
 	for _, x := range r.reasons {
 		if isBad(x) && firstBad == nil {
 			firstBad = []Reason{x}
 		}
-		if slices.ContainsFunc(fl, func(g givenDose) bool { return g.id == x.Params.Dose }) {
-			out = append(out, x)
-			failing = failing || isBad(x)
+		if !slices.ContainsFunc(fl, func(g givenDose) bool { return g.id == x.Params.Dose }) {
+			continue
+		}
+		switch {
+		case isBad(x) && x.Params.Dose == last:
+			own = append(own, x)
+		case isBad(x):
+			if other == nil {
+				x.Params.Dose = last
+				other = []Reason{x}
+			}
+		case x.Code == ReasonDosePossiblyInvalid && x.Params.Dose != last:
+			possible = append(possible, x)
 		}
 	}
-	if !failing {
-		return firstBad
+	switch {
+	case own != nil:
+		return append(own, possible...)
+	case other != nil:
+		return append(other, possible...)
 	}
-	return out
+	return firstBad
 }
 
 // covered reports whether every day inside the dated ranges of pl has a

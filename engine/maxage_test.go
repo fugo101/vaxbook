@@ -416,3 +416,85 @@ func TestImpliedDoseAboveEverySeriesIsUnknown(t *testing.T) {
 		Reasons: []engine.Reason{rotaRefs, invalid(2), invalid(3), {Code: engine.ReasonCheckProductName}},
 	})
 }
+
+// TestNoFloatingPlacementNamesLastByID (issue #15 In scope 4, "Floating
+// doses"): when no placement fits, the existing "last floating dose by ID"
+// rule names the record, with DOSE_AFTER_MAX_AGE when the maximum age is
+// what fails in the all-after placement. The other floating doses stay
+// counted.
+//   - r1 rotateq on 08-20 numbered 1 (≥ 15w@b and ≥ 32w@b = 08-13 →
+//     DOSE_AFTER_MAX_AGE{maxAgeStart, maxAgeComplete}, not counted), r2 and
+//     r3 rotateq with unknown dates and no number, today 12-01. r1's number
+//     leaves only the all-after placement: r2 at 2 (r1 + 4w = 09-17) and r3
+//     at 3 (10-15), both ≥ 08-13, so it does not fit. Only r3 is named:
+//     DOSE_AFTER_MAX_AGE{maxAgeComplete, r3, 3}. r2 stays a counted floating
+//     dose, so k = 0 + 1 + 1 = 2, and step 7 stops: r2 may be the latest dose
+//     (PREVIOUS_DOSE_DATE_UNKNOWN{r2}).
+//   - r1 rotarix on 05-01 with no number (≥ 15w@b → not counted), f2 and f3
+//     rotarix undated with no number, today 06-01. The all-after placement
+//     puts f2 at 1, chained from r1 (05-01 ≥ 04-16 → maxAgeStart definite),
+//     and f3 at 2 (05-29 < 24w@b = 06-18, by today). Only the dose at 1
+//     fails, but the last by ID, f3, is named, with what fails:
+//     DOSE_AFTER_MAX_AGE{maxAgeStart, f3, 1}. f2 stays counted: k = 2, and
+//     step 7 stops on f2.
+func TestNoFloatingPlacementNamesLastByID(t *testing.T) {
+	t.Parallel()
+	e := loadEngine(t, "illustrative-max-age")
+	r1 := rota("r1", dayDate("2026-08-20"), "rotateq")
+	r1.DoseNumbers = map[string]engine.DoseNumber{"rota": 1}
+	got := assessmentOf(t, e, "rota", "2026-12-01", birthRota, r1, rota("r2", unknownDate, "rotateq"), rota("r3", unknownDate, "rotateq"))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotateq"}, Estimated: true,
+		Reasons: []engine.Reason{
+			afterMaxAge("r1", 1, engine.CheckMaxAgeStart, engine.CheckMaxAgeComplete),
+			afterMaxAge("r3", 3, engine.CheckMaxAgeComplete),
+			{Code: engine.ReasonPreviousDoseDateUnknown, Params: engine.ReasonParams{Dose: "r2"}},
+		},
+	})
+
+	got = assessmentOf(t, e, "rota", "2026-06-01", birthRota,
+		rota("r1", dayDate("2026-05-01"), "rotarix"), rota("f2", unknownDate, "rotarix"), rota("f3", unknownDate, "rotarix"))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotarix"}, Estimated: true,
+		Reasons: []engine.Reason{
+			afterMaxAge("r1", 1, engine.CheckMaxAgeStart),
+			afterMaxAge("f3", 1, engine.CheckMaxAgeStart),
+			{Code: engine.ReasonPreviousDoseDateUnknown, Params: engine.ReasonParams{Dose: "f2"}},
+		},
+	})
+}
+
+// TestNarrowingNamedFloatingDoseShape pins the shape for which the narrowing
+// property keys an unnumbered level-4 record by its ID alone
+// (uncountedKeys). r0 with no product on 02-05 (before 6w@b = 02-12 →
+// DOSE_INVALID{minAge} under every candidate, not counted), r3 rotarix in
+// 2026-05 (at position 1, ≥ 04-16 → DOSE_AFTER_MAX_AGE{maxAgeStart}), r1
+// rotarix and r2 with no product undated with no number, today 06-20. r2
+// makes every series a candidate. In each, the only placement puts r1 at 1
+// (chained from r3: ≥ every start limit, definite) and r2 at 2 (05-29 to
+// 06-28: possibly past rota-rotarix's 06-18, possibly not by today). No
+// placement fits, and r2, the last by ID, is named with r1's failure
+// (number 1); its own possible checks are dropped (Q62). Narrowed to 05-25,
+// r2's own slot (06-22) is past 06-18 and after today, so r2 is named with
+// its own failures (number 2). The same records are not counted.
+func TestNarrowingNamedFloatingDoseShape(t *testing.T) {
+	t.Parallel()
+	e := loadEngine(t, "illustrative-max-age")
+	doses := func(r3 engine.RecalledDate) []engine.DoseRecord {
+		return []engine.DoseRecord{rota("r0", dayDate("2026-02-05"), ""), rota("r1", unknownDate, "rotarix"), rota("r2", unknownDate, ""), rota("r3", r3, "rotarix")}
+	}
+	invalid := func(dose string, number int, c engine.Check) engine.Reason {
+		return engine.Reason{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: []engine.Check{c}, Dose: dose, Number: number}}
+	}
+	unknownR1 := engine.Reason{Code: engine.ReasonPreviousDoseDateUnknown, Params: engine.ReasonParams{Dose: "r1"}}
+	checkAssessment(t, assessmentOf(t, e, "rota", "2026-06-20", birthRota, doses(monthDate("2026-05"))...), engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: rotaAll, Estimated: true,
+		Reasons: []engine.Reason{rotaRefs, invalid("r0", 1, engine.CheckMinAge), afterMaxAge("r3", 1, engine.CheckMaxAgeStart),
+			afterMaxAge("r2", 1, engine.CheckMaxAgeStart), unknownR1},
+	})
+	checkAssessment(t, assessmentOf(t, e, "rota", "2026-06-20", birthRota, doses(dayDate("2026-05-25"))...), engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: rotaAll, Estimated: true,
+		Reasons: []engine.Reason{rotaRefs, invalid("r0", 1, engine.CheckMinAge), afterMaxAge("r3", 1, engine.CheckMaxAgeStart),
+			invalid("r2", 2, engine.CheckMinInterval), afterMaxAge("r2", 2, engine.CheckMaxAgeComplete), unknownR1},
+	})
+}

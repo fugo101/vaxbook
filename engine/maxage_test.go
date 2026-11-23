@@ -324,6 +324,12 @@ func TestMaxAgeDefiniteAtOneCandidatePossibleAtAnother(t *testing.T) {
 //     own 15y, so the straddle gives no max-age reason. Dose 2: E = r1.Hi +
 //     4w = 02-28, Du = max(E, r1.Hi + 1m = 02-28) = 02-28, O = 03-07; today
 //     < E, Du ≤ T30 → 🟡.
+//   - With g-old's maxAgeStart raised to 30y, the bracket max binds instead:
+//     birth 2000-01-01, dose 1 on 2028-07-01 (28y6m), today 2028-08-01. No
+//     bracket matches (r1 ≥ 27y@b), so the last one, g-old, is kept, and its
+//     start limit is min(30y@b = 2030-01-01, 27y@b = 2027-01-01) ≤ r1 →
+//     DOSE_AFTER_MAX_AGE{maxAgeStart}, although r1 is before its own
+//     maxAgeStart.
 func TestStartLimitIsEarlierOfMaxAgeStartAndLastBracket(t *testing.T) {
 	t.Parallel()
 	dose := func(first bool, offset string) ruleset.DoseRule {
@@ -355,6 +361,12 @@ func TestStartLimitIsEarlierOfMaxAgeStartAndLastBracket(t *testing.T) {
 		SeriesUsed: []string{"g-young"}, Products: []string{"g"}, Estimated: true,
 		Reasons: []engine.Reason{{Code: engine.ReasonAgeAtStartUncertain, Params: engine.ReasonParams{Candidates: []engine.SeriesRef{
 			{Product: "g", Series: "g-young"}, {Product: "g", Series: "g-old"}}}}},
+	})
+	s.Series[1].MaxAgeStart = spanOf(t, "P30Y")
+	got = assessmentOf(t, newEngine(t, s), "h", "2028-08-01", dayDate("2000-01-01"), doseOf("h", "r1", dayDate("2028-07-01"), "g"))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "h", Bucket: engine.BucketUnknown, SeriesUsed: []string{"g-old"},
+		Reasons: []engine.Reason{afterMaxAge("r1", 1, engine.CheckMaxAgeStart)},
 	})
 }
 

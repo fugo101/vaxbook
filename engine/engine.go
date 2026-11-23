@@ -47,6 +47,11 @@ type diseaseModel struct {
 	// group or every series and retirement is per product.
 	groups  []groupModel
 	groupOf []int
+	// listing holds every catalog product that lists the disease, retired
+	// ones included. It decides only whether a dose's product is named or
+	// unknown for CHECK_PRODUCT_NAME and MIXED_PRODUCTS (anyUnknownProduct),
+	// and is separate from the candidate tiers (issue #15, Q53).
+	listing map[string]bool
 }
 
 // groupModel is one product group. Its series are in bracket order: by
@@ -65,6 +70,87 @@ type seriesModel struct {
 	length  int    // doses per plan; every plan has the same count (EQ5)
 	start   bracket
 	plans   []planModel
+	// maxStart and maxComplete are the series' maximum ages, absent for no
+	// limit (exclusive bounds; SAD §5.2, issue #15). groupMax is the max of
+	// the last bracket of the series' product group in bracket order, when
+	// it has one: a maximum age to start for dose 1 of every series of the
+	// group (A5, Q55). All three are series-level, not per plan.
+	maxStart, maxComplete, groupMax optSpan
+}
+
+// hasMaxAges reports whether the series has any maximum age. Without one,
+// no S4a check runs and the walk is S3b's.
+func (s seriesModel) hasMaxAges() bool {
+	return s.maxStart.ok || s.maxComplete.ok || s.groupMax.ok
+}
+
+// withoutMaxAges returns s with no maximum age: the walk of the start-age
+// bracket choice (issue #15 In scope 2), so that the series chosen and the
+// item counted at position 1 stay S3b's.
+func (s seriesModel) withoutMaxAges() seriesModel {
+	s.maxStart, s.maxComplete, s.groupMax = optSpan{}, optSpan{}, optSpan{}
+	return s
+}
+
+// startLimit returns dose 1's start limit for a person born on b: the
+// earlier of b + maxAgeStart and b + the group's last bracket max, each when
+// present (Q55). Spans of different units are compared as dates at b.
+func (s seriesModel) startLimit(b Date) (Date, bool) {
+	var lim Date
+	ok := false
+	for _, m := range []optSpan{s.maxStart, s.groupMax} {
+		if !m.ok {
+			continue
+		}
+		if d := b.AddSpan(m.span); !ok || d.Before(lim) {
+			lim, ok = d, true
+		}
+	}
+	return lim, ok
+}
+
+// past checks a dose range x against a maximum age whose limit date is lim.
+// Maximum ages are exclusive: the check fails definitely when x.Lo ≥ lim,
+// possibly when only x.Hi ≥ lim. It mirrors against for the inclusive
+// minimums.
+func past(x Range, lim Date) verdict {
+	switch {
+	case !x.Lo.Before(lim):
+		return verdictDefinite
+	case !x.Hi.Before(lim):
+		return verdictPossible
+	}
+	return verdictOK
+}
+
+// maxAges checks a dose on range x at position pos against the maximum ages
+// at birth end b (SAD §5.3 step 5, F05.10, EQ7): the start limit for
+// position 1 (CheckMaxAgeStart) and maxAgeComplete for positions 1…length
+// (CheckMaxAgeComplete). It returns the checks failed definitely and those
+// failed possibly, each in catalog order. With no birth date nothing is
+// checked (EQ19, A6). For an undated slot x is the range of its earliest
+// chain dates (issue #15 In scope 4).
+func (s seriesModel) maxAges(pos int, b birthEnd, x Range) (def, poss []Check) {
+	if !b.known || pos < 1 || pos > s.length {
+		return nil, nil
+	}
+	add := func(v verdict, c Check) {
+		switch v {
+		case verdictDefinite:
+			def = append(def, c)
+		case verdictPossible:
+			poss = append(poss, c)
+		}
+	}
+	if pos == 1 {
+		if lim, ok := s.startLimit(b.date); ok {
+			add(past(x, lim), CheckMaxAgeStart)
+		}
+	}
+	if s.maxComplete.ok {
+		add(past(x, b.date.AddSpan(s.maxComplete.span)), CheckMaxAgeComplete)
+	}
+	return def, poss
 }
 
 // bracket is a series' start-age bracket [min, max) of the age at dose 1
@@ -169,7 +255,12 @@ func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
 	for _, p := range s.Products {
 		retired[p.ID] = p.Retired
 	}
-	m := diseaseModel{id: disease, tier: map[string][]int{}}
+	m := diseaseModel{id: disease, tier: map[string][]int{}, listing: map[string]bool{}}
+	for _, p := range s.Products {
+		if slices.Contains(p.Diseases, disease) {
+			m.listing[p.ID] = true
+		}
+	}
 	own := map[string][]int{} // product → its series for the disease
 	var generic []int
 	group := map[string]int{} // product ("" generic) → index into m.groups
@@ -215,6 +306,15 @@ func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
 		for j := 1; j < len(g.series); j++ {
 			m.series[g.series[j]].start.floor = m.series[g.series[j-1]].start.max
 		}
+		// The group's brackets end at its last bracket's max: a maximum age
+		// to start for dose 1 of each of its series (A5, Q55). A non-last
+		// bracket's max is no limit: a dose 1 past it is in the reach of the
+		// bracket above. Retirement is per product, so the group is whole.
+		if last := m.series[g.series[len(g.series)-1]].start; last.ok && last.max.ok {
+			for _, i := range g.series {
+				m.series[i].groupMax = last.max
+			}
+		}
 	}
 	if len(m.noDose) == 0 {
 		m.noDose = m.all
@@ -238,7 +338,7 @@ func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
 }
 
 func compileSeries(sr ruleset.Series) seriesModel {
-	m := seriesModel{id: sr.ID, length: len(sr.Plans[0].Doses)}
+	m := seriesModel{id: sr.ID, length: len(sr.Plans[0].Doses), maxStart: optional(sr.MaxAgeStart), maxComplete: optional(sr.MaxAgeComplete)}
 	if sr.Product != nil {
 		m.product = *sr.Product
 	}
@@ -467,7 +567,11 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 			}
 		}
 		slices.Sort(free)
-		at = dz.evaluate(arr, cands, today, free, false).at
+		ev := dz.evaluate(arr, cands, today, free, false)
+		// The implied doses the output reports (IMPLIED_EARLIER_DOSES) count
+		// as unknown products (issue #15 In scope 6).
+		ev.unknownProduct = dz.anyUnknownProduct(doses, len(arr.forLength(longest).implied) > 0)
+		at = ev.at
 	} else {
 		// No dose given: each birth date chooses its brackets from its own
 		// age today (EQ10); a date with none left is outOfAge (Q24).

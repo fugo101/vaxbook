@@ -88,6 +88,10 @@ type evaluation struct {
 	// safest is SAFEST_SERIES as a bucket reason of each birth date, set
 	// when no dose is given and two or more candidates remain.
 	safest *Reason
+	// unknownProduct: some dose of the disease, implied doses included, has
+	// an unknown product (anyUnknownProduct). It chooses CHECK_PRODUCT_NAME
+	// over MIXED_PRODUCTS when the candidates disagree on a maximum age.
+	unknownProduct bool
 }
 
 // evaluate prepares steps 5–9 over cands: each candidate's placement, and
@@ -131,7 +135,11 @@ func (s seriesModel) run(b birthEnd, today Date, pl placement) candidateResult {
 // and the masked bucket's reasons and dates stay.
 //
 //   - Dose validity is per candidate, and every candidate's DOSE_INVALID,
-//     DOSE_POSSIBLY_INVALID and INTERVAL_UNVERIFIABLE are kept (Q31).
+//     DOSE_POSSIBLY_INVALID and INTERVAL_UNVERIFIABLE are kept (Q31), and
+//     its DOSE_AFTER_MAX_AGE unless the candidates disagree on that record
+//     (disagreements): then CHECK_PRODUCT_NAME or MIXED_PRODUCTS replaces
+//     them (issue #15 In scope 5). Counting, k and the masked dates stay
+//     per candidate.
 //   - Every candidate complete → ✅ COMPLETE, with PRODUCT_NOT_IN_CATALOG
 //     when a record has an off-catalog product. A complete candidate never
 //     makes the result complete on its own.
@@ -147,7 +155,8 @@ func (s seriesModel) run(b birthEnd, today Date, pl placement) candidateResult {
 // (issue #23, Q24).
 //
 // Reasons of one end, in order: SAFEST_SERIES (no dose given); the walk
-// reasons by dose in walk order, then by candidate; COMPLETE and
+// reasons by dose in walk order, then by candidate; CHECK_PRODUCT_NAME or
+// MIXED_PRODUCTS; COMPLETE and
 // PRODUCT_NOT_IN_CATALOG; or OUT_OF_AGE; or PREVIOUS_DOSE_DATE_UNKNOWN,
 // NO_BIRTH_DATE, FIRST_DOSE_DATE_ASSUMED, ALTERNATIVE_PLANS and ON_TRACK.
 // For a single candidate this is the S2 result.
@@ -163,7 +172,15 @@ func (ev evaluation) at(b birthEnd) endResult {
 	if ev.safest != nil {
 		res.reasons = append(res.reasons, *ev.safest)
 	}
-	res.reasons = append(res.reasons, ev.walkReasons(rs)...)
+	drop := ev.disagreements(rs)
+	res.reasons = append(res.reasons, ev.walkReasons(rs, drop)...)
+	if len(drop) > 0 {
+		code := ReasonMixedProducts
+		if ev.unknownProduct {
+			code = ReasonCheckProductName
+		}
+		res.reasons = append(res.reasons, Reason{Code: code})
+	}
 
 	// Step 6: complete when every candidate is.
 	var atK []int // indexes into rs of the candidates at k
@@ -272,8 +289,11 @@ func (ev evaluation) at(b birthEnd) endResult {
 // every candidate that reaches it), and then by ID. A reason on an undated
 // record names it only after the last dated dose: the trailing slot that
 // cannot lie by today, a level-4 dose beyond the series, or a floating dose.
-// One candidate's reasons are already in that order.
-func (ev evaluation) walkReasons(rs []candidateResult) []Reason {
+// One candidate's reasons are already in that order; for one dose under one
+// candidate the codes go DOSE_INVALID, DOSE_AFTER_MAX_AGE,
+// DOSE_POSSIBLY_INVALID, INTERVAL_UNVERIFIABLE. A DOSE_AFTER_MAX_AGE on a
+// record in drop is left out (disagreements).
+func (ev evaluation) walkReasons(rs []candidateResult, drop map[string]bool) []Reason {
 	dated := ev.pls[0].dated
 	rank := make(map[string]int, len(dated))
 	for i, g := range dated {
@@ -288,6 +308,9 @@ func (ev evaluation) walkReasons(rs []candidateResult) []Reason {
 	var all []entry
 	for c, r := range rs {
 		for i, x := range r.walk.reasons {
+			if x.Code == ReasonDoseAfterMaxAge && drop[x.Params.Dose] {
+				continue
+			}
 			e := entry{cand: c, idx: i, r: x}
 			if rk, ok := rank[x.Params.Dose]; ok {
 				e.rank = rk
@@ -299,7 +322,7 @@ func (ev evaluation) walkReasons(rs []candidateResult) []Reason {
 	}
 	slices.SortFunc(all, func(x, y entry) int {
 		return cmp.Or(cmp.Compare(x.rank, y.rank), cmp.Compare(x.pos, y.pos), strings.Compare(x.id, y.id),
-			cmp.Compare(x.cand, y.cand), cmp.Compare(x.idx, y.idx))
+			cmp.Compare(x.cand, y.cand), cmp.Compare(doseCodeRank(x.r.Code), doseCodeRank(y.r.Code)), cmp.Compare(x.idx, y.idx))
 	})
 	var out []Reason
 	listed := map[string]bool{}
@@ -310,6 +333,89 @@ func (ev evaluation) walkReasons(rs []candidateResult) []Reason {
 		}
 	}
 	return out
+}
+
+// doseCodeRank orders the per-dose codes of one dose under one candidate.
+func doseCodeRank(c ReasonCode) int {
+	switch c {
+	case ReasonDoseInvalid:
+		return 0
+	case ReasonDoseAfterMaxAge:
+		return 1
+	case ReasonDosePossiblyInvalid:
+		return 2
+	}
+	return 3
+}
+
+// disagreements returns the records on which the candidates disagree on a
+// maximum age (SAD §5.3 step 5, F05.3, F05.10, EQ16; issue #15 In scope 5,
+// Q52): some candidate gives the record DOSE_AFTER_MAX_AGE and another
+// accepts it. A single candidate never disagrees.
+func (ev evaluation) disagreements(rs []candidateResult) map[string]bool {
+	if len(rs) < 2 {
+		return nil
+	}
+	var drop map[string]bool
+	for i, r := range rs {
+		for _, x := range r.walk.reasons {
+			d := x.Params.Dose
+			if x.Code != ReasonDoseAfterMaxAge || drop[d] {
+				continue
+			}
+			for j := range rs {
+				if j != i && ev.accepts(rs, j, d) {
+					if drop == nil {
+						drop = map[string]bool{}
+					}
+					drop[d] = true
+					break
+				}
+			}
+		}
+	}
+	return drop
+}
+
+// accepts reports whether candidate j accepts record d: it counts it (a
+// counted item at a position up to the series length, or a floating dose
+// that fits; with no reason, INTERVAL_UNVERIFIABLE or DOSE_POSSIBLY_INVALID),
+// or it is complete and leaves d unchecked beyond its length (a dated dose
+// past the length or a numbered level-4 dose beyond the series). A candidate
+// that gives d DOSE_INVALID or DOSE_AFTER_MAX_AGE, or leaves it unchecked
+// while incomplete, does not accept it (Q52).
+func (ev evaluation) accepts(rs []candidateResult, j int, d string) bool {
+	r, length := rs[j], ev.dz.series[ev.cands[j]].length
+	for _, x := range r.walk.reasons {
+		if x.Params.Dose == d && (x.Code == ReasonDoseInvalid || x.Code == ReasonDoseAfterMaxAge) {
+			return false
+		}
+	}
+	if slices.ContainsFunc(r.walk.floating, func(g givenDose) bool { return g.id == d }) {
+		return true
+	}
+	for _, it := range r.walk.seq {
+		if it.dose.id == d {
+			if it.pos > length {
+				return r.complete
+			}
+			return it.counted
+		}
+	}
+	return r.complete && slices.ContainsFunc(ev.pls[j].beyond, func(g givenDose) bool { return g.id == d })
+}
+
+// anyUnknownProduct reports whether some dose of the disease has an unknown
+// product, for the choice between CHECK_PRODUCT_NAME and MIXED_PRODUCTS
+// (F05.3; issue #15 In scope 6, Q53, Q54). A dose is named when it has a
+// catalog product that lists the disease, retired or not, or an off-catalog
+// product (freeProduct); it is unknown with neither, with a catalog product
+// that does not list the disease, or when it is implied (Q30). This is not
+// S3a's candidate rule: a retired or off-catalog product is named here.
+func (dz diseaseModel) anyUnknownProduct(doses []givenDose, implied bool) bool {
+	return implied || slices.ContainsFunc(doses, func(g givenDose) bool {
+		return !g.free && !(g.product != "" && dz.listing[g.product])
+	})
 }
 
 // candidateKey encodes candidates for reasonKey.

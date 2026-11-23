@@ -230,7 +230,12 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 // Warn (Q43) each bracket reads its own record, so a group can match
 // nothing while a candidate is younger than every max, and P1 is not
 // claimed there.
+//
+// The walks run without the maximum-age checks (issue #15 In scope 2), so
+// the bracket choice is S3b's: a dose 1 past a series' maximum age to start
+// stays dose 1's record, and those checks apply in step 5 after the choice.
 func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today Date) []Range {
+	s = s.withoutMaxAges()
 	upTo := today
 	if len(pl.dated) > 0 {
 		upTo = pl.dated[0].date.Hi

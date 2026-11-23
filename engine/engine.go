@@ -53,6 +53,7 @@ type diseaseModel struct {
 // startAge.min, an open-ended bracket last (ruleset.Validate makes the
 // brackets of a group of several series disjoint for every month length,
 // so the order is total). A group of one series may have no bracket (C8).
+// Each bracket's floor is set from this order (compileDisease).
 type groupModel struct {
 	series []int
 }
@@ -69,20 +70,29 @@ type seriesModel struct {
 // bracket is a series' start-age bracket [min, max) of the age at dose 1
 // (SAD §5.2, issue #23). ok is false when the series has no startAge: it
 // matches every age (C8).
+//
+// For choosing, a bracket covers its reach [floor, max): floor is the max of
+// the bracket before it in its group's order, absent for the first, whose
+// reach starts at birth. Validate puts each max at or below the next min,
+// so the reaches of a group tile every age below the last max, and a gap
+// between two brackets belongs to the one above it (Q33; PR #27).
 type bracket struct {
-	ok  bool
-	min ruleset.Span
-	max optSpan // absent: open-ended (Q25)
+	ok    bool
+	min   ruleset.Span
+	max   optSpan // absent: open-ended (Q25)
+	floor optSpan // matching lower bound: the previous bracket's max in the group's order; absent for the first
 }
 
-// mayContain reports whether the bracket possibly contains the age at a dose
-// on range d, for a birth date in birth (today-capped): d.Hi ≥ birth.Lo + min
-// and, when max is set, d.Lo < birth.Hi + max (issue #23 In scope 4).
+// mayContain reports whether the bracket's reach possibly contains the age
+// at a dose on range d, for a birth date in birth (today-capped): when floor
+// is set, d.Hi ≥ birth.Lo + floor, and when max is set, d.Lo < birth.Hi +
+// max (SAD §5.3 step 3, issue #23 In scope 4, Q33). Each test is monotone
+// in d, so a wider range only passes more of them.
 func (br bracket) mayContain(d, birth Range) bool {
 	if !br.ok {
 		return true
 	}
-	return !d.Hi.Before(birth.Lo.AddSpan(br.min)) && (!br.max.ok || d.Lo.Before(birth.Hi.AddSpan(br.max.span)))
+	return (!br.floor.ok || !d.Hi.Before(birth.Lo.AddSpan(br.floor.span))) && (!br.max.ok || d.Lo.Before(birth.Hi.AddSpan(br.max.span)))
 }
 
 // openAt reports whether a person born on b can still start the series
@@ -202,6 +212,9 @@ func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
 			}
 			return 0
 		})
+		for j := 1; j < len(g.series); j++ {
+			m.series[g.series[j]].start.floor = m.series[g.series[j-1]].start.max
+		}
 	}
 	if len(m.noDose) == 0 {
 		m.noDose = m.all

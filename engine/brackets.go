@@ -35,8 +35,9 @@ func (dz diseaseModel) members(g int, cands []int) []int {
 
 // noDoseAt returns the candidates at birth end b when no dose is given (SAD
 // §5.3 step 3, EQ10, A5, Q33): from S3a's no-dose candidates (Q38), each
-// group keeps its first bracket open at b, the bracket the age falls in, the
-// next one above a gap or the earliest one; a group with none is dropped.
+// group keeps its first bracket open at b, the bracket whose reach contains
+// the age today (the bracket the age falls in, the next one above a gap or
+// the earliest one); a group with none is dropped.
 // When every group is dropped, the choice is redone over every group,
 // retired ones included (issue #23, Q50 (b)), so the result is empty only
 // when no series of the disease can be started at b: the outOfAge block
@@ -70,14 +71,18 @@ func (dz diseaseModel) openAt(cands []int, b, today Date) []int {
 //   - A group of one series keeps it (C8; a single bracket is always chosen
 //     by the rules below).
 //   - With no birth date every bracket possibly matches (Q37).
-//   - Otherwise a bracket matches when it possibly contains the age at one
-//     of its series' dose-1 candidates (doseOneRanges) at either birth end.
+//   - Otherwise a bracket matches when its reach (from the previous
+//     bracket's max in the group's order, or from birth for the first, up
+//     to its own max; see bracket) possibly contains the age at one of its
+//     series' dose-1 candidates (doseOneRanges) at either birth end. A gap
+//     between brackets belongs to the bracket above it (Q33), so a range
+//     that may fall in a bracket or in the gap above it matches both.
 //   - One match: it. Several: the matching series with the most doses, all
 //     of them on a tie (Q34), and AGE_AT_START_UNCERTAIN listing every
 //     match in rule-set order.
-//   - No match: with a the earliest dose-1 candidate date of the group, the
-//     first bracket whose max is absent or after a (A5, Q33), else the one
-//     with the latest max (C3); the doses are counted normally.
+//   - No match only when every candidate is at or past the last bracket's
+//     max: the latest-max bracket (A5, C3), with the doses counted
+//     normally.
 //
 // The candidates are in rule-set order; the reasons are one per group with
 // several matches, in group order.
@@ -96,30 +101,16 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 			if !birth.r.IsExact() {
 				ends = append(ends, birthEnd{date: birth.r.Hi, known: true})
 			}
-			var a Date
-			seen := false
 			for _, i := range members {
 				s := dz.series[i]
-				hit := false
-				for _, d := range s.doseOneRanges(arr.forLength(s.length), ends, birth.r.Lo, today) {
-					hit = hit || s.start.mayContain(d, birth.r)
-					if !seen || d.Lo.Before(a) {
-						a, seen = d.Lo, true
-					}
-				}
-				if hit {
+				if slices.ContainsFunc(s.doseOneRanges(arr.forLength(s.length), ends, birth.r.Lo, today), func(d Range) bool {
+					return s.start.mayContain(d, birth.r)
+				}) {
 					matched = append(matched, i)
 				}
 			}
 			if len(matched) == 0 {
-				pick := members[len(members)-1]
-				for _, i := range members {
-					if br := dz.series[i].start; !br.max.ok || a.Before(birth.r.Hi.AddSpan(br.max.span)) {
-						pick = i
-						break
-					}
-				}
-				cands = append(cands, pick)
+				cands = append(cands, members[len(members)-1])
 				continue
 			}
 		}
@@ -162,14 +153,13 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 //     reads the same record. Else the earliest dated dose (else [birthLo,
 //     today], which no placement reaches).
 //
-// A wider or extra candidate can only add matching brackets, so when the
-// group's brackets are contiguous the most-doses rule then picks the longer
-// series (P1). With a gap between brackets this does not hold: matching
-// reads [min, max) and the gap rule (Q33) runs only when nothing matches, so
-// a candidate that may fall in bracket i or in the gap above it matches i
-// alone, and the bracket above the gap never reaches the most-doses rule.
-// That follows issue #23's "One match: use it" as decided; whether such a
-// range should count the bracket above the gap is open with the owner.
+// A wider or extra candidate can only add matching brackets (P1): each
+// test is monotone in the candidate's range, and the reaches of a group
+// tile every age below the last max (Q33), so a range that may fall in a
+// bracket or in the gap above it matches both, and the most-doses rule
+// then picks the longer series. Nothing matches only when every
+// candidate is at or past the last max; the last bracket is then kept,
+// and a wider candidate still matches it.
 func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today Date) []Range {
 	upTo := today
 	if len(pl.dated) > 0 {

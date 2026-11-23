@@ -525,3 +525,41 @@ func TestStartAgeFloatingNotDoseOneBehindFixedSlot(t *testing.T) {
 		})
 	}
 }
+
+// TestNoDoseSplitFromRetiredFallback (SAD §5.3 steps 3 and 4, Q50 (b); PR
+// #27): the no-dose birth split also finds the dates where a retired
+// group's bracket opens, because the Q50 (b) fallback reads retired groups.
+// gardasil9 retired, and a non-retired hpv-other with one series
+// hpv-other-9to12 ([9y, 12y), the 9–14 doses). Birth year 2011, no dose,
+// today 2026-11-10: hpv-other-9to12 is closed on every day (2011-12-31 +
+// 12y is before today), so every day falls back to the gardasil9 brackets,
+// and 9–14 opens at 2011-11-11 (2011-11-11 + 15y is after today).
+//   - 2011-11-10 uses 15–45: Du = b + 15y = 2026-11-10 = today → 🟠.
+//   - 2011-11-11 uses 9–14: Du = b + 9y = 2020-11-11 → 🔴.
+//
+// The classes differ → ⚪ BIRTH_DATE_IMPRECISE{birthMonth}, with the latest
+// end's seriesUsed [hpv-g9-9to14] and no products. Comparing the two birth
+// ends alone (2011-01-01 on 15–45, 2011-12-31 on 9–14) gives 🔴 on both.
+func TestNoDoseSplitFromRetiredFallback(t *testing.T) {
+	t.Parallel()
+	s := loadSnapshot(t, "illustrative-start-age")
+	s.Products[0].Retired = true
+	withHPVOther(s)
+	other := s.Series[0]
+	other.ID, other.Product = "hpv-other-9to12", new("hpv-other")
+	other.StartAge = &ruleset.StartAge{Min: *spanOf(t, "P9Y"), Max: spanOf(t, "P12Y")}
+	s.Series = append(s.Series, other)
+	e := newEngine(t, s)
+	out, _ := evaluate(t, e, engine.Input{
+		Today:   mustDate(t, "2026-11-10"),
+		Profile: engine.Profile{Birth: engine.RecalledDate{Value: "2011", Precision: engine.Year}},
+		Doses:   []engine.DoseRecord{},
+	})
+	checkAssessment(t, out.Assessments[0], engine.Assessment{
+		Disease:    "hpv",
+		Bucket:     engine.BucketUnknown,
+		SeriesUsed: []string{"hpv-g9-9to14"},
+		Estimated:  true,
+		Reasons:    []engine.Reason{{Code: engine.ReasonBirthDateImprecise, Params: engine.ReasonParams{Hint: engine.HintBirthMonth}}},
+	})
+}

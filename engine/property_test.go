@@ -913,73 +913,95 @@ func minDateOf(a, b engine.Date) engine.Date {
 // bracket of the same product group (its age at dose 1 is that of the
 // earliest date, which can be years before today), so only product groups
 // are compared then (issue #23).
+// The random inputs rarely reach a maximum age, so the property also runs
+// on day-precise near-limit inputs (nearLimitDayInput), and some of their
+// results must take the maximum-age skip, or the first two clauses are
+// never tried at a maximum age.
 func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 	t.Parallel()
+	questioned := 0 // results that reach a maximum age, from the near-limit inputs
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(13, uint64(len(fx.name))))
 		for range propertyRuns {
-			in := randomDayInput(t, rng, fx.snap)
-			out, _ := evaluate(t, fx.engine, in)
-			for i, a := range out.Assessments {
-				if a.NextDose == nil {
-					continue
-				}
-				next := cloneInput(in)
-				next.Today = slices.MaxFunc([]engine.Date{in.Today, a.NextDose.Earliest}, engine.Date.Compare)
-				rec := engine.DoseRecord{
-					ID:       "zz-on-earliest",
-					Diseases: []string{a.Disease},
-					Date:     engine.RecalledDate{Value: a.NextDose.Earliest.String(), Precision: engine.Day},
-				}
-				if len(a.Products) > 0 {
-					rec.Product = &a.Products[0]
-				}
-				next.Doses = append(next.Doses, rec)
-				after, _ := evaluate(t, fx.engine, next)
-				b := after.Assessments[i]
-				if !reflect.DeepEqual(reasonsWith(b, engine.ReasonDoseInvalid), reasonsWith(a, engine.ReasonDoseInvalid)) {
-					t.Fatalf("%s %s: a dose on the earliest date %s changed DOSE_INVALID:\nbefore %v\nafter  %v",
-						fx.name, a.Disease, a.NextDose.Earliest, a.Reasons, b.Reasons)
-				}
-				for _, r := range reasonsWith(b, engine.ReasonDosePossiblyInvalid) {
-					if r.Params.Dose == rec.ID && slices.ContainsFunc(r.Params.Checks, func(c engine.Check) bool {
-						return c == engine.CheckMinAge || c == engine.CheckMinInterval || c == engine.CheckMinIntervalFromFirst
-					}) {
-						t.Fatalf("%s %s: a dose on the earliest date %s may fail a minimum: %v", fx.name, a.Disease, a.NextDose.Earliest, b.Reasons)
-					}
-				}
-				// Without S4b's cap, E can be at or past a maximum age (issue
-				// #15): the new dose may then be after it, possibly after it,
-				// or questioned by the candidates, so the "no new candidate"
-				// and "counted" clauses skip those results.
-				if maxAgeQuestioned(b) {
-					continue
-				}
-				hadDose := slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) })
-				key := func(id string) string {
-					if hadDose {
-						return id
-					}
-					return productGroup(t, fx.snap, a.Disease, id)
-				}
-				var before []string
-				for _, id := range a.SeriesUsed {
-					before = append(before, key(id))
-				}
-				for _, id := range b.SeriesUsed {
-					if !slices.Contains(before, key(id)) {
-						t.Fatalf("%s %s: a dose of %v on the earliest date added candidate %s: before %v, after %v",
-							fx.name, a.Disease, a.Products, id, a.SeriesUsed, b.SeriesUsed)
-					}
-				}
-				completed := len(reasonsWith(b, engine.ReasonComplete)) > 0
-				if !completed && (b.NextDose == nil || b.NextDose.Number != a.NextDose.Number+1) {
-					t.Fatalf("%s %s: a dose on the earliest date %s was not counted: before %+v, after %+v",
-						fx.name, a.Disease, a.NextDose.Earliest, a, b)
-				}
-			}
+			checkDoseOnEarliestDate(t, fx, randomDayInput(t, rng, fx.snap))
+		}
+		limits := ageLimits(fx.snap)
+		rng = rand.New(rand.NewPCG(53, uint64(len(fx.name))))
+		for range len(limits) * propertyRuns {
+			questioned += checkDoseOnEarliestDate(t, fx, nearLimitDayInput(t, rng, fx.snap, limits))
 		}
 	}
+	if questioned == 0 {
+		t.Fatal("no near-limit input put a dose on the earliest date at or past a maximum age: the property is vacuous there")
+	}
+}
+
+// checkDoseOnEarliestDate checks TestPropertyDoseOnEarliestDateCounts's
+// clauses on one day-precise input and returns how many of its results with
+// the new dose have a maximum-age reason (maxAgeQuestioned).
+func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (questioned int) {
+	t.Helper()
+	out, _ := evaluate(t, fx.engine, in)
+	for i, a := range out.Assessments {
+		if a.NextDose == nil {
+			continue
+		}
+		next := cloneInput(in)
+		next.Today = slices.MaxFunc([]engine.Date{in.Today, a.NextDose.Earliest}, engine.Date.Compare)
+		rec := engine.DoseRecord{
+			ID:       "zz-on-earliest",
+			Diseases: []string{a.Disease},
+			Date:     engine.RecalledDate{Value: a.NextDose.Earliest.String(), Precision: engine.Day},
+		}
+		if len(a.Products) > 0 {
+			rec.Product = &a.Products[0]
+		}
+		next.Doses = append(next.Doses, rec)
+		after, _ := evaluate(t, fx.engine, next)
+		b := after.Assessments[i]
+		if !reflect.DeepEqual(reasonsWith(b, engine.ReasonDoseInvalid), reasonsWith(a, engine.ReasonDoseInvalid)) {
+			t.Fatalf("%s %s: a dose on the earliest date %s changed DOSE_INVALID:\nbefore %v\nafter  %v",
+				fx.name, a.Disease, a.NextDose.Earliest, a.Reasons, b.Reasons)
+		}
+		for _, r := range reasonsWith(b, engine.ReasonDosePossiblyInvalid) {
+			if r.Params.Dose == rec.ID && slices.ContainsFunc(r.Params.Checks, func(c engine.Check) bool {
+				return c == engine.CheckMinAge || c == engine.CheckMinInterval || c == engine.CheckMinIntervalFromFirst
+			}) {
+				t.Fatalf("%s %s: a dose on the earliest date %s may fail a minimum: %v", fx.name, a.Disease, a.NextDose.Earliest, b.Reasons)
+			}
+		}
+		// Without S4b's cap, E can be at or past a maximum age (issue
+		// #15): the new dose may then be after it, possibly after it,
+		// or questioned by the candidates, so the "no new candidate"
+		// and "counted" clauses skip those results.
+		if maxAgeQuestioned(b) {
+			questioned++
+			continue
+		}
+		hadDose := slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) })
+		key := func(id string) string {
+			if hadDose {
+				return id
+			}
+			return productGroup(t, fx.snap, a.Disease, id)
+		}
+		var before []string
+		for _, id := range a.SeriesUsed {
+			before = append(before, key(id))
+		}
+		for _, id := range b.SeriesUsed {
+			if !slices.Contains(before, key(id)) {
+				t.Fatalf("%s %s: a dose of %v on the earliest date added candidate %s: before %v, after %v",
+					fx.name, a.Disease, a.Products, id, a.SeriesUsed, b.SeriesUsed)
+			}
+		}
+		completed := len(reasonsWith(b, engine.ReasonComplete)) > 0
+		if !completed && (b.NextDose == nil || b.NextDose.Number != a.NextDose.Number+1) {
+			t.Fatalf("%s %s: a dose on the earliest date %s was not counted: before %+v, after %+v",
+				fx.name, a.Disease, a.NextDose.Earliest, a, b)
+		}
+	}
+	return questioned
 }
 
 // maxAgeQuestioned reports whether a has a maximum-age reason:

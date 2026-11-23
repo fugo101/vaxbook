@@ -108,6 +108,24 @@ func nearLimitInput(t testing.TB, rng *rand.Rand, s *ruleset.Snapshot, limits []
 	return in
 }
 
+// nearLimitDayInput is nearLimitInput restricted to randomDayInput's kind of
+// input: a day-precise birth date (other draws are redrawn) and only the
+// day-precise dose records, with no dose numbers.
+func nearLimitDayInput(t testing.TB, rng *rand.Rand, s *ruleset.Snapshot, limits []ruleset.Span) engine.Input {
+	t.Helper()
+	for {
+		in := nearLimitInput(t, rng, s, limits)
+		if in.Profile.Birth.Precision != engine.Day {
+			continue
+		}
+		in.Doses = slices.DeleteFunc(in.Doses, func(r engine.DoseRecord) bool { return r.Date.Precision != engine.Day })
+		for i := range in.Doses {
+			in.Doses[i].DoseNumbers = nil
+		}
+		return in
+	}
+}
+
 // TestPropertyProductDisagreement (issue #15 In scope 5, 6; Q53, Q54):
 // CHECK_PRODUCT_NAME and MIXED_PRODUCTS appear only with a dose of the
 // disease and two or more series in seriesUsed, never both. MIXED_PRODUCTS

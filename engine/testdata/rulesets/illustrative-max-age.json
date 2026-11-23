@@ -1,0 +1,131 @@
+{
+  "version": "illustrative-max-age-s4a",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "rota",
+      "name": "Tiêu chảy do rotavirus"
+    }
+  ],
+  "products": [
+    {
+      "id": "rotarix",
+      "name": "Rotarix",
+      "diseases": [
+        "rota"
+      ],
+      "live": true
+    },
+    {
+      "id": "rotateq",
+      "name": "RotaTeq",
+      "diseases": [
+        "rota"
+      ],
+      "live": true
+    },
+    {
+      "id": "rotavin",
+      "name": "Rotavin",
+      "diseases": [
+        "rota"
+      ],
+      "live": true
+    }
+  ],
+  "series": [
+    {
+      "id": "rota-rotarix",
+      "disease": "rota",
+      "product": "rotarix",
+      "stage": "childhood",
+      "maxAgeStart": "P15W",
+      "maxAgeComplete": "P24W",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rota-rotateq",
+      "disease": "rota",
+      "product": "rotateq",
+      "stage": "childhood",
+      "maxAgeStart": "P15W",
+      "maxAgeComplete": "P32W",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P10W"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P6M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rota-rotavin",
+      "disease": "rota",
+      "product": "rotavin",
+      "stage": "childhood",
+      "maxAgeStart": "P12W",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P3M"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

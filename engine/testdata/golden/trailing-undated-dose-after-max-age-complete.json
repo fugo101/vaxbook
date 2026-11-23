@@ -1,0 +1,67 @@
+{
+  "ruleset": "minimal-max-age-complete",
+  "input": {
+    "today": "2026-06-10",
+    "profile": {
+      "birth": {
+        "value": "2006-06-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "z"
+        ],
+        "product": "za",
+        "date": {
+          "value": "2026-05-10",
+          "precision": "day"
+        },
+        "doseNumbers": {
+          "z": 1
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "z"
+        ],
+        "product": "za",
+        "date": {
+          "precision": "unknown"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-max-age-complete-s4a",
+    "today": "2026-06-10",
+    "assessments": [
+      {
+        "disease": "z",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "z-a"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "DOSE_AFTER_MAX_AGE",
+            "params": {
+              "checks": [
+                "maxAgeComplete"
+              ],
+              "dose": "r2",
+              "number": 2
+            }
+          },
+          {
+            "code": "ON_TRACK"
+          }
+        ]
+      }
+    ]
+  }
+}

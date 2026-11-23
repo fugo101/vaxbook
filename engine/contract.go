@@ -368,7 +368,10 @@ const (
 	// number (the position it was checked for).
 	ReasonDoseInvalid ReasonCode = "DOSE_INVALID"
 	// ReasonDosePossiblyInvalid: a dose violates a minimum at one end of its
-	// date range only; it is counted (F05.10). Params: checks, dose, number.
+	// date range only, or (from S4a) may be on or after a maximum age; it is
+	// counted (F05.10). Params: checks, dose, number. A maximum-age check
+	// carried from an implied slot has the carrier's dose and number, as for
+	// ReasonDoseAfterMaxAge.
 	ReasonDosePossiblyInvalid ReasonCode = "DOSE_POSSIBLY_INVALID"
 	// ReasonIntervalUnverifiable: informational. The dose before this one in
 	// time is undated (level 4 or implied), so the minimum interval to it is
@@ -417,10 +420,17 @@ const (
 	// under every candidate series that checks it, so it is not counted
 	// (SAD §5.3 step 5, F05.10, EQ7, EQ16): dose 1 on or after its start
 	// limit (maxAgeStart), or a dose at a position up to the series length
-	// on or after maxAgeComplete. Maximum ages are exclusive bounds. Params:
-	// checks (the failed maximum ages only), dose, number (the position it
-	// was checked for, or the number of the level-4 record beyond the series
-	// that carries an implied dose). Added in S4a.
+	// on or after maxAgeComplete. Maximum ages are exclusive bounds. An
+	// implied slot's failure is carried, like a chain failure, by the
+	// record after its run: a dated dose (in the series, or beyond its
+	// length and not checked itself), the last trailing level-4 slot, or
+	// the lowest level-4 record beyond the series. The reason then has the
+	// carrier's dose and number, so number can exceed the series length and
+	// a maxAgeStart check can come with a number above 1. Params: checks
+	// (the failed maximum ages only), dose, number (the position it was
+	// checked for; for a carried failure, the carrier's position, or the
+	// number of the level-4 record beyond the series that carries it).
+	// Added in S4a.
 	ReasonDoseAfterMaxAge ReasonCode = "DOSE_AFTER_MAX_AGE"
 	// ReasonCheckProductName: the candidate series disagree on a maximum age
 	// (one gives a dose DOSE_AFTER_MAX_AGE, another counts it or is complete

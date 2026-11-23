@@ -259,3 +259,72 @@ func TestNarrowingChangesBracket(t *testing.T) {
 		t.Errorf("validity example:\nwide   %+v\nnarrow %+v", wide, got)
 	}
 }
+
+// TestNoDoseThreeSubRanges (SAD §5.3 step 4; PR #27, issue #23): a no-dose
+// birth range split into three sub-ranges, each with its own start-age
+// choice. Disease tri, every dose 1 at min age 6m, one dose per series:
+//
+//	series  product  startAge      dose 1 recommended at
+//	g-a     generic  [6m, 15m)     6m
+//	g-b     generic  [15m, 5y)     15m
+//	x-a     tri-x    [6m, 18m)     6m
+//	x-b     tri-x    [18m, 6y)     18m
+//
+// Birth year 2024, today 2026-02-15. x-a closes for births up to 2024-08-15
+// (2024-08-15 + 18m = today) and g-a for births up to 2024-11-15, so the
+// sub-ranges are [01-01, 08-15] → [g-b, x-b], [08-16, 11-15] → [g-b, x-a]
+// and [11-16, 12-31] → [g-a, x-a]. 2024-01-01 is 🔴 (x-b Du = b + 18m =
+// 2025-07-01, O 07-08), and 2024-08-15 is 🟠 (x-b Du = 2026-02-15 =
+// today), so the result is ⚪ BIRTH_DATE_IMPRECISE{birthMonth} with every
+// sub-range's SAFEST_SERIES, latest first, and the latest end's seriesUsed
+// [g-a, x-a]. Comparing the two birth ends alone gives 🔴 {1, 2025-06-30,
+// 2025-06-30, 2025-07-07}: both are overdue.
+func TestNoDoseThreeSubRanges(t *testing.T) {
+	t.Parallel()
+	series := func(id, product, minAge, maxAge string) ruleset.Series {
+		sr := ruleset.Series{
+			ID: id, Disease: "tri", Stage: ruleset.Childhood,
+			StartAge: &ruleset.StartAge{Min: *spanOf(t, minAge), Max: spanOf(t, maxAge)},
+			Plans: []ruleset.Plan{{ID: "main", Doses: []ruleset.DoseRule{{
+				MinAge:      spanOf(t, "P6M"),
+				Recommended: ruleset.Milestone{From: ruleset.FromBirth, Offset: *spanOf(t, minAge)},
+			}}}},
+		}
+		if product != "" {
+			sr.Product = &product
+		}
+		return sr
+	}
+	s := &ruleset.Snapshot{
+		Version:  "tri-1",
+		Diseases: []ruleset.Disease{{ID: "tri", Name: "Bệnh minh hoạ ba khoảng"}},
+		Products: []ruleset.Product{{ID: "tri-x", Name: "Vắc xin minh hoạ X", Diseases: []string{"tri"}}},
+		Series: []ruleset.Series{
+			series("g-a", "", "P6M", "P15M"),
+			series("g-b", "", "P15M", "P5Y"),
+			series("x-a", "tri-x", "P6M", "P18M"),
+			series("x-b", "tri-x", "P18M", "P6Y"),
+		},
+	}
+	e := newEngine(t, s)
+	out, _ := evaluate(t, e, engine.Input{
+		Today:   mustDate(t, "2026-02-15"),
+		Profile: engine.Profile{Birth: engine.RecalledDate{Value: "2024", Precision: engine.Year}},
+		Doses:   []engine.DoseRecord{},
+	})
+	safest := func(generic, own string) engine.Reason {
+		return engine.Reason{Code: engine.ReasonSafestSeries, Params: engine.ReasonParams{Candidates: []engine.SeriesRef{{Series: generic}, {Product: "tri-x", Series: own}}}}
+	}
+	checkAssessment(t, out.Assessments[0], engine.Assessment{
+		Disease:    "tri",
+		Bucket:     engine.BucketUnknown,
+		SeriesUsed: []string{"g-a", "x-a"},
+		Estimated:  true,
+		Reasons: []engine.Reason{
+			{Code: engine.ReasonBirthDateImprecise, Params: engine.ReasonParams{Hint: engine.HintBirthMonth}},
+			safest("g-a", "x-a"),
+			safest("g-b", "x-a"),
+			safest("g-b", "x-b"),
+		},
+	})
+}

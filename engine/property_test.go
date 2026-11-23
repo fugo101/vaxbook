@@ -463,20 +463,38 @@ func visible(a engine.Assessment) string { return string(a.Bucket) + string(a.Bl
 // TestPropertyNarrowingBirthDate: narrowing a month- or year-precision birth
 // date to a day inside its (today-capped) range never turns a ✅, 🟡 or
 // notYetScheduled result into 🔴 or 🟠 (issue #13), when the narrowed result
-// has the same seriesUsed as the wide one (issue #23, Q44 and its
-// extension, SAD §5.7). The wide result is computed at both ends of the
-// range, and for a fixed series steps 5–9 are monotone in the birth date
-// between them; a narrower birth date can choose another start-age bracket,
-// with other dates. The skip applies only to diseases with start-age
-// brackets (see bracketed); for the others the clause is checked whatever
-// seriesUsed does, as in S3a.
+// has the same seriesUsed as the wide one or the disease has no dose (issue
+// #23, Q44 and its extension, SAD §5.7).
+//   - With doses given, the wide result is computed at both ends of the
+//     range under one set of candidates, and for fixed series steps 5–9 are
+//     monotone in the birth date between them; a narrower birth date can
+//     choose another start-age bracket, with other dates. The skip applies
+//     only to diseases with start-age brackets (see bracketed); for the
+//     others the clause is checked whatever seriesUsed does, as in S3a.
+//   - With no dose given, the birth range is split wherever the start-age
+//     choice changes and both ends of every sub-range are compared (SAD
+//     §5.3 step 4), so a calm wide result means every day of the range is
+//     calm, whichever bracket it chooses: the clause has no skip.
+//
+// Half the inputs drop every dose and take a month- or year-precision birth
+// date; half of those move today to 0–199 days after a bracket's max is
+// reached at the older birth end, where the birth range crosses a bracket
+// change. On minimal-start-age-gap-late the count of the F1 shape (PR #27:
+// the birth ends choose different brackets, the latest birth date is calm,
+// the wide result is ⚪ BIRTH_DATE_IMPRECISE and the narrowed day is 🟠 or
+// 🔴) guards against the generator no longer reaching it.
 func TestPropertyNarrowingBirthDate(t *testing.T) {
 	t.Parallel()
 	calm := map[string]bool{string(engine.BucketComplete): true, string(engine.BucketUpcoming): true, string(engine.BlockNotYetScheduled): true}
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(29, uint64(len(fx.name))))
-		for range propertyRuns {
+		maxes := bracketMaxes(fx.snap)
+		f1 := 0
+		for i := range propertyRuns {
 			in := randomInput(t, rng, fx.snap)
+			if i%2 == 1 {
+				in = noDoseImprecise(rng, in, maxes, 200)
+			}
 			lo, hi, ok := testPeriod(in.Profile.Birth, in.Today)
 			if !ok || lo == hi {
 				continue
@@ -485,18 +503,61 @@ func TestPropertyNarrowingBirthDate(t *testing.T) {
 			narrow := cloneInput(in)
 			narrow.Profile.Birth = engine.RecalledDate{Value: lo.AddDays(rng.IntN(daysBetween(lo, hi) + 1)).String(), Precision: engine.Day}
 			got, _ := evaluate(t, fx.engine, narrow)
-			for i, a := range wide.Assessments {
-				b := got.Assessments[i]
-				if bracketed(fx.snap, a.Disease) && !slices.Equal(a.SeriesUsed, b.SeriesUsed) {
+			for j, a := range wide.Assessments {
+				b := got.Assessments[j]
+				hasDose := slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) })
+				if hasDose && bracketed(fx.snap, a.Disease) && !slices.Equal(a.SeriesUsed, b.SeriesUsed) {
 					continue // Q44: another bracket, other dates
 				}
-				if calm[visible(a)] && (b.Bucket == engine.BucketOverdue || b.Bucket == engine.BucketDue) {
-					t.Fatalf("%s %s: birth %v gives %s, narrowed to %s gives %s\nwide   %+v\nnarrow %+v",
-						fx.name, a.Disease, in.Profile.Birth, visible(a), narrow.Profile.Birth.Value, visible(b), a, b)
+				alarming := b.Bucket == engine.BucketOverdue || b.Bucket == engine.BucketDue
+				if fx.name == "minimal-start-age-gap-late" && !hasDose && alarming && hasCode(a, engine.ReasonBirthDateImprecise) &&
+					!slices.Equal(noDoseChoice(fx.snap, a.Disease, lo, in.Today), noDoseChoice(fx.snap, a.Disease, hi, in.Today)) {
+					latest := cloneInput(in)
+					latest.Profile.Birth = engine.RecalledDate{Value: hi.String(), Precision: engine.Day}
+					if out, _ := evaluate(t, fx.engine, latest); calm[visible(out.Assessments[j])] {
+						f1++
+					}
+				}
+				if calm[visible(a)] && alarming {
+					t.Fatalf("%s %s: birth %v gives %s, narrowed to %s gives %s\nwide   %+v\nnarrow %+v\ninput  %+v",
+						fx.name, a.Disease, in.Profile.Birth, visible(a), narrow.Profile.Birth.Value, visible(b), a, b, in)
 				}
 			}
 		}
+		if fx.name == "minimal-start-age-gap-late" && f1 == 0 {
+			t.Errorf("%s: no random input reached the F1 shape", fx.name)
+		}
 	}
+}
+
+// bracketMaxes returns the startAge max of every series of s that has one.
+func bracketMaxes(s *ruleset.Snapshot) []ruleset.Span {
+	var out []ruleset.Span
+	for _, sr := range s.Series {
+		if sr.StartAge != nil && sr.StartAge.Max != nil {
+			out = append(out, *sr.StartAge.Max)
+		}
+	}
+	return out
+}
+
+// noDoseImprecise drops every dose of in and cuts a day-precise birth date
+// to its month or, half the time, its year. When maxes is not empty, half
+// the time it then moves today to the older birth end + a random max + 0 to
+// window−1 days: a bracket has just closed at the older end and may still be
+// open at the later one, so the birth range crosses a start-age change.
+func noDoseImprecise(rng *rand.Rand, in engine.Input, maxes []ruleset.Span, window int) engine.Input {
+	in.Doses = []engine.DoseRecord{}
+	if b, err := engine.ParseDate(in.Profile.Birth.Value); err == nil && in.Profile.Birth.Precision == engine.Day {
+		in.Profile.Birth = engine.RecalledDate{Value: b.String()[:7], Precision: engine.Month}
+		if rng.IntN(2) == 0 {
+			in.Profile.Birth = engine.RecalledDate{Value: b.String()[:4], Precision: engine.Year}
+		}
+	}
+	if lo, _, ok := testPeriod(in.Profile.Birth, in.Today); ok && len(maxes) > 0 && rng.IntN(2) == 0 {
+		in.Today = lo.AddSpan(maxes[rng.IntN(len(maxes))]).AddDays(rng.IntN(window))
+	}
+	return in
 }
 
 // TestPropertyNarrowingDoseDate: narrowing a month- or year-precision dose
@@ -816,11 +877,12 @@ func hasCode(a engine.Assessment, c engine.ReasonCode) bool { return len(reasons
 //     once, and its candidates are seriesUsed with each series' product
 //     (omitted for a generic series); with no seriesUsed there is neither.
 //     With no dose given and a birth date, seriesUsed is the later end's
-//     choice (noDoseChoice, Q40), and the birth ends can choose different
-//     start-age brackets (issue #23). Only in a two-end ⚪
-//     BIRTH_DATE_IMPRECISE whose ends chose different lists does each end
-//     keep its own SAFEST_SERIES (A8): the later end's list and then the
-//     older end's, each present iff that end has two or more series, so
+//     choice (noDoseChoice, Q40), and the birth range can cross start-age
+//     changes, which split it into sub-ranges with one choice each (issue
+//     #23, PR #27). Only in a ⚪ BIRTH_DATE_IMPRECISE whose ends chose
+//     different lists does each sub-range keep its own SAFEST_SERIES (A8):
+//     one per maximal run of birth days with the same choice of two or more
+//     series, from the latest run to the oldest, without repeats, so
 //     seriesUsed may have one series while a SAFEST_SERIES is present.
 //     Ends that chose the same list, or agree on a result that is not ⚪,
 //     keep the rule above;
@@ -870,10 +932,17 @@ func checkCandidates(t testing.TB, fx fixture, in engine.Input, a engine.Assessm
 			fail("no dose: seriesUsed %v, want the later end's choice %v", a.SeriesUsed, hiEnd)
 		}
 		if differ = !slices.Equal(loEnd, hiEnd); differ && hasCode(a, engine.ReasonBirthDateImprecise) {
+			var runs [][]string // each run's choice, latest first
+			for b := hi; !b.Before(lo); b = b.AddDays(-1) {
+				if c := noDoseChoice(s, a.Disease, b, in.Today); len(runs) == 0 || !slices.Equal(c, runs[len(runs)-1]) {
+					runs = append(runs, c)
+				}
+			}
 			var want [][]engine.SeriesRef
-			for _, end := range [][]string{hiEnd, loEnd} {
-				if len(end) >= 2 {
-					want = append(want, refs(seriesUsed(t, s, engine.Assessment{Disease: a.Disease, SeriesUsed: end})))
+			for _, run := range runs {
+				ref := refs(seriesUsed(t, s, engine.Assessment{Disease: a.Disease, SeriesUsed: run}))
+				if len(run) >= 2 && !slices.ContainsFunc(want, func(w []engine.SeriesRef) bool { return slices.Equal(w, ref) }) {
+					want = append(want, ref)
 				}
 			}
 			var got [][]engine.SeriesRef
@@ -881,7 +950,7 @@ func checkCandidates(t testing.TB, fx fixture, in engine.Input, a engine.Assessm
 				got = append(got, r.Params.Candidates)
 			}
 			if !reflect.DeepEqual(got, want) {
-				fail("two-end ⚪, the ends chose %v (later) and %v (older): SAFEST_SERIES %v, want %v", hiEnd, loEnd, got, want)
+				fail("⚪ across start-age changes, the runs chose %v (latest first): SAFEST_SERIES %v, want %v", runs, got, want)
 			}
 		}
 	}

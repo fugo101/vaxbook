@@ -456,7 +456,7 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 		a.Reasons = append(a.Reasons, uncertain...)
 		// SAFEST_SERIES: with doses given the candidates do not depend on
 		// the birth end, so it is emitted once, before step 4; with no dose
-		// given it is a bucket reason of each end (evaluate).
+		// given it is a bucket reason of each birth date (evaluate).
 		if len(cands) > 1 {
 			a.Reasons = append(a.Reasons, Reason{Code: ReasonSafestSeries, Params: ReasonParams{Candidates: dz.refs(cands)}})
 		}

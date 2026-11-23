@@ -74,8 +74,9 @@ func (dz diseaseModel) productsFor(series []int) []string {
 }
 
 // evaluation is steps 5–9 of one disease over its candidate series, ready to
-// run at a birth end. With doses given both ends share one evaluation; with
-// no dose given each end has its own, since the brackets can differ.
+// run at a birth date. With doses given both birth ends share one
+// evaluation; with no dose given each birth date step 4 evaluates has its
+// own, since the brackets can differ.
 type evaluation struct {
 	dz    diseaseModel
 	cands []int       // the candidate series, in rule-set order
@@ -84,8 +85,8 @@ type evaluation struct {
 	// free are the IDs of the disease's records with an off-catalog
 	// product, by ID: PRODUCT_NOT_IN_CATALOG when complete (EQ14).
 	free []string
-	// safest is SAFEST_SERIES as a bucket reason of each end, set when no
-	// dose is given and two or more candidates remain.
+	// safest is SAFEST_SERIES as a bucket reason of each birth date, set
+	// when no dose is given and two or more candidates remain.
 	safest *Reason
 }
 

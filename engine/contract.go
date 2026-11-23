@@ -172,8 +172,8 @@ type Assessment struct {
 	// rule-set order, complete candidates included (issue #14, Q26). It is
 	// omitted after a step-1 or step-2 ⚪ and for ⚪ NO_BIRTH_DATE with no
 	// dose given, where step 3 does not run, and for BlockOutOfAge. With no
-	// dose given and different candidates at the two birth ends, it is the
-	// later end's list, in a two-end ⚪ too (issue #23, Q40). Added in S3a.
+	// dose given and different candidates across the birth-date range, it
+	// is the later end's list, in a ⚪ too (issue #23, Q40). Added in S3a.
 	SeriesUsed []string `json:"seriesUsed,omitzero"`
 	// Products are the non-retired catalog products for the next dose, in
 	// snapshot order: the product of each candidate product series at the

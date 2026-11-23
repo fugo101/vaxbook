@@ -87,7 +87,7 @@ The series of one disease that share one product, or the generic series of a dis
 _Avoid_: Product series (one series), Series family
 
 **Start-age bracket**:
-The ages at dose 1 a series applies to: a half-open range [min, max), with max optional (open-ended). The brackets of one product group do not overlap; the engine chooses a group's series by the age at dose 1, or, with no dose yet, by the age today. Not the minimum age of a dose.
+The ages at dose 1 a series applies to: a half-open range [min, max), with max optional (open-ended). The brackets of one product group do not overlap; the engine chooses a group's series by the age at dose 1, or, with no dose yet, by the age today. For choosing, a bracket's _reach_ also covers the gap below it, from the previous bracket's max (from birth for the first), so every age below the last max is in exactly one reach (Q33). Not the minimum age of a dose.
 _Avoid_: Age range (ambiguous with the minimum and maximum ages), Age group
 
 **Candidate series**:

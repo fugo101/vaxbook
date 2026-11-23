@@ -121,8 +121,9 @@ type startAgeFinding struct {
 	// group's first series, which every plan of the group is compared with
 	// (FIRST_DOSE_MIN_AGE_DIFFERS), and refID that series' ID. It is nil
 	// when the group has one series, or when that minimum age is absent or
-	// invalid or that series has an invalid bracket: a Reject is reported
-	// then.
+	// invalid: a Reject is reported then. The first series' bracket does not
+	// matter: the comparison never reads a bracket, so an invalid one skips
+	// only that series' own Warns (warnings).
 	reference []*Span
 	refID     []string
 }
@@ -153,8 +154,7 @@ func startAgeFindings(series []Series) startAgeFinding {
 			continue
 		}
 		f.required[i] = sr.StartAge == nil
-		if first := series[g[0]]; (first.StartAge == nil || validBracket(first.StartAge)) &&
-			len(first.Plans) > 0 && len(first.Plans[0].Doses) > 0 {
+		if first := series[g[0]]; len(first.Plans) > 0 && len(first.Plans[0].Doses) > 0 {
 			if a := first.Plans[0].Doses[0].MinAge; a != nil && a.valid() {
 				f.reference[i], f.refID[i] = a, first.ID
 			}

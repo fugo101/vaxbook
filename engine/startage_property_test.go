@@ -338,7 +338,7 @@ func TestPropertyNoDoseBirthRangeOracle(t *testing.T) {
 				for _, out := range days {
 					d := out.Assessments[i]
 					c, k := shownClass(d)
-					if k != lk || c != lc && !(distanceOnlyClass(c) && distanceOnlyClass(lc)) {
+					if sameClass := c == lc || distanceOnlyClass(c) && distanceOnlyClass(lc); k != lk || !sameClass {
 						agree = false
 					}
 					outOfAge = outOfAge || d.Block == engine.BlockOutOfAge

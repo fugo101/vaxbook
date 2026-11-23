@@ -380,28 +380,39 @@ func TestPropertyNextDoseBounds(t *testing.T) {
 	}
 }
 
-// TestPropertyNoBirthDateNoAgeCheck: with no birth date, the minimum age
-// never makes a dose invalid or possibly invalid (SAD §5.7, EQ19). Every
-// random input is also evaluated with its birth date removed.
+// TestPropertyNoBirthDateNoAgeCheck (P2): with no birth date, no age-based
+// check makes a dose invalid, possibly invalid or after a maximum age (SAD
+// §5.7, EQ19, A6; issue #15): no DOSE_AFTER_MAX_AGE, and no reason lists
+// minAge, maxAgeStart or maxAgeComplete. Every random input is also
+// evaluated with its birth date removed, and so are the near-limit inputs
+// of the fixtures with maximum ages.
 func TestPropertyNoBirthDateNoAgeCheck(t *testing.T) {
 	t.Parallel()
+	check := func(fx fixture, in engine.Input) {
+		in.Profile.Birth = engine.RecalledDate{Precision: engine.None}
+		out, _ := evaluate(t, fx.engine, in)
+		for _, a := range out.Assessments {
+			checkAssessmentShape(t, fx.name, a)
+			if !a.Estimated {
+				t.Fatalf("%s %s: no birth date but not estimated", fx.name, a.Disease)
+			}
+			for _, r := range a.Reasons {
+				if r.Code == engine.ReasonDoseAfterMaxAge || slices.ContainsFunc(r.Params.Checks, func(c engine.Check) bool {
+					return c == engine.CheckMinAge || c == engine.CheckMaxAgeStart || c == engine.CheckMaxAgeComplete
+				}) {
+					t.Fatalf("%s %s: no birth date but %s checks an age (input %+v)", fx.name, a.Disease, r.Code, in)
+				}
+			}
+		}
+	}
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(19, uint64(len(fx.name))))
 		for range propertyRuns {
-			in := randomInput(t, rng, fx.snap)
-			in.Profile.Birth = engine.RecalledDate{Precision: engine.None}
-			out, _ := evaluate(t, fx.engine, in)
-			for _, a := range out.Assessments {
-				checkAssessmentShape(t, fx.name, a)
-				if !a.Estimated {
-					t.Fatalf("%s %s: no birth date but not estimated", fx.name, a.Disease)
-				}
-				for _, r := range a.Reasons {
-					if slices.Contains(r.Params.Checks, engine.CheckMinAge) {
-						t.Fatalf("%s %s: no birth date but %s checks the minimum age (input %+v)", fx.name, a.Disease, r.Code, in)
-					}
-				}
-			}
+			check(fx, randomInput(t, rng, fx.snap))
+		}
+		limits := ageLimits(fx.snap)
+		for range len(limits) * propertyRuns / 4 {
+			check(fx, nearLimitInput(t, rng, fx.snap, limits))
 		}
 	}
 }
@@ -441,13 +452,28 @@ func TestPropertyEstimated(t *testing.T) {
 	}
 }
 
-// invalidDoses lists the dose and position of each DOSE_INVALID reason.
+// invalidDoses lists the dose and position of each DOSE_INVALID and
+// DOSE_AFTER_MAX_AGE reason, once each: the doses the result does not count
+// (issue #15, "dose and position"). The code and checks are left out: a
+// dose that is not counted drops its possible checks (Q62), so narrowing its
+// date can turn a hidden possible check into a definite one, adding a check
+// or a DOSE_INVALID next to its DOSE_AFTER_MAX_AGE.
 func invalidDoses(a engine.Assessment) []string {
 	var out []string
-	for _, r := range reasonsWith(a, engine.ReasonDoseInvalid) {
-		out = append(out, fmt.Sprintf("%s#%d", r.Params.Dose, r.Params.Number))
+	for _, r := range a.Reasons {
+		if r.Code == engine.ReasonDoseInvalid || r.Code == engine.ReasonDoseAfterMaxAge {
+			if k := fmt.Sprintf("%s#%d", r.Params.Dose, r.Params.Number); !slices.Contains(out, k) {
+				out = append(out, k)
+			}
+		}
 	}
 	return out
+}
+
+// productDisagreement reports whether a has CHECK_PRODUCT_NAME or
+// MIXED_PRODUCTS, which name no dose.
+func productDisagreement(a engine.Assessment) bool {
+	return hasCode(a, engine.ReasonCheckProductName) || hasCode(a, engine.ReasonMixedProducts)
 }
 
 // bracketed reports whether some series of the disease has a start-age
@@ -588,63 +614,102 @@ func noDoseImprecise(rng *rand.Rand, in engine.Input, maxes []ruleset.Span, wind
 // stronger check: the candidates do not depend on the birth date, and on
 // dose dates only through the placement (issue #14), so the date clause
 // fails when seriesUsed differs and the validity clause has no guard.
+//
+// Since S4a (issue #15) the validity clause also covers maximum ages: the
+// doses not counted (DOSE_INVALID and DOSE_AFTER_MAX_AGE, invalidDoses) and
+// the presence of CHECK_PRODUCT_NAME or MIXED_PRODUCTS stay the same. A wide
+// result with a DOSE_POSSIBLY_INVALID, minimum or maximum, is skipped as
+// before: a possible failure may narrow to a definite one. A possible check
+// hidden on a dose that is not counted (Q62) can narrow too, so when a
+// maximum-age reason is involved and the wide result has a dose not counted
+// or a disagreement, the doses not counted may only grow, a disagreement
+// stays, and one may appear (checkNarrowingDoseDate). The near-limit inputs
+// of the fixtures with maximum ages run the same check.
 func TestPropertyNarrowingDoseDate(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(31, uint64(len(fx.name))))
 		for range propertyRuns {
-			in := randomInput(t, rng, fx.snap)
-			if in.Profile.Birth.Precision != engine.Day {
-				continue
-			}
-			var wideDoses []int
-			for i, r := range in.Doses {
-				if lo, hi, ok := testPeriod(r.Date, in.Today); ok && lo != hi {
-					wideDoses = append(wideDoses, i)
-				}
-			}
-			if len(wideDoses) == 0 {
-				continue
-			}
-			wide, _ := evaluate(t, fx.engine, in)
-			narrow := cloneInput(in)
-			i := wideDoses[rng.IntN(len(wideDoses))]
-			lo, hi, _ := testPeriod(in.Doses[i].Date, in.Today)
-			// A day before birth would be a record problem, not a narrower date.
-			lo = slices.MaxFunc([]engine.Date{lo, mustDate(t, in.Profile.Birth.Value)}, engine.Date.Compare)
-			if lo.After(hi) {
-				continue
-			}
-			narrow.Doses[i].Date = engine.RecalledDate{Value: lo.AddDays(rng.IntN(daysBetween(lo, hi) + 1)).String(), Precision: engine.Day}
-			got, _ := evaluate(t, fx.engine, narrow)
-			for j, a := range wide.Assessments {
-				b := got.Assessments[j]
-				sameSeries := slices.Equal(a.SeriesUsed, b.SeriesUsed)
-				if bracketed(fx.snap, a.Disease) && !sameSeries {
-					continue // Q44: another bracket
-				}
-				placed := len(reasonsWith(a, engine.ReasonOverlappingEstimatedDates)) == 0 && len(reasonsWith(a, engine.ReasonNumberingConflict)) == 0 &&
-					len(reasonsWith(b, engine.ReasonNumberingConflict)) == 0
-				if placed && len(reasonsWith(a, engine.ReasonDosePossiblyInvalid)) == 0 {
-					if !slices.Equal(invalidDoses(a), invalidDoses(b)) ||
-						len(reasonsWith(b, engine.ReasonDosePossiblyInvalid)) > 0 {
-						t.Fatalf("%s %s: narrowing %s to %s changed validity\nwide   %+v\nnarrow %+v\ninput  %+v",
-							fx.name, a.Disease, in.Doses[i].Date.Value, narrow.Doses[i].Date.Value, a, b, in)
-					}
-				}
-				if a.NextDose == nil || b.NextDose == nil || a.NextDose.Number != b.NextDose.Number {
-					continue
-				}
-				wn, nn := *a.NextDose, *b.NextDose
-				onePlan := !slices.ContainsFunc(seriesUsed(t, fx.snap, a), func(sr ruleset.Series) bool { return len(sr.Plans) > 1 })
-				if !sameSeries || nn.Due.After(wn.Due) || nn.Overdue.After(wn.Overdue) ||
-					(onePlan && nn.Earliest.After(wn.Earliest)) {
-					t.Fatalf("%s %s: narrowing %s to %s moved a date later or changed seriesUsed\nwide   %+v %v\nnarrow %+v %v",
-						fx.name, a.Disease, in.Doses[i].Date.Value, narrow.Doses[i].Date.Value, wn, a.SeriesUsed, nn, b.SeriesUsed)
-				}
-			}
+			checkNarrowingDoseDate(t, fx, rng, randomInput(t, rng, fx.snap))
+		}
+		limits := ageLimits(fx.snap)
+		for range len(limits) * propertyRuns / 2 {
+			checkNarrowingDoseDate(t, fx, rng, nearLimitInput(t, rng, fx.snap, limits))
 		}
 	}
+}
+
+// checkNarrowingDoseDate narrows one imprecise dose date of in to a random
+// day inside it and checks TestPropertyNarrowingDoseDate's clauses. It
+// reports whether in had a dose to narrow.
+func checkNarrowingDoseDate(t *testing.T, fx fixture, rng *rand.Rand, in engine.Input) bool {
+	t.Helper()
+	if in.Profile.Birth.Precision != engine.Day {
+		return false
+	}
+	var wideDoses []int
+	for i, r := range in.Doses {
+		if lo, hi, ok := testPeriod(r.Date, in.Today); ok && lo != hi {
+			wideDoses = append(wideDoses, i)
+		}
+	}
+	if len(wideDoses) == 0 {
+		return false
+	}
+	wide, _ := evaluate(t, fx.engine, in)
+	narrow := cloneInput(in)
+	i := wideDoses[rng.IntN(len(wideDoses))]
+	lo, hi, _ := testPeriod(in.Doses[i].Date, in.Today)
+	// A day before birth would be a record problem, not a narrower date.
+	lo = slices.MaxFunc([]engine.Date{lo, mustDate(t, in.Profile.Birth.Value)}, engine.Date.Compare)
+	if lo.After(hi) {
+		return false
+	}
+	narrow.Doses[i].Date = engine.RecalledDate{Value: lo.AddDays(rng.IntN(daysBetween(lo, hi) + 1)).String(), Precision: engine.Day}
+	got, _ := evaluate(t, fx.engine, narrow)
+	for j, a := range wide.Assessments {
+		b := got.Assessments[j]
+		sameSeries := slices.Equal(a.SeriesUsed, b.SeriesUsed)
+		if bracketed(fx.snap, a.Disease) && !sameSeries {
+			continue // Q44: another bracket
+		}
+		placed := len(reasonsWith(a, engine.ReasonOverlappingEstimatedDates)) == 0 && len(reasonsWith(a, engine.ReasonNumberingConflict)) == 0 &&
+			len(reasonsWith(b, engine.ReasonNumberingConflict)) == 0
+		if placed && len(reasonsWith(a, engine.ReasonDosePossiblyInvalid)) == 0 {
+			ia, ib := invalidDoses(a), invalidDoses(b)
+			same := slices.Equal(ia, ib) && productDisagreement(a) == productDisagreement(b)
+			// A dose that is not counted drops its possible checks (Q62),
+			// and so does every candidate that does not count a record
+			// whose DOSE_AFTER_MAX_AGE a disagreement drops (Q52).
+			// Narrowing can make such a hidden check definite: a
+			// DOSE_INVALID next to a DOSE_AFTER_MAX_AGE (or on the
+			// questioned record), or a DOSE_AFTER_MAX_AGE next to a
+			// DOSE_INVALID that another candidate's count turns into a
+			// disagreement. The doses not counted and a disagreement stay.
+			maxAge := hasCode(a, engine.ReasonDoseAfterMaxAge) || hasCode(b, engine.ReasonDoseAfterMaxAge) ||
+				productDisagreement(a) || productDisagreement(b)
+			if maxAge && (len(ia) > 0 || productDisagreement(a)) {
+				same = !slices.ContainsFunc(ia, func(k string) bool { return !slices.Contains(ib, k) }) &&
+					(!productDisagreement(a) || hasCode(a, engine.ReasonCheckProductName) == hasCode(b, engine.ReasonCheckProductName) &&
+						hasCode(a, engine.ReasonMixedProducts) == hasCode(b, engine.ReasonMixedProducts))
+			}
+			if !same || len(reasonsWith(b, engine.ReasonDosePossiblyInvalid)) > 0 {
+				t.Fatalf("%s %s: narrowing %s to %s changed validity\nwide   %+v\nnarrow %+v\ninput  %+v",
+					fx.name, a.Disease, in.Doses[i].Date.Value, narrow.Doses[i].Date.Value, a, b, in)
+			}
+		}
+		if a.NextDose == nil || b.NextDose == nil || a.NextDose.Number != b.NextDose.Number {
+			continue
+		}
+		wn, nn := *a.NextDose, *b.NextDose
+		onePlan := !slices.ContainsFunc(seriesUsed(t, fx.snap, a), func(sr ruleset.Series) bool { return len(sr.Plans) > 1 })
+		if !sameSeries || nn.Due.After(wn.Due) || nn.Overdue.After(wn.Overdue) ||
+			(onePlan && nn.Earliest.After(wn.Earliest)) {
+			t.Fatalf("%s %s: narrowing %s to %s moved a date later or changed seriesUsed\nwide   %+v %v\nnarrow %+v %v",
+				fx.name, a.Disease, in.Doses[i].Date.Value, narrow.Doses[i].Date.Value, wn, a.SeriesUsed, nn, b.SeriesUsed)
+		}
+	}
+	return true
 }
 
 // TestNarrowingFloatingDoseShapes pins two inputs the narrowing property
@@ -757,9 +822,13 @@ func minDateOf(a, b engine.Date) engine.Date {
 }
 
 // TestPropertyDoseOnEarliestDateCounts: a dose given on the earliest allowed
-// date is counted (the next dose number rises or the series completes) and
-// adds no DOSE_INVALID. It uses day-precise inputs: with a month-precision
-// dose, a new exact dose can overlap its range and make the order unknown.
+// date never fails a minimum check (no new DOSE_INVALID, and no
+// DOSE_POSSIBLY_INVALID listing minAge, minInterval or minIntervalFromFirst
+// on it), and unless a maximum age questions it (maxAgeQuestioned; S4b's cap
+// keeps E within the maximum ages, issue #15) it is counted (the next dose
+// number rises or the series completes). It uses day-precise inputs: with a
+// month-precision dose, a new exact dose can overlap its range and make the
+// order unknown.
 // The new dose has the first product the assessment offers, or no product
 // when it offers none, so the candidates can only narrow: a dose with no
 // product would add every series of the disease, and its earliest date can
@@ -792,6 +861,24 @@ func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 				next.Doses = append(next.Doses, rec)
 				after, _ := evaluate(t, fx.engine, next)
 				b := after.Assessments[i]
+				if !reflect.DeepEqual(reasonsWith(b, engine.ReasonDoseInvalid), reasonsWith(a, engine.ReasonDoseInvalid)) {
+					t.Fatalf("%s %s: a dose on the earliest date %s changed DOSE_INVALID:\nbefore %v\nafter  %v",
+						fx.name, a.Disease, a.NextDose.Earliest, a.Reasons, b.Reasons)
+				}
+				for _, r := range reasonsWith(b, engine.ReasonDosePossiblyInvalid) {
+					if r.Params.Dose == rec.ID && slices.ContainsFunc(r.Params.Checks, func(c engine.Check) bool {
+						return c == engine.CheckMinAge || c == engine.CheckMinInterval || c == engine.CheckMinIntervalFromFirst
+					}) {
+						t.Fatalf("%s %s: a dose on the earliest date %s may fail a minimum: %v", fx.name, a.Disease, a.NextDose.Earliest, b.Reasons)
+					}
+				}
+				// Without S4b's cap, E can be at or past a maximum age (issue
+				// #15): the new dose may then be after it, possibly after it,
+				// or questioned by the candidates, so the "no new candidate"
+				// and "counted" clauses skip those results.
+				if maxAgeQuestioned(b) {
+					continue
+				}
 				hadDose := slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) })
 				key := func(id string) string {
 					if hadDose {
@@ -809,10 +896,6 @@ func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 							fx.name, a.Disease, a.Products, id, a.SeriesUsed, b.SeriesUsed)
 					}
 				}
-				if !reflect.DeepEqual(reasonsWith(b, engine.ReasonDoseInvalid), reasonsWith(a, engine.ReasonDoseInvalid)) {
-					t.Fatalf("%s %s: a dose on the earliest date %s changed DOSE_INVALID:\nbefore %v\nafter  %v",
-						fx.name, a.Disease, a.NextDose.Earliest, a.Reasons, b.Reasons)
-				}
 				completed := len(reasonsWith(b, engine.ReasonComplete)) > 0
 				if !completed && (b.NextDose == nil || b.NextDose.Number != a.NextDose.Number+1) {
 					t.Fatalf("%s %s: a dose on the earliest date %s was not counted: before %+v, after %+v",
@@ -821,6 +904,21 @@ func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 			}
 		}
 	}
+}
+
+// maxAgeQuestioned reports whether a has a maximum-age reason:
+// DOSE_AFTER_MAX_AGE, a DOSE_POSSIBLY_INVALID listing a maximum age,
+// CHECK_PRODUCT_NAME or MIXED_PRODUCTS.
+func maxAgeQuestioned(a engine.Assessment) bool {
+	return slices.ContainsFunc(a.Reasons, func(r engine.Reason) bool {
+		switch r.Code {
+		case engine.ReasonDoseAfterMaxAge, engine.ReasonCheckProductName, engine.ReasonMixedProducts:
+			return true
+		case engine.ReasonDosePossiblyInvalid:
+			return slices.Contains(r.Params.Checks, engine.CheckMaxAgeStart) || slices.Contains(r.Params.Checks, engine.CheckMaxAgeComplete)
+		}
+		return false
+	})
 }
 
 // productGroup names the product group of a series of the disease: its

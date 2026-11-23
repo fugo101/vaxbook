@@ -414,7 +414,7 @@ func (ev evaluation) accepts(rs []candidateResult, j int, d string) bool {
 // S3a's candidate rule: a retired or off-catalog product is named here.
 func (dz diseaseModel) anyUnknownProduct(doses []givenDose, implied bool) bool {
 	return implied || slices.ContainsFunc(doses, func(g givenDose) bool {
-		return !g.free && !(g.product != "" && dz.listing[g.product])
+		return !g.free && (g.product == "" || !dz.listing[g.product])
 	})
 }
 

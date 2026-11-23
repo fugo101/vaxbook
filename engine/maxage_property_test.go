@@ -55,10 +55,10 @@ func nearLimitInput(t testing.TB, rng *rand.Rand, s *ruleset.Snapshot, limits []
 		from = birth
 	}
 	in := engine.Input{Today: today, Profile: engine.Profile{Birth: engine.RecalledDate{Value: birth.String(), Precision: engine.Day}}}
-	switch n := rng.IntN(10); {
-	case n == 0:
+	switch rng.IntN(10) {
+	case 0:
 		in.Profile.Birth = engine.RecalledDate{Value: birth.String()[:7], Precision: engine.Month}
-	case n == 1:
+	case 1:
 		in.Profile.Birth = engine.RecalledDate{Precision: engine.None}
 	}
 	trueDates := map[string]engine.Date{}

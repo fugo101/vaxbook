@@ -123,15 +123,11 @@ func TestPropertyMaxAgeDisagreement(t *testing.T) {
 			implied := len(arr.forLength(math.MaxInt).implied) > 0
 			birth := birthRange{r: Exact(base), known: true, precision: Day}
 			cands, _ := dz.byAgeAtDoseOne(arr, dz.candidates(doses, implied), birth, today)
-			longest := 0
-			for _, c := range cands {
-				longest = max(longest, dz.series[c].length)
-			}
 			ev := dz.evaluate(arr, cands, today, nil, false)
-			ev.unknownProduct = dz.anyUnknownProduct(doses, len(arr.forLength(longest).implied) > 0)
+			ev.unknownProduct = dz.anyUnknownProduct(doses, implied)
 			res := ev.at(birthEnd{date: base, known: true})
 
-			wantUnknown := len(arr.forLength(longest).implied) > 0 || slices.ContainsFunc(doses, func(g givenDose) bool {
+			wantUnknown := implied || slices.ContainsFunc(doses, func(g givenDose) bool {
 				return !g.free && !listing[g.product]
 			})
 			accepts := func(j int, id string) bool {

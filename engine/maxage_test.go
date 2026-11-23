@@ -254,6 +254,35 @@ func TestTrailingImpliedDoseBelowRecordBeyondSeries(t *testing.T) {
 	})
 }
 
+// TestImpliedDoseBelowDatedRecordBeyondSeries (issue #15 In scope 4): the
+// dated counterpart of TestTrailingImpliedDoseBelowRecordBeyondSeries, on
+// the same snapshot (series z-b removed). Birth 2006-06-01 (20y@b =
+// 2026-06-01), r1 za on 2026-05-25 numbered 1 (< 06-01, counted), r2 za on
+// 2026-06-25 numbered 3, today 2026-07-01. r2 is beyond the series length
+// and not checked itself, but it closes the run of the implied dose 2 before
+// it: that slot's chain gives r1 + 4w = 06-22 ≥ 06-01 → definite, so r2
+// carries DOSE_AFTER_MAX_AGE{maxAgeComplete} with its own position, 3. The
+// chain itself fits (06-25 ≥ 06-22). The implied dose stays counted, so z-a
+// is complete and COMPLETE is masked: ⚪, not a false ✅.
+func TestImpliedDoseBelowDatedRecordBeyondSeries(t *testing.T) {
+	t.Parallel()
+	r1 := doseOf("z", "r1", dayDate("2026-05-25"), "za")
+	r1.DoseNumbers = map[string]engine.DoseNumber{"z": 1}
+	r2 := doseOf("z", "r2", dayDate("2026-06-25"), "za")
+	r2.DoseNumbers = map[string]engine.DoseNumber{"z": 3}
+	s := loadSnapshot(t, "minimal-max-age-complete")
+	s.Series = s.Series[:1]
+	got := assessmentOf(t, newEngine(t, s), "z", "2026-07-01", dayDate("2006-06-01"), r1, r2)
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "z", Bucket: engine.BucketUnknown, SeriesUsed: []string{"z-a"}, Estimated: true,
+		Reasons: []engine.Reason{
+			{Code: engine.ReasonImpliedEarlierDoses, Params: engine.ReasonParams{Numbers: []int{2}}},
+			afterMaxAge("r2", 3, engine.CheckMaxAgeComplete),
+			{Code: engine.ReasonComplete},
+		},
+	})
+}
+
 // TestMaxAgeDefiniteAtOneCandidatePossibleAtAnother (Q52): products p (series
 // p-s, maxAgeComplete 24w) and q (q-s, 25w), each dose 1 minAge 6w and dose
 // 2 minInterval 4w. Birth 2026-01-14: 24w@b = 07-01, 25w@b = 07-08. r1 p on

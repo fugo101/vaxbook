@@ -281,11 +281,13 @@ func reasonsWith(a engine.Assessment, code engine.ReasonCode) []engine.Reason {
 //   - its reasons carry exactly their code's params;
 //   - exactly one of bucket and block;
 //   - bucket ⚪ only with a blocking reason (informational reasons never
-//     make it ⚪ on their own), and a blocking reason makes it ⚪ unless a
-//     block of a higher layer masks it (SAD §5.3 step 10, layers 1–5; S2
-//     has none, and notYetScheduled is layer 8);
-//   - a next dose unless the series is complete or the bucket is ⚪ (a ⚪
-//     assessment never carries a next dose, SAD §5.1);
+//     make it ⚪ on their own), and a blocking reason makes it ⚪ (SAD §5.3
+//     step 10: S3b has no block of layers 1–5 that masks one;
+//     notYetScheduled is layer 8, and the start-age outOfAge occurs only
+//     with no dose given, where no blocking reason arises at an end);
+//   - a next dose unless the series is complete, the bucket is ⚪ (a ⚪
+//     assessment never carries a next dose, SAD §5.1) or the block is
+//     outOfAge, which also has no seriesUsed (issue #23);
 //   - due ≥ earliest and overdue ≥ due + 7 days.
 func checkAssessmentShape(t testing.TB, name string, a engine.Assessment) {
 	t.Helper()
@@ -294,11 +296,14 @@ func checkAssessmentShape(t testing.TB, name string, a engine.Assessment) {
 		t.Fatalf("%s %s: bucket %q, block %q", name, a.Disease, a.Bucket, a.Block)
 	}
 	blocked := slices.ContainsFunc(a.Reasons, func(r engine.Reason) bool { return blockingCodes[r.Code] })
-	masked := a.Block != "" && a.Block != engine.BlockNotYetScheduled
-	if a.Bucket == engine.BucketUnknown && !blocked || blocked && a.Bucket != engine.BucketUnknown && !masked {
+	if a.Bucket == engine.BucketUnknown && !blocked || blocked && a.Bucket != engine.BucketUnknown {
 		t.Fatalf("%s %s: bucket %q, block %q with reasons %v", name, a.Disease, a.Bucket, a.Block, a.Reasons)
 	}
-	noNext := len(reasonsWith(a, engine.ReasonComplete)) > 0 || a.Bucket == engine.BucketUnknown
+	outOfAge := a.Block == engine.BlockOutOfAge
+	if outOfAge && (a.SeriesUsed != nil || !reflect.DeepEqual(a.Reasons, []engine.Reason{{Code: engine.ReasonOutOfAge}})) {
+		t.Fatalf("%s %s: outOfAge with seriesUsed %v and reasons %v", name, a.Disease, a.SeriesUsed, a.Reasons)
+	}
+	noNext := len(reasonsWith(a, engine.ReasonComplete)) > 0 || a.Bucket == engine.BucketUnknown || outOfAge
 	if noNext != (a.NextDose == nil) {
 		t.Fatalf("%s %s: nextDose %v with bucket %q and reasons %v", name, a.Disease, a.NextDose, a.Bucket, a.Reasons)
 	}
@@ -444,21 +449,52 @@ func invalidDoses(a engine.Assessment) []string {
 	return out
 }
 
+// bracketed reports whether some series of the disease has a start-age
+// bracket. Only then can a narrower date choose another series by bracket
+// (Q44): without brackets the S3b bracket choice keeps every candidate, so a
+// seriesUsed change under narrowing would be a candidate-selection bug.
+func bracketed(s *ruleset.Snapshot, disease string) bool {
+	return slices.ContainsFunc(s.Series, func(sr ruleset.Series) bool { return sr.Disease == disease && sr.StartAge != nil })
+}
+
 // visible is how an assessment shows: its bucket or block.
 func visible(a engine.Assessment) string { return string(a.Bucket) + string(a.Block) }
 
 // TestPropertyNarrowingBirthDate: narrowing a month- or year-precision birth
 // date to a day inside its (today-capped) range never turns a ✅, 🟡 or
-// notYetScheduled result into 🔴 or 🟠 (issue #13). The wide result is
-// computed at both ends of the range, and steps 5–9 are monotone in the
-// birth date between them.
+// notYetScheduled result into 🔴 or 🟠 (issue #13), when the narrowed result
+// has the same seriesUsed as the wide one or the disease has no dose (issue
+// #23, Q44 and its extension, SAD §5.7).
+//   - With doses given, the wide result is computed at both ends of the
+//     range under one set of candidates, and for fixed series steps 5–9 are
+//     monotone in the birth date between them; a narrower birth date can
+//     choose another start-age bracket, with other dates. The skip applies
+//     only to diseases with start-age brackets (see bracketed); for the
+//     others the clause is checked whatever seriesUsed does, as in S3a.
+//   - With no dose given, the birth range is split wherever the start-age
+//     choice changes and both ends of every sub-range are compared (SAD
+//     §5.3 step 4), so a calm wide result means every day of the range is
+//     calm, whichever bracket it chooses: the clause has no skip.
+//
+// Half the inputs drop every dose and take a month- or year-precision birth
+// date; half of those move today to 0–199 days after a bracket's max is
+// reached at the older birth end, where the birth range crosses a bracket
+// change. On minimal-start-age-gap-late the count of the F1 shape (PR #27:
+// the birth ends choose different brackets, the latest birth date is calm,
+// the wide result is ⚪ BIRTH_DATE_IMPRECISE and the narrowed day is 🟠 or
+// 🔴) guards against the generator no longer reaching it.
 func TestPropertyNarrowingBirthDate(t *testing.T) {
 	t.Parallel()
 	calm := map[string]bool{string(engine.BucketComplete): true, string(engine.BucketUpcoming): true, string(engine.BlockNotYetScheduled): true}
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(29, uint64(len(fx.name))))
-		for range propertyRuns {
+		maxes := bracketMaxes(fx.snap)
+		f1 := 0
+		for i := range propertyRuns {
 			in := randomInput(t, rng, fx.snap)
+			if i%2 == 1 {
+				in = noDoseImprecise(rng, in, maxes, 200)
+			}
 			lo, hi, ok := testPeriod(in.Profile.Birth, in.Today)
 			if !ok || lo == hi {
 				continue
@@ -467,15 +503,61 @@ func TestPropertyNarrowingBirthDate(t *testing.T) {
 			narrow := cloneInput(in)
 			narrow.Profile.Birth = engine.RecalledDate{Value: lo.AddDays(rng.IntN(daysBetween(lo, hi) + 1)).String(), Precision: engine.Day}
 			got, _ := evaluate(t, fx.engine, narrow)
-			for i, a := range wide.Assessments {
-				b := got.Assessments[i]
-				if calm[visible(a)] && (b.Bucket == engine.BucketOverdue || b.Bucket == engine.BucketDue) {
-					t.Fatalf("%s %s: birth %v gives %s, narrowed to %s gives %s\nwide   %+v\nnarrow %+v",
-						fx.name, a.Disease, in.Profile.Birth, visible(a), narrow.Profile.Birth.Value, visible(b), a, b)
+			for j, a := range wide.Assessments {
+				b := got.Assessments[j]
+				hasDose := slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) })
+				if hasDose && bracketed(fx.snap, a.Disease) && !slices.Equal(a.SeriesUsed, b.SeriesUsed) {
+					continue // Q44: another bracket, other dates
+				}
+				alarming := b.Bucket == engine.BucketOverdue || b.Bucket == engine.BucketDue
+				if fx.name == "minimal-start-age-gap-late" && !hasDose && alarming && hasCode(a, engine.ReasonBirthDateImprecise) &&
+					!slices.Equal(noDoseChoice(fx.snap, a.Disease, lo, in.Today), noDoseChoice(fx.snap, a.Disease, hi, in.Today)) {
+					latest := cloneInput(in)
+					latest.Profile.Birth = engine.RecalledDate{Value: hi.String(), Precision: engine.Day}
+					if out, _ := evaluate(t, fx.engine, latest); calm[visible(out.Assessments[j])] {
+						f1++
+					}
+				}
+				if calm[visible(a)] && alarming {
+					t.Fatalf("%s %s: birth %v gives %s, narrowed to %s gives %s\nwide   %+v\nnarrow %+v\ninput  %+v",
+						fx.name, a.Disease, in.Profile.Birth, visible(a), narrow.Profile.Birth.Value, visible(b), a, b, in)
 				}
 			}
 		}
+		if fx.name == "minimal-start-age-gap-late" && f1 == 0 {
+			t.Errorf("%s: no random input reached the F1 shape", fx.name)
+		}
 	}
+}
+
+// bracketMaxes returns the startAge max of every series of s that has one.
+func bracketMaxes(s *ruleset.Snapshot) []ruleset.Span {
+	var out []ruleset.Span
+	for _, sr := range s.Series {
+		if sr.StartAge != nil && sr.StartAge.Max != nil {
+			out = append(out, *sr.StartAge.Max)
+		}
+	}
+	return out
+}
+
+// noDoseImprecise drops every dose of in and cuts a day-precise birth date
+// to its month or, half the time, its year. When maxes is not empty, half
+// the time it then moves today to the older birth end + a random max + 0 to
+// window−1 days: a bracket has just closed at the older end and may still be
+// open at the later one, so the birth range crosses a start-age change.
+func noDoseImprecise(rng *rand.Rand, in engine.Input, maxes []ruleset.Span, window int) engine.Input {
+	in.Doses = []engine.DoseRecord{}
+	if b, err := engine.ParseDate(in.Profile.Birth.Value); err == nil && in.Profile.Birth.Precision == engine.Day {
+		in.Profile.Birth = engine.RecalledDate{Value: b.String()[:7], Precision: engine.Month}
+		if rng.IntN(2) == 0 {
+			in.Profile.Birth = engine.RecalledDate{Value: b.String()[:4], Precision: engine.Year}
+		}
+	}
+	if lo, _, ok := testPeriod(in.Profile.Birth, in.Today); ok && len(maxes) > 0 && rng.IntN(2) == 0 {
+		in.Today = lo.AddSpan(maxes[rng.IntN(len(maxes))]).AddDays(rng.IntN(window))
+	}
+	return in
 }
 
 // TestPropertyNarrowingDoseDate: narrowing a month- or year-precision dose
@@ -494,9 +576,17 @@ func TestPropertyNarrowingBirthDate(t *testing.T) {
 //     narrowed due and overdue dates are never later than the wide ones,
 //     and neither is the earliest date when every candidate series has one
 //     plan. (With alternative plans the earliest date comes from the
-//     earliest-due plan, A7, and that plan can change.) In S3a the
-//     candidates do not depend on the birth date, and on dose dates only
-//     through the placement, which the checked cases share (issue #14).
+//     earliest-due plan, A7, and that plan can change.)
+//
+// Both clauses are checked only when the narrowed result has the same
+// seriesUsed as the wide one (issue #23, Q44 and its extension, SAD §5.7): a
+// narrower dose range can match fewer start-age brackets, and the
+// most-doses rule then selects another series (TestNarrowingChangesBracket
+// pins both kinds of change). The skip applies only to diseases with
+// start-age brackets (see bracketed). For the others the test keeps S3a's
+// stronger check: the candidates do not depend on the birth date, and on
+// dose dates only through the placement (issue #14), so the date clause
+// fails when seriesUsed differs and the validity clause has no guard.
 func TestPropertyNarrowingDoseDate(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
@@ -528,6 +618,10 @@ func TestPropertyNarrowingDoseDate(t *testing.T) {
 			got, _ := evaluate(t, fx.engine, narrow)
 			for j, a := range wide.Assessments {
 				b := got.Assessments[j]
+				sameSeries := slices.Equal(a.SeriesUsed, b.SeriesUsed)
+				if bracketed(fx.snap, a.Disease) && !sameSeries {
+					continue // Q44: another bracket
+				}
 				placed := len(reasonsWith(a, engine.ReasonOverlappingEstimatedDates)) == 0 && len(reasonsWith(a, engine.ReasonNumberingConflict)) == 0 &&
 					len(reasonsWith(b, engine.ReasonNumberingConflict)) == 0
 				if placed && len(reasonsWith(a, engine.ReasonDosePossiblyInvalid)) == 0 {
@@ -542,10 +636,10 @@ func TestPropertyNarrowingDoseDate(t *testing.T) {
 				}
 				wn, nn := *a.NextDose, *b.NextDose
 				onePlan := !slices.ContainsFunc(seriesUsed(t, fx.snap, a), func(sr ruleset.Series) bool { return len(sr.Plans) > 1 })
-				if !slices.Equal(a.SeriesUsed, b.SeriesUsed) || nn.Due.After(wn.Due) || nn.Overdue.After(wn.Overdue) ||
+				if !sameSeries || nn.Due.After(wn.Due) || nn.Overdue.After(wn.Overdue) ||
 					(onePlan && nn.Earliest.After(wn.Earliest)) {
-					t.Fatalf("%s %s: narrowing %s to %s moved a date later\nwide   %+v\nnarrow %+v",
-						fx.name, a.Disease, in.Doses[i].Date.Value, narrow.Doses[i].Date.Value, wn, nn)
+					t.Fatalf("%s %s: narrowing %s to %s moved a date later or changed seriesUsed\nwide   %+v %v\nnarrow %+v %v",
+						fx.name, a.Disease, in.Doses[i].Date.Value, narrow.Doses[i].Date.Value, wn, a.SeriesUsed, nn, b.SeriesUsed)
 				}
 			}
 		}
@@ -669,6 +763,10 @@ func minDateOf(a, b engine.Date) engine.Date {
 // when it offers none, so the candidates can only narrow: a dose with no
 // product would add every series of the disease, and its earliest date can
 // be before the minimums of a series that was not a candidate (issue #14).
+// When the disease had no dose, the new dose can select another start-age
+// bracket of the same product group (its age at dose 1 is that of the
+// earliest date, which can be years before today), so only product groups
+// are compared then (issue #23).
 func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
@@ -693,8 +791,19 @@ func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 				next.Doses = append(next.Doses, rec)
 				after, _ := evaluate(t, fx.engine, next)
 				b := after.Assessments[i]
+				hadDose := slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) })
+				key := func(id string) string {
+					if hadDose {
+						return id
+					}
+					return productGroup(t, fx.snap, a.Disease, id)
+				}
+				var before []string
+				for _, id := range a.SeriesUsed {
+					before = append(before, key(id))
+				}
 				for _, id := range b.SeriesUsed {
-					if !slices.Contains(a.SeriesUsed, id) {
+					if !slices.Contains(before, key(id)) {
 						t.Fatalf("%s %s: a dose of %v on the earliest date added candidate %s: before %v, after %v",
 							fx.name, a.Disease, a.Products, id, a.SeriesUsed, b.SeriesUsed)
 					}
@@ -711,6 +820,17 @@ func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 			}
 		}
 	}
+}
+
+// productGroup names the product group of a series of the disease: its
+// product, or "" for a generic series.
+func productGroup(t testing.TB, s *ruleset.Snapshot, disease, id string) string {
+	t.Helper()
+	sr := seriesUsed(t, s, engine.Assessment{Disease: disease, SeriesUsed: []string{id}})[0]
+	if sr.Product == nil {
+		return ""
+	}
+	return *sr.Product
 }
 
 // TestPropertyDeterministic: the output bytes do not depend on the order of
@@ -755,12 +875,24 @@ func hasCode(a engine.Assessment, c engine.ReasonCode) bool { return len(reasons
 //     disease without repeats, in rule-set order;
 //   - SAFEST_SERIES appears iff seriesUsed has two or more series, at most
 //     once, and its candidates are seriesUsed with each series' product
-//     (omitted for a generic series); with no seriesUsed there is neither;
+//     (omitted for a generic series); with no seriesUsed there is neither.
+//     With no dose given and a birth date, seriesUsed is the later end's
+//     choice (noDoseChoice, Q40), and the birth range can cross start-age
+//     changes, which split it into sub-ranges with one choice each (issue
+//     #23, PR #27). Only in a ⚪ BIRTH_DATE_IMPRECISE whose ends chose
+//     different lists does each sub-range keep its own SAFEST_SERIES (A8):
+//     one per maximal run of birth days with the same choice of two or more
+//     series, from the latest run to the oldest, without repeats, so
+//     seriesUsed may have one series while a SAFEST_SERIES is present.
+//     Ends that chose the same list, or agree on a result that is not ⚪,
+//     keep the rule above;
+//   - outOfAge has neither seriesUsed nor SAFEST_SERIES;
 //   - products present ⇒ nextDose present, and products are non-retired
 //     catalog products that list the disease, in snapshot order without
 //     repeats;
 //   - with no dose of the disease, seriesUsed holds no series of a retired
-//     product unless every series of the disease has one (Q38).
+//     product unless no series of a non-retired product (or generic) can
+//     be started at the later end of the birth-date range (Q38, Q50 (b)).
 func checkCandidates(t testing.TB, fx fixture, in engine.Input, a engine.Assessment) {
 	t.Helper()
 	s := fx.snap
@@ -781,21 +913,58 @@ func checkCandidates(t testing.TB, fx fixture, in engine.Input, a engine.Assessm
 		}
 	}
 	safest := reasonsWith(a, engine.ReasonSafestSeries)
-	switch {
-	case len(used) < 2 && len(safest) > 0:
-		fail("SAFEST_SERIES with seriesUsed %v", a.SeriesUsed)
-	case len(used) >= 2 && len(safest) != 1:
-		fail("seriesUsed %v with %d SAFEST_SERIES reasons", a.SeriesUsed, len(safest))
-	case len(used) >= 2:
-		var want []engine.SeriesRef
+	hasDose := slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) })
+	refs := func(used []ruleset.Series) []engine.SeriesRef {
+		var out []engine.SeriesRef
 		for _, sr := range used {
 			ref := engine.SeriesRef{Series: sr.ID}
 			if sr.Product != nil {
 				ref.Product = *sr.Product
 			}
-			want = append(want, ref)
+			out = append(out, ref)
 		}
-		if !slices.Equal(safest[0].Params.Candidates, want) {
+		return out
+	}
+	differ := false // no dose, and the birth ends chose different lists
+	if lo, hi, ok := testPeriod(in.Profile.Birth, in.Today); ok && !hasDose {
+		loEnd, hiEnd := noDoseChoice(s, a.Disease, lo, in.Today), noDoseChoice(s, a.Disease, hi, in.Today)
+		if !slices.Equal(a.SeriesUsed, hiEnd) && (len(a.SeriesUsed) > 0 || len(hiEnd) > 0) {
+			fail("no dose: seriesUsed %v, want the later end's choice %v", a.SeriesUsed, hiEnd)
+		}
+		if differ = !slices.Equal(loEnd, hiEnd); differ && hasCode(a, engine.ReasonBirthDateImprecise) {
+			var runs [][]string // each run's choice, latest first
+			for b := hi; !b.Before(lo); b = b.AddDays(-1) {
+				if c := noDoseChoice(s, a.Disease, b, in.Today); len(runs) == 0 || !slices.Equal(c, runs[len(runs)-1]) {
+					runs = append(runs, c)
+				}
+			}
+			var want [][]engine.SeriesRef
+			for _, run := range runs {
+				ref := refs(seriesUsed(t, s, engine.Assessment{Disease: a.Disease, SeriesUsed: run}))
+				if len(run) >= 2 && !slices.ContainsFunc(want, func(w []engine.SeriesRef) bool { return slices.Equal(w, ref) }) {
+					want = append(want, ref)
+				}
+			}
+			var got [][]engine.SeriesRef
+			for _, r := range safest {
+				got = append(got, r.Params.Candidates)
+			}
+			if !reflect.DeepEqual(got, want) {
+				fail("⚪ across start-age changes, the runs chose %v (latest first): SAFEST_SERIES %v, want %v", runs, got, want)
+			}
+		}
+	}
+	switch {
+	case a.Block == engine.BlockOutOfAge && (a.SeriesUsed != nil || len(safest) > 0):
+		fail("outOfAge with seriesUsed %v and %d SAFEST_SERIES", a.SeriesUsed, len(safest))
+	case differ && hasCode(a, engine.ReasonBirthDateImprecise):
+		// Checked above against each end's choice.
+	case len(used) < 2 && len(safest) > 0:
+		fail("SAFEST_SERIES with seriesUsed %v", a.SeriesUsed)
+	case len(used) >= 2 && len(safest) != 1:
+		fail("seriesUsed %v with %d SAFEST_SERIES reasons", a.SeriesUsed, len(safest))
+	case len(used) >= 2:
+		if want := refs(used); !slices.Equal(safest[0].Params.Candidates, want) {
 			fail("SAFEST_SERIES candidates %v, want %v", safest[0].Params.Candidates, want)
 		}
 	}
@@ -813,11 +982,65 @@ func checkCandidates(t testing.TB, fx fixture, in engine.Input, a engine.Assessm
 	retired := func(sr ruleset.Series) bool {
 		return sr.Product != nil && slices.ContainsFunc(s.Products, func(p ruleset.Product) bool { return p.ID == *sr.Product && p.Retired })
 	}
-	hasDose := slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) })
-	allRetired := !slices.ContainsFunc(s.Series, func(sr ruleset.Series) bool { return sr.Disease == a.Disease && !retired(sr) })
-	if !hasDose && !allRetired && slices.ContainsFunc(used, retired) {
-		fail("no dose, but seriesUsed %v has a retired product's series", a.SeriesUsed)
+	if _, birthHi, ok := testPeriod(in.Profile.Birth, in.Today); ok && !hasDose {
+		openOther := slices.ContainsFunc(s.Series, func(sr ruleset.Series) bool {
+			return sr.Disease == a.Disease && !retired(sr) && bracketOpen(sr, birthHi, in.Today)
+		})
+		if openOther && slices.ContainsFunc(used, retired) {
+			fail("no dose, but seriesUsed %v has a retired product's series", a.SeriesUsed)
+		}
 	}
+}
+
+// bracketOpen reports whether a person born on b can still start series sr
+// on today: no startAge, no max, or b + max after today (EQ10).
+func bracketOpen(sr ruleset.Series, b, today engine.Date) bool {
+	return sr.StartAge == nil || sr.StartAge.Max == nil || b.AddSpan(*sr.StartAge.Max).After(today)
+}
+
+// noDoseChoice returns the IDs of the series chosen at birth end b on today
+// when no dose of the disease is given (issue #23 In scope 5), computed from
+// the snapshot with Date.AddSpan alone: from the series of non-retired
+// products (every series of the disease when none is left, Q38), each
+// product group keeps its first bracket by min that is still open at b
+// (bracketOpen: the bracket the age falls in, the next one above a gap, or
+// the earliest one, EQ10, A5, Q33). When no group keeps one, the choice is
+// redone over every series of the disease (Q50 (b)). In rule-set order; empty
+// means outOfAge (Q24).
+func noDoseChoice(s *ruleset.Snapshot, disease string, b, today engine.Date) []string {
+	retired := func(sr ruleset.Series) bool {
+		return sr.Product != nil && slices.ContainsFunc(s.Products, func(p ruleset.Product) bool { return p.ID == *sr.Product && p.Retired })
+	}
+	choose := func(keep func(ruleset.Series) bool) []string {
+		first := map[string]int{} // product group ("" generic) → index of its chosen series
+		for i, sr := range s.Series {
+			if sr.Disease != disease || !keep(sr) || !bracketOpen(sr, b, today) {
+				continue
+			}
+			g := ""
+			if sr.Product != nil {
+				g = *sr.Product
+			}
+			if j, ok := first[g]; !ok || (sr.StartAge != nil && b.AddSpan(sr.StartAge.Min).Before(b.AddSpan(s.Series[j].StartAge.Min))) {
+				first[g] = i
+			}
+		}
+		var out []string
+		for i, sr := range s.Series {
+			if slices.Contains(slices.Collect(maps.Values(first)), i) {
+				out = append(out, sr.ID)
+			}
+		}
+		return out
+	}
+	keep := func(sr ruleset.Series) bool { return !retired(sr) }
+	if !slices.ContainsFunc(s.Series, func(sr ruleset.Series) bool { return sr.Disease == disease && keep(sr) }) {
+		keep = func(ruleset.Series) bool { return true }
+	}
+	if c := choose(keep); len(c) > 0 {
+		return c
+	}
+	return choose(func(ruleset.Series) bool { return true })
 }
 
 // TestPropertyCandidates runs checkCandidates on random inputs.

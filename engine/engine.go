@@ -11,9 +11,7 @@ import (
 )
 
 // ErrUnsupported reports a valid rule set shape that this engine slice does
-// not evaluate yet. In S3a: a disease with no series, and a product group
-// (the series of one disease with the same product, or its generic series)
-// with more than one series, which S3b tells apart by start age.
+// not evaluate yet. In S3b: a disease with no series.
 var ErrUnsupported = errors.New("engine: rule set shape not supported yet")
 
 // Engine evaluates inputs against one rule set snapshot. New copies what it
@@ -42,6 +40,22 @@ type diseaseModel struct {
 	// genericProducts those of them with no series of their own, in
 	// snapshot order. A generic candidate offers genericProducts.
 	catalog, genericProducts []string
+	// groups are the product groups of the disease (the series with the
+	// same product, or its generic series), in rule-set order of each
+	// group's first series; groupOf maps a series to its group. Every
+	// candidate list above is a union of whole groups, since a tier is a
+	// group or every series and retirement is per product.
+	groups  []groupModel
+	groupOf []int
+}
+
+// groupModel is one product group. Its series are in bracket order: by
+// startAge.min, an open-ended bracket last (ruleset.Validate makes the
+// brackets of a group of several series disjoint for every month length,
+// so the order is total). A group of one series may have no bracket (C8).
+// Each bracket's floor is set from this order (compileDisease).
+type groupModel struct {
+	series []int
 }
 
 type seriesModel struct {
@@ -49,7 +63,48 @@ type seriesModel struct {
 	product string // "" for a generic series
 	retired bool   // the series' product is retired
 	length  int    // doses per plan; every plan has the same count (EQ5)
+	start   bracket
 	plans   []planModel
+}
+
+// bracket is a series' start-age bracket [min, max) of the age at dose 1
+// (SAD §5.2, issue #23). ok is false when the series has no startAge: it
+// matches every age (C8).
+//
+// For choosing, a bracket covers its reach [floor, max): floor is the max of
+// the bracket before it in its group's order, absent for the first, whose
+// reach starts at birth. Validate puts each max at or below the next min,
+// so the reaches of a group tile every age below the last max, and a gap
+// between two brackets belongs to the one above it (Q33; PR #27).
+type bracket struct {
+	ok    bool
+	min   ruleset.Span
+	max   optSpan // absent: open-ended (Q25)
+	floor optSpan // matching lower bound: the previous bracket's max in the group's order; absent for the first
+}
+
+// mayContain reports whether the bracket's reach possibly contains the age
+// at a dose on range d, for a birth date in birth (today-capped): when floor
+// is set, d.Hi ≥ birth.Lo + floor, and when max is set, d.Lo < birth.Hi +
+// max (SAD §5.3 step 3, issue #23 In scope 4, Q33). Each test is monotone
+// in d, so a wider range only passes more of them.
+func (br bracket) mayContain(d, birth Range) bool {
+	if !br.ok {
+		return true
+	}
+	return (!br.floor.ok || !d.Hi.Before(birth.Lo.AddSpan(br.floor.span))) && (!br.max.ok || d.Lo.Before(birth.Hi.AddSpan(br.max.span)))
+}
+
+// openAt reports whether a person born on b can still start the series
+// today: no bracket or no max, or b + max after today (EQ10).
+func (br bracket) openAt(b, today Date) bool {
+	return !br.ok || !br.max.ok || b.AddSpan(br.max.span).After(today)
+}
+
+// before reports whether bracket a comes before bracket b in a validated
+// group: a has a max that is at most b's min.
+func (br bracket) before(b bracket) bool {
+	return br.max.ok && ruleset.SpanAtMost(br.max.span, b.min)
 }
 
 type planModel struct {
@@ -117,6 +172,7 @@ func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
 	m := diseaseModel{id: disease, tier: map[string][]int{}}
 	own := map[string][]int{} // product → its series for the disease
 	var generic []int
+	group := map[string]int{} // product ("" generic) → index into m.groups
 	for _, sr := range s.Series {
 		if sr.Disease != disease {
 			continue
@@ -134,16 +190,30 @@ func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
 		if !sm.retired {
 			m.noDose = append(m.noDose, i)
 		}
+		g, ok := group[sm.product]
+		if !ok {
+			g = len(m.groups)
+			group[sm.product] = g
+			m.groups = append(m.groups, groupModel{})
+		}
+		m.groups[g].series = append(m.groups[g].series, i)
+		m.groupOf = append(m.groupOf, g)
 	}
-	switch {
-	case len(m.series) == 0:
+	if len(m.series) == 0 {
 		return m, fmt.Errorf("%w: disease %q has no series", ErrUnsupported, disease)
-	case len(generic) > 1:
-		return m, fmt.Errorf("%w: disease %q: more than one generic series", ErrUnsupported, disease)
 	}
-	for _, sm := range m.series {
-		if sm.product != "" && len(own[sm.product]) > 1 {
-			return m, fmt.Errorf("%w: disease %q: product %q has more than one series", ErrUnsupported, disease, sm.product)
+	for _, g := range m.groups {
+		slices.SortStableFunc(g.series, func(a, b int) int {
+			switch sa, sb := m.series[a].start, m.series[b].start; {
+			case sa.before(sb):
+				return -1
+			case sb.before(sa):
+				return 1
+			}
+			return 0
+		})
+		for j := 1; j < len(g.series); j++ {
+			m.series[g.series[j]].start.floor = m.series[g.series[j-1]].start.max
 		}
 	}
 	if len(m.noDose) == 0 {
@@ -171,6 +241,9 @@ func compileSeries(sr ruleset.Series) seriesModel {
 	m := seriesModel{id: sr.ID, length: len(sr.Plans[0].Doses)}
 	if sr.Product != nil {
 		m.product = *sr.Product
+	}
+	if sa := sr.StartAge; sa != nil {
+		m.start = bracket{ok: true, min: sa.Min, max: optional(sa.Max)}
 	}
 	for _, p := range sr.Plans {
 		pm := planModel{id: p.ID}
@@ -324,7 +397,7 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 	// product the rule set does not have, makes the disease ⚪ (A9, EQ27,
 	// Q35). Steps 2–9 are skipped. The ⚪ is a data ⚪ (step 10 layer 7)
 	// with the record reasons, sorted by record ID and then in path order;
-	// S3a has no higher layer, so it returns here. A slice that adds layers
+	// S3b has no higher layer, so it returns here. A slice that adds layers
 	// 1–5 must let them win over it and keep these reasons as masked
 	// reasons (SAD §5.3 steps 1 and 10).
 	var bad []givenDose
@@ -361,58 +434,81 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 
 	// Step 3: the candidate series. Implied doses are unknown-product doses
 	// (Q30); whether there are any is decided from the records alone, with
-	// no series length.
-	implied := len(arr.forLength(math.MaxInt).implied) > 0
-	ev := evaluation{dz: dz, cands: dz.candidates(doses, implied), today: today}
-	longest := 0
-	refs := make([]SeriesRef, 0, len(ev.cands))
-	for _, c := range ev.cands {
-		s := dz.series[c]
-		a.SeriesUsed = append(a.SeriesUsed, s.id)
-		refs = append(refs, SeriesRef{Product: s.product, Series: s.id})
-		longest = max(longest, s.length)
-		ev.pls = append(ev.pls, arr.forLength(s.length))
-	}
-	// IMPLIED_EARLIER_DOSES once, capped at the longest candidate: for one
-	// series, the S2 output.
-	if numbers := arr.forLength(longest).implied; len(numbers) > 0 {
-		a.Estimated = true
-		a.Reasons = append(a.Reasons, Reason{Code: ReasonImpliedEarlierDoses, Params: ReasonParams{Numbers: numbers}})
-	}
-	// SAFEST_SERIES: with doses given the candidates do not depend on the
-	// birth end, so it is emitted once, before step 4; with no dose given
-	// it is a bucket reason of each end.
-	if len(refs) > 1 {
-		safest := Reason{Code: ReasonSafestSeries, Params: ReasonParams{Candidates: refs}}
-		if len(doses) > 0 {
-			a.Reasons = append(a.Reasons, safest)
-		} else {
-			ev.safest = &safest
+	// no series length. S3a's tiers give a union of product groups; start-age
+	// brackets then choose within each group (Q39).
+	var at func(birthEnd) endResult
+	if len(doses) > 0 {
+		// Doses given: the brackets are chosen once, from the age at dose 1,
+		// so both birth ends share the candidates.
+		implied := len(arr.forLength(math.MaxInt).implied) > 0
+		cands, uncertain := dz.byAgeAtDoseOne(arr, dz.candidates(doses, implied), birth, today)
+		// IMPLIED_EARLIER_DOSES once, capped at the longest candidate after
+		// the bracket choice (issue #23, Q48 (a)): for one series, the S2
+		// output.
+		longest := 0
+		for _, c := range cands {
+			longest = max(longest, dz.series[c].length)
+		}
+		if numbers := arr.forLength(longest).implied; len(numbers) > 0 {
+			a.Estimated = true
+			a.Reasons = append(a.Reasons, Reason{Code: ReasonImpliedEarlierDoses, Params: ReasonParams{Numbers: numbers}})
+		}
+		a.Reasons = append(a.Reasons, uncertain...)
+		// SAFEST_SERIES: with doses given the candidates do not depend on
+		// the birth end, so it is emitted once, before step 4; with no dose
+		// given it is a bucket reason of each birth date (evaluate).
+		if len(cands) > 1 {
+			a.Reasons = append(a.Reasons, Reason{Code: ReasonSafestSeries, Params: ReasonParams{Candidates: dz.refs(cands)}})
+		}
+		var free []string
+		for _, g := range doses {
+			if g.free {
+				free = append(free, g.id)
+			}
+		}
+		slices.Sort(free)
+		at = dz.evaluate(arr, cands, today, free, false).at
+	} else {
+		// No dose given: each birth date chooses its brackets from its own
+		// age today (EQ10); a date with none left is outOfAge (Q24).
+		at = func(b birthEnd) endResult {
+			return dz.evaluate(arr, dz.noDoseAt(b.date, today), today, nil, true).at(b)
 		}
 	}
-	for _, g := range doses {
-		if g.free {
-			ev.free = append(ev.free, g.id)
-		}
-	}
-	slices.Sort(ev.free)
 
-	// Step 4: steps 5–9 at each end of the birth-date range, or once.
+	// Step 4: steps 5–9 at each end of the birth-date range, or once. With
+	// no dose given the range is also split where the start-age choice
+	// changes, and both ends of every sub-range are evaluated (PR #27).
 	var res endResult
 	switch {
 	case !birth.known:
-		res = ev.at(birthEnd{})
+		res = at(birthEnd{})
 	case birth.r.IsExact():
-		res = ev.at(birthEnd{date: birth.r.Lo, known: true})
+		res = at(birthEnd{date: birth.r.Lo, known: true})
 	default:
 		hint := HintFullBirthDate
 		if birth.precision == Year {
 			hint = HintBirthMonth
 		}
-		res = compareEnds(ev.at(birthEnd{date: birth.r.Lo, known: true}), ev.at(birthEnd{date: birth.r.Hi, known: true}), hint)
+		pts := []Date{birth.r.Lo, birth.r.Hi}
+		if len(doses) == 0 {
+			pts = dz.noDosePoints(birth.r, today)
+		}
+		rs := make([]endResult, len(pts))
+		for i, p := range pts {
+			rs[i] = at(birthEnd{date: p, known: true})
+		}
+		res = compareResults(rs, hint)
 	}
 	a.Reasons = append(a.Reasons, res.reasons...)
 	a.Bucket, a.Block = res.bucket, res.block
+	// seriesUsed is the final result's candidates: the latest birth date's
+	// when the results differ (Q40), none for outOfAge.
+	if res.block != BlockOutOfAge {
+		for _, c := range res.series {
+			a.SeriesUsed = append(a.SeriesUsed, dz.series[c].id)
+		}
+	}
 	if res.bucket != BucketUnknown && res.hasNext {
 		nd := res.next
 		a.NextDose = &nd

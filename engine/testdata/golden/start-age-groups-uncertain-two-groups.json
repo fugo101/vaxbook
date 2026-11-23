@@ -1,0 +1,91 @@
+{
+  "ruleset": "minimal-start-age-groups",
+  "input": {
+    "today": "2026-04-20",
+    "profile": {
+      "birth": {
+        "precision": "none"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "grp"
+        ],
+        "date": {
+          "value": "2026-03-02",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-start-age-groups-s3b",
+    "today": "2026-04-20",
+    "assessments": [
+      {
+        "disease": "grp",
+        "bucket": "upcoming",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-04-27",
+          "due": "2026-06-02",
+          "overdue": "2026-06-09"
+        },
+        "seriesUsed": [
+          "grp-gen-a",
+          "grp-x-a"
+        ],
+        "products": [
+          "grp-x"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "AGE_AT_START_UNCERTAIN",
+            "params": {
+              "candidates": [
+                {
+                  "series": "grp-gen-a"
+                },
+                {
+                  "series": "grp-gen-b"
+                }
+              ]
+            }
+          },
+          {
+            "code": "AGE_AT_START_UNCERTAIN",
+            "params": {
+              "candidates": [
+                {
+                  "product": "grp-x",
+                  "series": "grp-x-a"
+                },
+                {
+                  "product": "grp-x",
+                  "series": "grp-x-b"
+                }
+              ]
+            }
+          },
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "series": "grp-gen-a"
+                },
+                {
+                  "product": "grp-x",
+                  "series": "grp-x-a"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

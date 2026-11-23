@@ -4,7 +4,7 @@ import "fmt"
 
 // blocks reports whether reason code c is blocking: it makes the assessment
 // ⚪ BucketUnknown with no next dose, unless a block of a higher precedence
-// layer wins over it (SAD §5.3 step 10, issue #13; none in S3a). The
+// layer wins over it (SAD §5.3 step 10, issue #13; none in S3b). The
 // informational codes explain a result without masking it. The split is a
 // closed switch, so a new code must be classified here.
 func (c ReasonCode) blocks() bool {
@@ -14,7 +14,7 @@ func (c ReasonCode) blocks() bool {
 		ReasonDoseInvalid, ReasonDosePossiblyInvalid, ReasonPreviousDoseDateUnknown, ReasonNoBirthDate:
 		return true
 	case ReasonImpliedEarlierDoses, ReasonSafestSeries, ReasonIntervalUnverifiable, ReasonFirstDoseDateAssumed,
-		ReasonAlternativePlans, ReasonComplete, ReasonProductNotInCatalog, ReasonOnTrack:
+		ReasonAlternativePlans, ReasonComplete, ReasonProductNotInCatalog, ReasonOnTrack, ReasonAgeAtStartUncertain, ReasonOutOfAge:
 		return false
 	}
 	panic(fmt.Sprintf("engine: reason code %q is not classified as blocking or informational", string(c)))

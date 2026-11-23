@@ -75,7 +75,7 @@ A product the user names in free text because it is not in the catalog. The engi
 _Avoid_: Unknown product (which also covers a dose with no product), Custom product
 
 **Series** — *Phác đồ*:
-A sequence of doses for one disease, optionally tied to one product and one start-age range.
+A sequence of doses for one disease, optionally tied to one product and one start-age bracket.
 _Avoid_: Schedule, Regimen, Protocol
 
 **Generic series**:
@@ -83,8 +83,12 @@ A series with no product: it applies to every product of its disease that has no
 _Avoid_: Default series, General series
 
 **Product group**:
-The series of one disease that share one product, or the generic series of a disease. Start-age ranges tell the series of one group apart.
+The series of one disease that share one product, or the generic series of a disease. Start-age brackets tell the series of one group apart.
 _Avoid_: Product series (one series), Series family
+
+**Start-age bracket**:
+The ages at dose 1 a series applies to: a half-open range [min, max), with max optional (open-ended). The brackets of one product group do not overlap; the engine chooses a group's series by the age at dose 1, or, with no dose yet, by the age today. For choosing, a bracket's _reach_ also covers the gap below it, from the previous bracket's max (from birth for the first), so every age below the last max is in exactly one reach (Q33). Not the minimum age of a dose.
+_Avoid_: Age range (ambiguous with the minimum and maximum ages), Age group
 
 **Candidate series**:
 A series the engine still considers for one disease of a profile after reading the products of its dose records; with no dose given, every series except those of retired products.

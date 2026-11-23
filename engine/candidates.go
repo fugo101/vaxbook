@@ -6,9 +6,11 @@ import (
 	"strings"
 )
 
-// candidates returns the candidate series of a disease (SAD §5.3 step 3),
-// in rule-set order. They depend on the dose products only, never on the
-// birth date.
+// candidates returns the tier union of a disease (SAD §5.3 step 3), in
+// rule-set order: the candidate series before start-age brackets, which
+// byAgeAtDoseOne (doses given) or noDoseAt (no dose, per birth end) then
+// choose from within each product group. It depends on the dose products
+// only, never on the birth date.
 //
 // With doses given, each record contributes the tier of its product: a
 // non-retired catalog product that lists the disease gives its own series,
@@ -72,7 +74,9 @@ func (dz diseaseModel) productsFor(series []int) []string {
 }
 
 // evaluation is steps 5–9 of one disease over its candidate series, ready to
-// run at a birth end.
+// run at a birth date. With doses given both birth ends share one
+// evaluation; with no dose given each birth date step 4 evaluates has its
+// own, since the brackets can differ.
 type evaluation struct {
 	dz    diseaseModel
 	cands []int       // the candidate series, in rule-set order
@@ -81,9 +85,23 @@ type evaluation struct {
 	// free are the IDs of the disease's records with an off-catalog
 	// product, by ID: PRODUCT_NOT_IN_CATALOG when complete (EQ14).
 	free []string
-	// safest is SAFEST_SERIES as a bucket reason of each end, set when no
-	// dose is given and two or more candidates remain.
+	// safest is SAFEST_SERIES as a bucket reason of each birth date, set
+	// when no dose is given and two or more candidates remain.
 	safest *Reason
+}
+
+// evaluate prepares steps 5–9 over cands: each candidate's placement, and
+// with perEndSafest SAFEST_SERIES as a bucket reason when two or more
+// candidates remain (no dose given).
+func (dz diseaseModel) evaluate(arr placement, cands []int, today Date, free []string, perEndSafest bool) evaluation {
+	ev := evaluation{dz: dz, cands: cands, today: today, free: free}
+	for _, c := range cands {
+		ev.pls = append(ev.pls, arr.forLength(dz.series[c].length))
+	}
+	if perEndSafest && len(cands) > 1 {
+		ev.safest = &Reason{Code: ReasonSafestSeries, Params: ReasonParams{Candidates: dz.refs(cands)}}
+	}
+	return ev
 }
 
 // candidateResult is steps 5–7 of one candidate series at one birth end:
@@ -109,7 +127,7 @@ func (s seriesModel) run(b birthEnd, today Date, pl placement) candidateResult {
 
 // at runs steps 5–9 at one birth end, per candidate series, and merges the
 // candidates (SAD §5.3 steps 5–7, EQ6 item 2, F05.3, A1). Step 10 has one
-// layer in S3a: any blocking reason makes the result ⚪ (layer 7, data ⚪),
+// layer in S3b: any blocking reason makes the result ⚪ (layer 7, data ⚪),
 // and the masked bucket's reasons and dates stay.
 //
 //   - Dose validity is per candidate, and every candidate's DOSE_INVALID,
@@ -124,17 +142,24 @@ func (s seriesModel) run(b birthEnd, today Date, pl placement) candidateResult {
 //     each with alternative plans adds ALTERNATIVE_PLANS (Q28), and the
 //     bucket is classified once from the merged dates.
 //
+// With no candidate (no dose given, and past every start-age bracket at b)
+// the result is the outOfAge block with OUT_OF_AGE, k 0 and no series
+// (issue #23, Q24).
+//
 // Reasons of one end, in order: SAFEST_SERIES (no dose given); the walk
 // reasons by dose in walk order, then by candidate; COMPLETE and
-// PRODUCT_NOT_IN_CATALOG; or PREVIOUS_DOSE_DATE_UNKNOWN, NO_BIRTH_DATE,
-// FIRST_DOSE_DATE_ASSUMED, ALTERNATIVE_PLANS and ON_TRACK. For a single
-// candidate this is the S2 result.
+// PRODUCT_NOT_IN_CATALOG; or OUT_OF_AGE; or PREVIOUS_DOSE_DATE_UNKNOWN,
+// NO_BIRTH_DATE, FIRST_DOSE_DATE_ASSUMED, ALTERNATIVE_PLANS and ON_TRACK.
+// For a single candidate this is the S2 result.
 func (ev evaluation) at(b birthEnd) endResult {
+	if len(ev.cands) == 0 {
+		return endResult{block: BlockOutOfAge, reasons: []Reason{{Code: ReasonOutOfAge}}}
+	}
 	rs := make([]candidateResult, len(ev.cands))
 	for i, c := range ev.cands {
 		rs[i] = ev.dz.series[c].run(b, ev.today, ev.pls[i])
 	}
-	res := endResult{cands: rs}
+	res := endResult{cands: rs, series: ev.cands}
 	if ev.safest != nil {
 		res.reasons = append(res.reasons, *ev.safest)
 	}

@@ -1,0 +1,69 @@
+{
+  "snapshot": {
+    "version": "validate-first-dose-min-age-differs",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-young",
+        "disease": "a",
+        "stage": "childhood",
+        "startAge": {
+          "min": "P9Y",
+          "max": "P15Y"
+        },
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P9Y",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P9Y"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "a-old",
+        "disease": "a",
+        "stage": "adult",
+        "startAge": {
+          "min": "P15Y"
+        },
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P12Y",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P15Y"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "FIRST_DOSE_MIN_AGE_DIFFERS",
+      "severity": "warn",
+      "path": "/series/1/plans/0/doses/0/minAge",
+      "params": {
+        "id": "a-young"
+      }
+    }
+  ]
+}

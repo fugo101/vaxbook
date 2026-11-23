@@ -1,0 +1,72 @@
+{
+  "ruleset": "illustrative-start-age",
+  "input": {
+    "today": "2025-09-01",
+    "profile": {
+      "birth": {
+        "value": "2010-06-15",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "hpv"
+        ],
+        "product": "gardasil9",
+        "date": {
+          "precision": "unknown"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "hpv"
+        ],
+        "product": "gardasil9",
+        "date": {
+          "value": "2025-07-15",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-start-age-s3b",
+    "today": "2025-09-01",
+    "assessments": [
+      {
+        "disease": "hpv",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "hpv-g9-15to45"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "AGE_AT_START_UNCERTAIN",
+            "params": {
+              "candidates": [
+                {
+                  "product": "gardasil9",
+                  "series": "hpv-g9-9to14"
+                },
+                {
+                  "product": "gardasil9",
+                  "series": "hpv-g9-15to45"
+                }
+              ]
+            }
+          },
+          {
+            "code": "PREVIOUS_DOSE_DATE_UNKNOWN",
+            "params": {
+              "dose": "r1"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

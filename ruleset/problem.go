@@ -18,7 +18,7 @@ const (
 // ProblemCode is a code from the closed catalog of rule set problems.
 type ProblemCode string
 
-// The rule set problem catalog (S3a). Renaming a code is a contract change.
+// The rule set problem catalog (S3b). Renaming a code is a contract change.
 const (
 	// PlanDoseCountMismatch: a plan has a different number of doses from
 	// plan 0 of its series (EQ5). Path: the plan.
@@ -52,6 +52,32 @@ const (
 	// the series' disease. Path: the series' product. Params: disease,
 	// product. Added in S3a.
 	ProductDiseaseMismatch ProblemCode = "PRODUCT_DISEASE_MISMATCH"
+	// StartAgeEmpty: a start-age bracket's max is not certainly after its
+	// min (SAD §5.2 span comparison), so the bracket may hold no age. Path:
+	// the series' startAge. Added in S3b.
+	StartAgeEmpty ProblemCode = "START_AGE_EMPTY"
+	// StartAgeRequired: a product group (the series of one disease with
+	// the same product, or its generic series) has more than one series,
+	// and this one has no startAge (EQ26). Path: the series. Params:
+	// disease, product (absent for the generic group). Added in S3b.
+	StartAgeRequired ProblemCode = "START_AGE_REQUIRED"
+	// StartAgeOverlap: two start-age brackets of one product group may
+	// overlap for some month length (EQ26). Path: the later series'
+	// startAge. Params: id (the earlier series), one problem per earlier
+	// series it overlaps, in rule-set order. Added in S3b.
+	StartAgeOverlap ProblemCode = "START_AGE_OVERLAP"
+	// FirstDoseMinAgeAboveStartAge: Warn. Dose 1's minimum age may be
+	// greater than the series' startAge.min, so the youngest ages of the
+	// bracket cannot start the series (SAD §5.2). Path: dose 1's minAge in
+	// the plan. Added in S3b.
+	FirstDoseMinAgeAboveStartAge ProblemCode = "FIRST_DOSE_MIN_AGE_ABOVE_START_AGE"
+	// FirstDoseMinAgeDiffers: Warn. In a product group of more than one
+	// series, a plan's dose-1 minimum age differs from that of plan 0 of
+	// the group's first series (issue #23, Q43). Spans are equal within one
+	// unit family (P1Y = P12M, P1W = P7D); spans of different families
+	// differ, except zero. Path: dose 1's minAge in the plan. Params: id
+	// (the group's first series). Added in S3b.
+	FirstDoseMinAgeDiffers ProblemCode = "FIRST_DOSE_MIN_AGE_DIFFERS"
 )
 
 // Problem is one finding of Validate. Path is a JSON pointer (RFC 6901)

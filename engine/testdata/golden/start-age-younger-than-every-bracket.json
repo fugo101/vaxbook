@@ -1,0 +1,35 @@
+{
+  "ruleset": "illustrative-start-age",
+  "input": {
+    "today": "2026-11-10",
+    "profile": {
+      "birth": {
+        "value": "2021-11-01",
+        "precision": "day"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-start-age-s3b",
+    "today": "2026-11-10",
+    "assessments": [
+      {
+        "disease": "hpv",
+        "block": "notYetScheduled",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2030-11-01",
+          "due": "2030-11-01",
+          "overdue": "2030-11-08"
+        },
+        "seriesUsed": [
+          "hpv-g9-9to14"
+        ],
+        "products": [
+          "gardasil9"
+        ]
+      }
+    ]
+  }
+}

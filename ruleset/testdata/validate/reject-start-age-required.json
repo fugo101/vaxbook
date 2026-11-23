@@ -1,0 +1,79 @@
+{
+  "snapshot": {
+    "version": "validate-start-age-required",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "products": [
+      {
+        "id": "p",
+        "name": "Sản phẩm minh hoạ",
+        "diseases": [
+          "a"
+        ],
+        "live": false
+      }
+    ],
+    "series": [
+      {
+        "id": "a-p-young",
+        "disease": "a",
+        "product": "p",
+        "stage": "childhood",
+        "startAge": {
+          "min": "P0D",
+          "max": "P1Y"
+        },
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P0D",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P2M"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "a-p-old",
+        "disease": "a",
+        "product": "p",
+        "stage": "childhood",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P0D",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P1Y"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "START_AGE_REQUIRED",
+      "severity": "reject",
+      "path": "/series/1",
+      "params": {
+        "disease": "a",
+        "product": "p"
+      }
+    }
+  ]
+}

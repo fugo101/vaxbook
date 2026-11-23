@@ -1,0 +1,73 @@
+{
+  "ruleset": "minimal-start-age-gap",
+  "input": {
+    "today": "2026-03-01",
+    "profile": {
+      "birth": {
+        "value": "2023-11-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "gap"
+        ],
+        "date": {
+          "value": "2025-11",
+          "precision": "month"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-start-age-gap-s3b",
+    "today": "2026-03-01",
+    "assessments": [
+      {
+        "disease": "gap",
+        "bucket": "upcoming",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-01-25",
+          "due": "2026-05-30",
+          "overdue": "2026-06-06"
+        },
+        "seriesUsed": [
+          "gap-a",
+          "gap-b"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "AGE_AT_START_UNCERTAIN",
+            "params": {
+              "candidates": [
+                {
+                  "series": "gap-a"
+                },
+                {
+                  "series": "gap-b"
+                }
+              ]
+            }
+          },
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "series": "gap-a"
+                },
+                {
+                  "series": "gap-b"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

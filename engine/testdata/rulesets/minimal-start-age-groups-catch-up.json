@@ -1,0 +1,130 @@
+{
+  "version": "minimal-start-age-groups-catch-up-s3b",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "grp",
+      "name": "Bệnh minh hoạ hai nhóm sản phẩm"
+    }
+  ],
+  "products": [
+    {
+      "id": "grp-x",
+      "name": "Vắc xin minh hoạ X",
+      "diseases": [
+        "grp"
+      ],
+      "live": false
+    }
+  ],
+  "series": [
+    {
+      "id": "grp-gen-a",
+      "disease": "grp",
+      "stage": "childhood",
+      "startAge": {
+        "min": "P6M",
+        "max": "P2Y"
+      },
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6M",
+              "recommended": {
+                "from": "birth",
+                "offset": "P6M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "previousDose",
+                "offset": "P2M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "grp-gen-b",
+      "disease": "grp",
+      "stage": "childhood",
+      "startAge": {
+        "min": "P2Y",
+        "max": "P5Y"
+      },
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6M",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2Y"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "grp-x-a",
+      "disease": "grp",
+      "product": "grp-x",
+      "stage": "childhood",
+      "startAge": {
+        "min": "P6M",
+        "max": "P3Y"
+      },
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6M",
+              "recommended": {
+                "from": "birth",
+                "offset": "P6M"
+              }
+            },
+            {
+              "minInterval": "P8W",
+              "recommended": {
+                "from": "previousDose",
+                "offset": "P3M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "grp-x-b",
+      "disease": "grp",
+      "product": "grp-x",
+      "stage": "childhood",
+      "startAge": {
+        "min": "P3Y",
+        "max": "P6Y"
+      },
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6M",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2Y"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

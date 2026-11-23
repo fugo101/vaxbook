@@ -1,6 +1,6 @@
 package ruleset
 
-// Snapshot is an immutable rule set version: the S3a subset of SAD §5.2.
+// Snapshot is an immutable rule set version: the S3b subset of SAD §5.2.
 // Fields are added additively by later slices.
 type Snapshot struct {
 	Version string `json:"version"`
@@ -57,10 +57,24 @@ type Series struct {
 	// product of the disease that has no series of its own. It is a pointer
 	// so that a present empty string is a Validate problem instead of a
 	// generic series. The series of one disease with the same Product, or
-	// its generic series, form a product group (issue #14). Added in S3a.
+	// its generic series, form a product group (issue #14). A group of more
+	// than one series tells them apart by StartAge (EQ26). Added in S3a.
 	Product *string `json:"product,omitzero"`
 	Stage   Stage   `json:"stage"`
-	Plans   []Plan  `json:"plans"`
+	// StartAge is the start-age bracket of the series: the ages at dose 1
+	// it applies to. Required in a product group of more than one series,
+	// whose brackets may not overlap (EQ26). Added in S3b.
+	StartAge *StartAge `json:"startAge,omitzero"`
+	Plans    []Plan    `json:"plans"`
+}
+
+// StartAge is a start-age bracket: the half-open range [Min, Max) of the age
+// at dose 1 (SAD §5.2, F05.2, EQ26). Max absent: the bracket is open-ended
+// (issue #23, Q25). Validate rejects a bracket that may be empty. Added in
+// S3b.
+type StartAge struct {
+	Min Span  `json:"min"`
+	Max *Span `json:"max,omitzero"`
 }
 
 // Plan is one alternative schedule of a series.

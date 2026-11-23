@@ -1,0 +1,38 @@
+{
+  "ruleset": "minimal-start-age-groups",
+  "input": {
+    "today": "2026-06-30",
+    "profile": {
+      "birth": {
+        "value": "2020",
+        "precision": "year"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "minimal-start-age-groups-s3b",
+    "today": "2026-06-30",
+    "assessments": [
+      {
+        "disease": "grp",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "grp-x-b"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "BIRTH_DATE_IMPRECISE",
+            "params": {
+              "hint": "fullBirthDate"
+            }
+          },
+          {
+            "code": "OUT_OF_AGE"
+          }
+        ]
+      }
+    ]
+  }
+}

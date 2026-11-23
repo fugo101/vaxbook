@@ -5,7 +5,8 @@ import (
 	"slices"
 )
 
-// endResult is steps 5–9 at one birth end, before step 4 compares the ends.
+// endResult is steps 5–9 at one birth date, before step 4 compares the
+// results across the birth-date range.
 type endResult struct {
 	bucket   Bucket
 	block    Block
@@ -16,6 +17,7 @@ type endResult struct {
 	reasons  []Reason
 	products []string          // the products for next; set with hasNext
 	cands    []candidateResult // per candidate series, for later merges (S4)
+	series   []int             // the end's candidate series, in rule-set order (seriesUsed)
 }
 
 // class is the result as the user sees it: ⚪ whenever a reason blocks, and
@@ -38,61 +40,86 @@ func distanceOnly(class string) bool {
 	return class == string(BlockNotYetScheduled) || class == string(BucketUpcoming) || class == "onTrack"
 }
 
-// compareEnds combines the results at the older and the later end of the
-// birth-date range (SAD §5.3 step 4, F05.5, EQ17, A8).
+// compareResults combines the results that step 4 computes across the
+// birth-date range, in ascending birth order: the older and the later end,
+// or with no dose given both ends of every sub-range where the start-age
+// choice is fixed (SAD §5.3 step 4, F05.5, EQ17, A8; noDosePoints).
 //
-// The ends agree when they have the same next dose number and the same
+// Two results agree when they have the same next dose number and the same
 // blocking reasons, and either the same class or two classes in
 // {notYetScheduled, 🟡, ✅ ON_TRACK}. Dates alone never make them differ: the
-// dates driven by a minimum age or interval come from the later end. Then
-// the later end's result is used. A ⚪ result keeps the older end's reasons
-// that the later end lacks; any other result keeps only those that are not
-// bucket reasons (bucketReason), which describe the later end's bucket.
+// dates driven by a minimum age or interval come from the latest birth date.
+// Agreement is an equivalence, so the results all agree when each agrees
+// with the latest one. Then the latest result is used, with its series
+// (seriesUsed) and products (issue #23 Q40, amended in PR #27). A ⚪ result
+// keeps the other results' reasons that it lacks; any other result keeps
+// only those that are not bucket reasons (bucketReason), which describe the
+// latest result's bucket. They are added from the latest birth date down.
 //
 // Otherwise the result is ⚪ BIRTH_DATE_IMPRECISE{hint} with no dates,
-// followed by the later end's reasons and then the older end's reasons that
-// are not already listed.
-func compareEnds(older, later endResult, hint Hint) endResult {
-	co, cl := older.class(), later.class()
-	agree := older.k == later.k &&
-		slices.EqualFunc(blockingOnly(older.reasons), blockingOnly(later.reasons), sameReason) &&
-		(co == cl || distanceOnly(co) && distanceOnly(cl))
+// followed by every result's reasons, from the latest birth date down,
+// without repeats. It keeps the latest result's candidate series
+// (seriesUsed, Q40) but not its products. When some result is outOfAge and
+// another is not, the hint is fullBirthDate whatever the birth precision
+// (SAD §5.3 step 4: an end hits an age limit). Such results never agree:
+// outOfAge has k 0 and the others k ≥ 1.
+func compareResults(rs []endResult, hint Hint) endResult {
+	later := rs[len(rs)-1]
+	agree, mixedOutOfAge := true, false
+	for _, r := range rs[:len(rs)-1] {
+		co, cl := r.class(), later.class()
+		agree = agree && r.k == later.k &&
+			slices.EqualFunc(blockingOnly(r.reasons), blockingOnly(later.reasons), sameReason) &&
+			(co == cl || distanceOnly(co) && distanceOnly(cl))
+		mixedOutOfAge = mixedOutOfAge || (r.block == BlockOutOfAge) != (later.block == BlockOutOfAge)
+	}
 	// listed holds the reasons already in res.reasons, so that removing
 	// duplicates stays linear in the number of reasons (one DOSE_INVALID
 	// per record at each end).
 	listed := map[string]bool{}
+	add := func(res *endResult, r Reason) {
+		if k := reasonKey(r); !listed[k] {
+			listed[k] = true
+			res.reasons = append(res.reasons, r)
+		}
+	}
 	if agree {
 		res := later
 		res.reasons = slices.Clone(later.reasons)
 		for _, r := range later.reasons {
 			listed[reasonKey(r)] = true
 		}
-		for _, r := range older.reasons {
-			keep := later.bucket == BucketUnknown || !bucketReason(r.Code)
-			if k := reasonKey(r); keep && !listed[k] {
-				listed[k] = true
-				res.reasons = append(res.reasons, r)
+		for i := len(rs) - 2; i >= 0; i-- {
+			for _, r := range rs[i].reasons {
+				if later.bucket == BucketUnknown || !bucketReason(r.Code) {
+					add(&res, r)
+				}
 			}
 		}
 		return res
 	}
-	res := endResult{bucket: BucketUnknown, k: later.k}
-	for _, r := range slices.Concat([]Reason{{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: hint}}}, later.reasons, older.reasons) {
-		if k := reasonKey(r); !listed[k] {
-			listed[k] = true
-			res.reasons = append(res.reasons, r)
+	if mixedOutOfAge {
+		hint = HintFullBirthDate
+	}
+	res := endResult{bucket: BucketUnknown, k: later.k, series: later.series}
+	add(&res, Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: hint}})
+	for i := len(rs) - 1; i >= 0; i-- {
+		for _, r := range rs[i].reasons {
+			add(&res, r)
 		}
 	}
 	return res
 }
 
 // bucketReason reports whether a reason describes one end's bucket: COMPLETE,
-// ON_TRACK, ALTERNATIVE_PLANS, PRODUCT_NOT_IN_CATALOG and SAFEST_SERIES. With
-// doses given, SAFEST_SERIES is emitted once before step 4 and is never in an
-// end's reasons.
+// ON_TRACK, ALTERNATIVE_PLANS, PRODUCT_NOT_IN_CATALOG, SAFEST_SERIES and
+// OUT_OF_AGE. With doses given, SAFEST_SERIES is emitted once before step 4
+// and is never in an end's reasons; with no dose given the sub-ranges of the
+// birth range can choose different brackets, so each one's SAFEST_SERIES and
+// OUT_OF_AGE can differ.
 func bucketReason(c ReasonCode) bool {
 	switch c {
-	case ReasonComplete, ReasonOnTrack, ReasonAlternativePlans, ReasonProductNotInCatalog, ReasonSafestSeries:
+	case ReasonComplete, ReasonOnTrack, ReasonAlternativePlans, ReasonProductNotInCatalog, ReasonSafestSeries, ReasonOutOfAge:
 		return true
 	}
 	return false

@@ -469,14 +469,16 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 		slices.Sort(free)
 		at = dz.evaluate(arr, cands, today, free, false).at
 	} else {
-		// No dose given: each birth end chooses its brackets from its own age
-		// (EQ10); an end with none left is outOfAge (Q24).
+		// No dose given: each birth date chooses its brackets from its own
+		// age today (EQ10); a date with none left is outOfAge (Q24).
 		at = func(b birthEnd) endResult {
 			return dz.evaluate(arr, dz.noDoseAt(b.date, today), today, nil, true).at(b)
 		}
 	}
 
-	// Step 4: steps 5–9 at each end of the birth-date range, or once.
+	// Step 4: steps 5–9 at each end of the birth-date range, or once. With
+	// no dose given the range is also split where the start-age choice
+	// changes, and both ends of every sub-range are evaluated (PR #27).
 	var res endResult
 	switch {
 	case !birth.known:
@@ -488,12 +490,20 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 		if birth.precision == Year {
 			hint = HintBirthMonth
 		}
-		res = compareEnds(at(birthEnd{date: birth.r.Lo, known: true}), at(birthEnd{date: birth.r.Hi, known: true}), hint)
+		pts := []Date{birth.r.Lo, birth.r.Hi}
+		if len(doses) == 0 {
+			pts = dz.noDosePoints(birth.r, today)
+		}
+		rs := make([]endResult, len(pts))
+		for i, p := range pts {
+			rs[i] = at(birthEnd{date: p, known: true})
+		}
+		res = compareResults(rs, hint)
 	}
 	a.Reasons = append(a.Reasons, res.reasons...)
 	a.Bucket, a.Block = res.bucket, res.block
-	// seriesUsed is the final result's candidates: the later end's when the
-	// ends differ (Q40), none for outOfAge.
+	// seriesUsed is the final result's candidates: the latest birth date's
+	// when the results differ (Q40), none for outOfAge.
 	if res.block != BlockOutOfAge {
 		for _, c := range res.series {
 			a.SeriesUsed = append(a.SeriesUsed, dz.series[c].id)

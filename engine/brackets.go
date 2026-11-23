@@ -49,6 +49,50 @@ func (dz diseaseModel) noDoseAt(b, today Date) []int {
 	return dz.openAt(dz.all, b, today)
 }
 
+// noDosePoints returns the birth dates at which step 4 evaluates the
+// birth-date range r when no dose is given (SAD §5.3 step 4, EQ10; PR #27,
+// issue #23), ascending and without repeats: r.Lo, r.Hi and, for each date
+// c in (r.Lo, r.Hi] where noDoseAt changes, c − 1 and c.
+//
+// The choice at b depends only on which brackets are open at b, and a
+// bracket with a max is open from the first b with b + max after today on
+// (AddSpan never decreases as b grows, month-end clamping included). So the
+// changes are among those dates, one per bracket that is closed at r.Lo and
+// open at r.Hi, found by bisection on openAt itself so that clamping is
+// exact; every series of the disease counts, retired ones included, since
+// the Q50 (b) fallback reads them. A date where the choice does not change
+// is no split. The choice is then fixed on each sub-range [r.Lo, c₁ − 1],
+// [c₁, c₂ − 1], …, [c_k, r.Hi], and for fixed candidates the dates move one
+// way with the birth date, so the ends of a sub-range bound every day in
+// it.
+func (dz diseaseModel) noDosePoints(r Range, today Date) []Date {
+	var cs []Date
+	for _, s := range dz.series {
+		br := s.start
+		if !br.ok || !br.max.ok || br.openAt(r.Lo, today) || !br.openAt(r.Hi, today) {
+			continue
+		}
+		closed, open := r.Lo, r.Hi
+		for closed.AddDays(1).Before(open) {
+			mid := closed.AddDays(int(open.days-closed.days) / 2)
+			if br.openAt(mid, today) {
+				open = mid
+			} else {
+				closed = mid
+			}
+		}
+		cs = append(cs, open)
+	}
+	slices.SortFunc(cs, Date.Compare)
+	pts := []Date{r.Lo}
+	for _, c := range slices.Compact(cs) {
+		if !slices.Equal(dz.noDoseAt(c.AddDays(-1), today), dz.noDoseAt(c, today)) {
+			pts = append(pts, c.AddDays(-1), c)
+		}
+	}
+	return slices.Compact(append(pts, r.Hi))
+}
+
 func (dz diseaseModel) openAt(cands []int, b, today Date) []int {
 	var out []int
 	for _, g := range dz.groupsIn(cands) {

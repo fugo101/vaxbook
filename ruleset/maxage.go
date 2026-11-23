@@ -26,7 +26,10 @@ package ruleset
 func (v *validator) maxAges(p string, sr Series) {
 	startP, completeP := p+"/maxAgeStart", p+"/maxAgeComplete"
 	start, startOK := v.maxAgeSpan(startP, sr.MaxAgeStart)
-	complete, completeOK := v.maxAgeSpan(completeP, sr.MaxAgeComplete)
+	// maxAgeComplete's own span problem is reported after maxAgeStart's
+	// relational problems, in document order; only its usability is
+	// needed before then.
+	complete, completeOK := usableMaxAge(sr.MaxAgeComplete)
 
 	var mins []Span // the dose-1 minimum ages of the plans that have a valid one
 	for _, pl := range sr.Plans {
@@ -44,6 +47,7 @@ func (v *validator) maxAges(p string, sr Series) {
 			v.warn(MaxAgeStartAfterComplete, startP, ProblemParams{})
 		}
 	}
+	v.maxAgeSpan(completeP, sr.MaxAgeComplete)
 	if !completeOK || !v.maxAgeAfter(completeP, complete, mins) {
 		return
 	}
@@ -66,12 +70,18 @@ func (v *validator) maxAges(p string, sr Series) {
 func (v *validator) maxAgeSpan(path string, s *Span) (Span, bool) {
 	switch {
 	case s == nil:
-		return Span{}, false
 	case *s == Span{}:
 		v.reject(Required, path, ProblemParams{})
-		return Span{}, false
 	case !s.valid():
 		v.reject(InvalidValue, path, ProblemParams{Value: s.String()})
+	}
+	return usableMaxAge(s)
+}
+
+// usableMaxAge returns a maximum age and whether it is present, not zero and
+// valid, without reporting anything.
+func usableMaxAge(s *Span) (Span, bool) {
+	if s == nil || *s == (Span{}) || !s.valid() {
 		return Span{}, false
 	}
 	return *s, true

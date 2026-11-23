@@ -464,6 +464,16 @@ func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
 		{"max age start bad unit", []Problem{invalid(maxStart, Span{N: 15, Unit: 'x'})},
 			&Span{N: 15, Unit: 'x'}, &Span{N: 1, Unit: Years}},
 		{"max ages at the cap", nil, &Span{N: MaxSpanN, Unit: Weeks}, &Span{N: MaxSpanN, Unit: Years}},
+		// Document order: maxAgeStart's relational problems come before a
+		// span problem of maxAgeComplete (dose 1's minAge is P6W).
+		{"max age start not after min age, complete invalid", []Problem{
+			{Code: MaxAgeNotAfterMinAge, Severity: Reject, Path: maxStart},
+			invalid(maxComplete, Span{N: 1000, Unit: Weeks}),
+		}, &Span{N: 6, Unit: Weeks}, &Span{N: 1000, Unit: Weeks}},
+		{"max age start not after min age, complete zero", []Problem{
+			{Code: MaxAgeNotAfterMinAge, Severity: Reject, Path: maxStart},
+			{Code: Required, Severity: Reject, Path: maxComplete},
+		}, &Span{N: 1, Unit: Months}, &Span{}},
 	}
 	for _, tc := range maxCases {
 		t.Run(tc.name, func(t *testing.T) {

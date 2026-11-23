@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// The engine contract (SAD §5.1), S3b subset. It grows additively: each slice
+// The engine contract (SAD §5.1), S4a subset. It grows additively: each slice
 // adds only the members it uses. Struct field order is the JSON member order
 // of the encoded output.
 
@@ -160,7 +160,7 @@ type Output struct {
 //
 // Bucket BucketUnknown always comes with a blocking reason, and a blocking
 // reason makes Bucket BucketUnknown unless a block of a higher precedence
-// layer wins over it (SAD §5.3 step 10, layers 1–5, none in S3b); the
+// layer wins over it (SAD §5.3 step 10, layers 1–5, none in S4a); the
 // reasons it masks then stay in Reasons. Informational reasons never make
 // it ⚪ on their own.
 type Assessment struct {
@@ -214,7 +214,7 @@ const (
 // Block is a collapsed group outside the buckets.
 type Block string
 
-// Blocks (S3b subset).
+// Blocks (S4a subset).
 const (
 	// BlockNotYetScheduled is "Chưa tới lịch tiêm" ("Not yet scheduled"): no dose
 	// given and dose 1 due more than 6 months after today (EQ2, EQ18).
@@ -244,12 +244,14 @@ type ReasonParams struct {
 	// series (SAFEST_SERIES) or the matching start-age brackets of one
 	// product group (AGE_AT_START_UNCERTAIN). Added in S3a.
 	Candidates []SeriesRef `json:"candidates,omitzero"`
-	// Checks are the minimums a dose fails, in catalog order: DOSE_INVALID,
-	// DOSE_POSSIBLY_INVALID.
+	// Checks are the checks a dose fails or may fail, in catalog order:
+	// DOSE_INVALID (minimums only), DOSE_AFTER_MAX_AGE (maximum ages only),
+	// DOSE_POSSIBLY_INVALID (any).
 	Checks []Check `json:"checks,omitzero"`
 	// Dose is a dose record ID: INVALID_DATE, OUT_OF_RANGE, DATE_IN_FUTURE,
 	// DATE_BEFORE_BIRTH, UNEXPECTED_VALUE, UNKNOWN_PRODUCT, DOSE_INVALID,
-	// DOSE_POSSIBLY_INVALID, INTERVAL_UNVERIFIABLE, NUMBERING_CONFLICT,
+	// DOSE_AFTER_MAX_AGE, DOSE_POSSIBLY_INVALID, INTERVAL_UNVERIFIABLE,
+	// NUMBERING_CONFLICT,
 	// PREVIOUS_DOSE_DATE_UNKNOWN, FIRST_DOSE_DATE_ASSUMED.
 	Dose string `json:"dose,omitzero"`
 	// Doses are dose record IDs: OVERLAPPING_ESTIMATED_DATES in time order,
@@ -261,11 +263,12 @@ type ReasonParams struct {
 	// BIRTH_DATE_IMPRECISE.
 	Hint Hint `json:"hint,omitzero"`
 	// Number is a series position, ≥ 1: the position a dose was checked for
-	// (DOSE_INVALID, DOSE_POSSIBLY_INVALID, INTERVAL_UNVERIFIABLE; for a dose
-	// beyond the series length, the position it sits at, or the number of
-	// the level-4 record whose number implies doses that cannot fit), the
-	// position a floating level-4 dose fails after the last dated dose
-	// (DOSE_INVALID), or the number the user entered (NUMBERING_CONFLICT).
+	// (DOSE_INVALID, DOSE_AFTER_MAX_AGE, DOSE_POSSIBLY_INVALID,
+	// INTERVAL_UNVERIFIABLE; for a dose beyond the series length, the
+	// position it sits at, or the number of the level-4 record whose number
+	// implies doses that cannot fit), the position a floating level-4 dose
+	// fails after the last dated dose (DOSE_INVALID, DOSE_AFTER_MAX_AGE), or
+	// the number the user entered (NUMBERING_CONFLICT).
 	Number int `json:"number,omitzero"`
 	// Numbers are the positions of implied doses, ascending:
 	// IMPLIED_EARLIER_DOSES.
@@ -289,6 +292,13 @@ const (
 	CheckMinAge               Check = "minAge"
 	CheckMinInterval          Check = "minInterval"
 	CheckMinIntervalFromFirst Check = "minIntervalFromFirst"
+	// CheckMaxAgeStart is dose 1's start limit: the earlier of the series'
+	// maxAgeStart and its product group's last start-age bracket max, each
+	// when present (issue #15, Q55). Added in S4a.
+	CheckMaxAgeStart Check = "maxAgeStart"
+	// CheckMaxAgeComplete is the series' maxAgeComplete, for every dose of
+	// the series. Added in S4a.
+	CheckMaxAgeComplete Check = "maxAgeComplete"
 )
 
 // Hint is the input that would resolve a BIRTH_DATE_IMPRECISE reason.
@@ -312,7 +322,7 @@ const (
 // never does so on its own.
 type ReasonCode string
 
-// Reason codes (S3b subset). Blocking unless the doc says informational.
+// Reason codes (S4a subset). Blocking unless the doc says informational.
 const (
 	// ReasonInvalidDate: a dose record of the disease has an unparseable
 	// date (A9). Params: dose.
@@ -377,8 +387,9 @@ const (
 	// dose (SAD §5.3 step 7). Params: dose (that undated record).
 	ReasonPreviousDoseDateUnknown ReasonCode = "PREVIOUS_DOSE_DATE_UNKNOWN"
 	// ReasonNoBirthDate: no birth date, and the next dose needs one: no dose
-	// is counted yet, or its minimum age is not implied by the intervals
-	// (EQ19).
+	// is counted yet, its minimum age is not implied by the intervals
+	// (EQ19), or the series has a maximum age to complete (A6, issue #15
+	// Q59; S4a).
 	ReasonNoBirthDate ReasonCode = "NO_BIRTH_DATE"
 	// ReasonFirstDoseDateAssumed: informational. Dose 1 is undated, so the
 	// earliest dated dose stands in for it in a first-dose anchor or
@@ -402,4 +413,25 @@ const (
 	// given, and the person is past every start-age bracket at the
 	// evaluated birth end (issue #23, Q24). Added in S3b.
 	ReasonOutOfAge ReasonCode = "OUT_OF_AGE"
+	// ReasonDoseAfterMaxAge: a dose is certainly on or after a maximum age
+	// under every candidate series that checks it, so it is not counted
+	// (SAD §5.3 step 5, F05.10, EQ7, EQ16): dose 1 on or after its start
+	// limit (maxAgeStart), or a dose at a position up to the series length
+	// on or after maxAgeComplete. Maximum ages are exclusive bounds. Params:
+	// checks (the failed maximum ages only), dose, number (the position it
+	// was checked for, or the number of the level-4 record beyond the series
+	// that carries an implied dose). Added in S4a.
+	ReasonDoseAfterMaxAge ReasonCode = "DOSE_AFTER_MAX_AGE"
+	// ReasonCheckProductName: the candidate series disagree on a maximum age
+	// (one gives a dose DOSE_AFTER_MAX_AGE, another counts it or is complete
+	// without checking it), and some dose of the disease has an unknown
+	// product: none, an implied dose, or a catalog product that does not
+	// list the disease (F05.3, EQ16; issue #15 Q52, Q53). No params. Added
+	// in S4a.
+	ReasonCheckProductName ReasonCode = "CHECK_PRODUCT_NAME"
+	// ReasonMixedProducts: the candidate series disagree on a maximum age,
+	// and every dose of the disease has a named product: a catalog product
+	// that lists the disease (retired allowed) or an off-catalog product
+	// (F05.3, EQ16; issue #15 Q54). No params. Added in S4a.
+	ReasonMixedProducts ReasonCode = "MIXED_PRODUCTS"
 )

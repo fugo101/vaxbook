@@ -4,14 +4,15 @@ import "fmt"
 
 // blocks reports whether reason code c is blocking: it makes the assessment
 // ⚪ BucketUnknown with no next dose, unless a block of a higher precedence
-// layer wins over it (SAD §5.3 step 10, issue #13; none in S3b). The
+// layer wins over it (SAD §5.3 step 10, issue #13; none in S4a). The
 // informational codes explain a result without masking it. The split is a
 // closed switch, so a new code must be classified here.
 func (c ReasonCode) blocks() bool {
 	switch c {
 	case ReasonInvalidDate, ReasonOutOfRange, ReasonDateInFuture, ReasonDateBeforeBirth, ReasonUnexpectedValue,
 		ReasonUnknownProduct, ReasonOverlappingEstimatedDates, ReasonNumberingConflict, ReasonBirthDateImprecise,
-		ReasonDoseInvalid, ReasonDosePossiblyInvalid, ReasonPreviousDoseDateUnknown, ReasonNoBirthDate:
+		ReasonDoseInvalid, ReasonDosePossiblyInvalid, ReasonPreviousDoseDateUnknown, ReasonNoBirthDate,
+		ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts:
 		return true
 	case ReasonImpliedEarlierDoses, ReasonSafestSeries, ReasonIntervalUnverifiable, ReasonFirstDoseDateAssumed,
 		ReasonAlternativePlans, ReasonComplete, ReasonProductNotInCatalog, ReasonOnTrack, ReasonAgeAtStartUncertain, ReasonOutOfAge:

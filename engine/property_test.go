@@ -265,6 +265,7 @@ var blockingCodes = map[engine.ReasonCode]bool{
 	engine.ReasonOverlappingEstimatedDates: true,
 	engine.ReasonNumberingConflict:         true, engine.ReasonBirthDateImprecise: true, engine.ReasonDoseInvalid: true,
 	engine.ReasonDosePossiblyInvalid: true, engine.ReasonPreviousDoseDateUnknown: true, engine.ReasonNoBirthDate: true,
+	engine.ReasonDoseAfterMaxAge: true, engine.ReasonCheckProductName: true, engine.ReasonMixedProducts: true,
 }
 
 func reasonsWith(a engine.Assessment, code engine.ReasonCode) []engine.Reason {

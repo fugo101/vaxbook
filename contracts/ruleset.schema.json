@@ -213,7 +213,7 @@
       "additionalProperties": false,
       "required": ["code"],
       "properties": {
-        "code": {"enum": ["INVALID_DATE", "OUT_OF_RANGE", "DATE_IN_FUTURE", "DATE_BEFORE_BIRTH", "UNEXPECTED_VALUE", "UNKNOWN_PRODUCT", "OVERLAPPING_ESTIMATED_DATES", "NUMBERING_CONFLICT", "IMPLIED_EARLIER_DOSES", "SAFEST_SERIES", "BIRTH_DATE_IMPRECISE", "DOSE_INVALID", "DOSE_POSSIBLY_INVALID", "INTERVAL_UNVERIFIABLE", "COMPLETE", "PRODUCT_NOT_IN_CATALOG", "PREVIOUS_DOSE_DATE_UNKNOWN", "NO_BIRTH_DATE", "FIRST_DOSE_DATE_ASSUMED", "ALTERNATIVE_PLANS", "ON_TRACK", "AGE_AT_START_UNCERTAIN", "OUT_OF_AGE"]},
+        "code": {"enum": ["INVALID_DATE", "OUT_OF_RANGE", "DATE_IN_FUTURE", "DATE_BEFORE_BIRTH", "UNEXPECTED_VALUE", "UNKNOWN_PRODUCT", "OVERLAPPING_ESTIMATED_DATES", "NUMBERING_CONFLICT", "IMPLIED_EARLIER_DOSES", "SAFEST_SERIES", "BIRTH_DATE_IMPRECISE", "DOSE_INVALID", "DOSE_POSSIBLY_INVALID", "INTERVAL_UNVERIFIABLE", "COMPLETE", "PRODUCT_NOT_IN_CATALOG", "PREVIOUS_DOSE_DATE_UNKNOWN", "NO_BIRTH_DATE", "FIRST_DOSE_DATE_ASSUMED", "ALTERNATIVE_PLANS", "ON_TRACK", "AGE_AT_START_UNCERTAIN", "OUT_OF_AGE", "DOSE_AFTER_MAX_AGE", "CHECK_PRODUCT_NAME", "MIXED_PRODUCTS"]},
         "params": {"$ref": "#/$defs/ReasonParams"}
       }
     },
@@ -224,7 +224,7 @@
       "minProperties": 1,
       "properties": {
         "candidates": {"description": "Candidate series in rule-set order (SAFEST_SERIES, AGE_AT_START_UNCERTAIN); added in engine slice S3a.", "type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/SeriesRef"}},
-        "checks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["minAge", "minInterval", "minIntervalFromFirst"]}},
+        "checks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["minAge", "minInterval", "minIntervalFromFirst", "maxAgeStart", "maxAgeComplete"]}},
         "dose": {"type": "string", "minLength": 1},
         "doses": {"description": "Dose record IDs: in time order, at least two, for OVERLAPPING_ESTIMATED_DATES; by ID, at least one, for PRODUCT_NOT_IN_CATALOG.", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "hint": {"enum": ["birthMonth", "fullBirthDate"]},

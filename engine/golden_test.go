@@ -356,6 +356,9 @@ var reasonParams = map[engine.ReasonCode][]string{
 	engine.ReasonOnTrack:                   nil,
 	engine.ReasonAgeAtStartUncertain:       {"candidates"},
 	engine.ReasonOutOfAge:                  nil,
+	engine.ReasonDoseAfterMaxAge:           {"checks", "dose", "number"},
+	engine.ReasonCheckProductName:          nil,
+	engine.ReasonMixedProducts:             nil,
 }
 
 // checkReasonParams fails when a reason of a carries params other than

@@ -87,8 +87,20 @@ The series of one disease that share one product, or the generic series of a dis
 _Avoid_: Product series (one series), Series family
 
 **Start-age bracket**:
-The ages at dose 1 a series applies to: a half-open range [min, max), with max optional (open-ended). The brackets of one product group do not overlap; the engine chooses a group's series by the age at dose 1, or, with no dose yet, by the age today. For choosing, a bracket's _reach_ also covers the gap below it, from the previous bracket's max (from birth for the first), so every age below the last max is in exactly one reach (Q33). Not the minimum age of a dose.
+The ages at dose 1 a series applies to: a half-open range [min, max), with max optional (open-ended). The brackets of one product group do not overlap; the engine chooses a group's series by the age at dose 1, or, with no dose yet, by the age today. For choosing, a bracket's _reach_ also covers the gap below it, from the previous bracket's max (from birth for the first), so every age below the last max is in exactly one reach (Q33). The last bracket's max also limits dose 1, like a maximum age to start, for every series of the group (Q55). Not the minimum age of a dose.
 _Avoid_: Age range (ambiguous with the minimum and maximum ages), Age group
+
+**Maximum age to start** — *Tuổi tối đa bắt đầu*:
+The age before which dose 1 of a series must be given (`maxAgeStart`), an exclusive bound: the last allowed day is birth + the maximum age − 1 day. It belongs to the series, not to one plan, and applies to dose 1 only; the last start-age bracket max of the product group limits dose 1 too, whichever is earlier. A dose 1 certainly on or after it is not counted (`DOSE_AFTER_MAX_AGE`).
+_Avoid_: Start age (the bracket's min), Age limit (ambiguous)
+
+**Maximum age to complete** — *Tuổi tối đa hoàn thành*:
+The age before which every dose of a series must be given (`maxAgeComplete`), an exclusive bound, series-level like the maximum age to start. A dose certainly on or after it is not counted.
+_Avoid_: Last allowed day (the day derived from it for one next dose)
+
+**Named product**:
+For choosing between the reasons `CHECK_PRODUCT_NAME` and `MIXED_PRODUCTS` only: a dose with a catalog product that lists the disease (retired or not) or with an off-catalog product, as opposed to a dose with no product, a catalog product that does not list the disease, or an implied dose. Not the same as the products that decide the candidate series, where a retired or off-catalog product counts as unknown.
+_Avoid_: Known product (ambiguous with the candidate rule)
 
 **Candidate series**:
 A series the engine still considers for one disease of a profile after reading the products of its dose records; with no dose given, every series except those of retired products.
@@ -99,7 +111,7 @@ The result over several candidate series: each date of the next dose takes its l
 _Avoid_: Strictest product, Worst case
 
 **Dose rule** — *Quy tắc mũi*:
-The conditions for one dose in a series: recommended milestone, minimum / maximum age, minimum interval, buffer, tolerance.
+The conditions for one dose in a series: recommended milestone, minimum age, minimum intervals, buffer, tolerance. The maximum ages belong to the series, not to a dose rule.
 
 **Rule** — *Quy tắc đặc biệt*:
 A rule that does not belong to a specific dose: periodic booster, before pregnancy, allowed additional dose, same-product requirement, information-only.

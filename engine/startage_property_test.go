@@ -51,17 +51,31 @@ func TestPropertyStartAgeCertainWithExactDates(t *testing.T) {
 //   - OUT_OF_AGE inside a ⚪ comes from the older end, where the same
 //     holds, while the later end has some series left.
 //
+// Every no-dose assessment also goes through checkCandidates, which checks
+// each end's SAFEST_SERIES against noDoseChoice at that end.
+//
 // Half the inputs have their doses removed and a month- or year-precision
-// birth date, so that the two ends often choose different brackets. The
+// birth date, so that the two ends often choose different brackets. Half of
+// those then move today to just after a bracket's max is reached at the
+// older end (birthLo + max + 0–14 days), the window where the older end has
+// left that bracket, is due on the next one, and the later end is still in
+// it: only there does a two-end ⚪ whose ends chose different lists arise
+// (the golden start-age-groups-ends-differ-disagree pins one date). The
 // minimal-start-age-groups fixture then reaches outOfAge at both ends and at
-// the older end only, and two-end ⚪ results with no dose (the golden
-// start-age-groups-ends-differ-disagree pins one whose ends chose different
-// series); the counts guard against a generator change making this vacuous.
+// the older end only, and with ends that chose different lists both
+// agreement and a two-end ⚪; the counts guard against a generator change
+// making this vacuous.
 func TestPropertyNoDoseBrackets(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(53, uint64(len(fx.name))))
 		reached := map[string]int{}
+		var maxes []ruleset.Span
+		for _, sr := range fx.snap.Series {
+			if sr.StartAge != nil && sr.StartAge.Max != nil {
+				maxes = append(maxes, *sr.StartAge.Max)
+			}
+		}
 		for i := range 2 * propertyRuns {
 			in := randomInput(t, rng, fx.snap)
 			if i%2 == 1 {
@@ -71,6 +85,9 @@ func TestPropertyNoDoseBrackets(t *testing.T) {
 					if rng.IntN(2) == 0 {
 						in.Profile.Birth = engine.RecalledDate{Value: b.String()[:4], Precision: engine.Year}
 					}
+				}
+				if lo, _, ok := testPeriod(in.Profile.Birth, in.Today); ok && i%4 == 3 && len(maxes) > 0 {
+					in.Today = lo.AddSpan(maxes[rng.IntN(len(maxes))]).AddDays(rng.IntN(15))
 				}
 			}
 			lo, hi, ok := testPeriod(in.Profile.Birth, in.Today)
@@ -86,6 +103,7 @@ func TestPropertyNoDoseBrackets(t *testing.T) {
 					t.Helper()
 					t.Fatalf("%s %s: "+format+"\nassessment %+v\ninput %+v", append(append([]any{fx.name, a.Disease}, args...), a, in)...)
 				}
+				checkCandidates(t, fx, in, a)
 				var series []ruleset.Series
 				for _, sr := range fx.snap.Series {
 					if sr.Disease == a.Disease {
@@ -121,10 +139,19 @@ func TestPropertyNoDoseBrackets(t *testing.T) {
 				case hasCode(a, engine.ReasonBirthDateImprecise):
 					reached["two-end ⚪"]++
 				}
+				if differ := !slices.Equal(noDoseChoice(fx.snap, a.Disease, lo, in.Today), noDoseChoice(fx.snap, a.Disease, hi, in.Today)); differ {
+					switch {
+					case a.Block == engine.BlockOutOfAge || hasCode(a, engine.ReasonOutOfAge):
+					case hasCode(a, engine.ReasonBirthDateImprecise):
+						reached["ends differ, ⚪"]++
+					default:
+						reached["ends differ, agree"]++
+					}
+				}
 			}
 		}
 		if fx.name == "minimal-start-age-groups" {
-			for _, k := range []string{"outOfAge", "older end outOfAge", "two-end ⚪"} {
+			for _, k := range []string{"outOfAge", "older end outOfAge", "two-end ⚪", "ends differ, ⚪", "ends differ, agree"} {
 				if reached[k] == 0 {
 					t.Errorf("%s: no random input reached %q (%v)", fx.name, k, reached)
 				}

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "VaxBook rule set snapshot and engine contract",
-  "description": "Go structs in ruleset/ and engine/ are the source (SAD §3). This schema checks shape. null is never valid; an optional member is omitted; members added after S1 are optional. Content checks live in ruleset.Validate and engine.Validate. They include the keywords the Go decoders do not enforce (enums, minLength, minItems, uniqueItems, the Id pattern). The Input schema accepts every Input that Evaluate assesses, so ⚪ INVALID_DATE (A9) stays reachable for a client that validates against it. Documents are I-JSON texts (RFC 7493): unique member names and well-formed Unicode (no unpaired surrogate escapes, no invalid UTF-8). A schema cannot express this, so the Go decoders reject such a text as a decode error. The root is a rule set snapshot; $defs Input and Output are the engine's input and output (engine slice S3b subset).",
+  "description": "Go structs in ruleset/ and engine/ are the source (SAD §3). This schema checks shape. null is never valid; an optional member is omitted; members added after S1 are optional. Content checks live in ruleset.Validate and engine.Validate. They include the keywords the Go decoders do not enforce (enums, minLength, minItems, uniqueItems, the Id pattern). The Input schema accepts every Input that Evaluate assesses, so ⚪ INVALID_DATE (A9) stays reachable for a client that validates against it. Documents are I-JSON texts (RFC 7493): unique member names and well-formed Unicode (no unpaired surrogate escapes, no invalid UTF-8). A schema cannot express this, so the Go decoders reject such a text as a decode error. The root is a rule set snapshot; $defs Input and Output are the engine's input and output (engine slice S4a subset).",
   "$ref": "#/$defs/Snapshot",
   "$defs": {
     "Id": {
@@ -64,6 +64,8 @@
         "product": {"description": "The product the series belongs to, which must list the series' disease; absent for a generic series. Added in engine slice S3a.", "$ref": "#/$defs/Id"},
         "stage": {"enum": ["childhood", "adult"]},
         "startAge": {"description": "The start-age bracket of the series: the ages at dose 1 it applies to; required in a product group of more than one series (ruleset.Validate, EQ26). Added in engine slice S3b.", "$ref": "#/$defs/StartAge"},
+        "maxAgeStart": {"description": "The exclusive maximum age at dose 1: dose 1 must be given before birth + maxAgeStart, so its last allowed day is birth + maxAgeStart - 1 day. Series-level, not per plan. Added in engine slice S4a.", "$ref": "#/$defs/Span"},
+        "maxAgeComplete": {"description": "The exclusive maximum age for every dose of the series. Series-level, not per plan. Added in engine slice S4a.", "$ref": "#/$defs/Span"},
         "plans": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/Plan"}}
       }
     },
@@ -211,7 +213,7 @@
       "additionalProperties": false,
       "required": ["code"],
       "properties": {
-        "code": {"enum": ["INVALID_DATE", "OUT_OF_RANGE", "DATE_IN_FUTURE", "DATE_BEFORE_BIRTH", "UNEXPECTED_VALUE", "UNKNOWN_PRODUCT", "OVERLAPPING_ESTIMATED_DATES", "NUMBERING_CONFLICT", "IMPLIED_EARLIER_DOSES", "SAFEST_SERIES", "BIRTH_DATE_IMPRECISE", "DOSE_INVALID", "DOSE_POSSIBLY_INVALID", "INTERVAL_UNVERIFIABLE", "COMPLETE", "PRODUCT_NOT_IN_CATALOG", "PREVIOUS_DOSE_DATE_UNKNOWN", "NO_BIRTH_DATE", "FIRST_DOSE_DATE_ASSUMED", "ALTERNATIVE_PLANS", "ON_TRACK", "AGE_AT_START_UNCERTAIN", "OUT_OF_AGE"]},
+        "code": {"enum": ["INVALID_DATE", "OUT_OF_RANGE", "DATE_IN_FUTURE", "DATE_BEFORE_BIRTH", "UNEXPECTED_VALUE", "UNKNOWN_PRODUCT", "OVERLAPPING_ESTIMATED_DATES", "NUMBERING_CONFLICT", "IMPLIED_EARLIER_DOSES", "SAFEST_SERIES", "BIRTH_DATE_IMPRECISE", "DOSE_INVALID", "DOSE_POSSIBLY_INVALID", "INTERVAL_UNVERIFIABLE", "COMPLETE", "PRODUCT_NOT_IN_CATALOG", "PREVIOUS_DOSE_DATE_UNKNOWN", "NO_BIRTH_DATE", "FIRST_DOSE_DATE_ASSUMED", "ALTERNATIVE_PLANS", "ON_TRACK", "AGE_AT_START_UNCERTAIN", "OUT_OF_AGE", "DOSE_AFTER_MAX_AGE", "CHECK_PRODUCT_NAME", "MIXED_PRODUCTS"]},
         "params": {"$ref": "#/$defs/ReasonParams"}
       }
     },
@@ -222,7 +224,7 @@
       "minProperties": 1,
       "properties": {
         "candidates": {"description": "Candidate series in rule-set order (SAFEST_SERIES, AGE_AT_START_UNCERTAIN); added in engine slice S3a.", "type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/SeriesRef"}},
-        "checks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["minAge", "minInterval", "minIntervalFromFirst"]}},
+        "checks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["minAge", "minInterval", "minIntervalFromFirst", "maxAgeStart", "maxAgeComplete"]}},
         "dose": {"type": "string", "minLength": 1},
         "doses": {"description": "Dose record IDs: in time order, at least two, for OVERLAPPING_ESTIMATED_DATES; by ID, at least one, for PRODUCT_NOT_IN_CATALOG.", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "hint": {"enum": ["birthMonth", "fullBirthDate"]},

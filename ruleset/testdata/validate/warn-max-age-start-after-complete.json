@@ -1,0 +1,49 @@
+{
+  "snapshot": {
+    "version": "validate-max-age-start-after-complete",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-series",
+        "disease": "a",
+        "stage": "childhood",
+        "maxAgeStart": "P20W",
+        "maxAgeComplete": "P16W",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P2M"
+                }
+              },
+              {
+                "minInterval": "P4W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P4M"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "MAX_AGE_START_AFTER_COMPLETE",
+      "severity": "warn",
+      "path": "/series/0/maxAgeStart"
+    }
+  ]
+}

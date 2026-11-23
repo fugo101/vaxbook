@@ -1,0 +1,58 @@
+{
+  "snapshot": {
+    "version": "validate-series-cannot-complete",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-series",
+        "disease": "a",
+        "stage": "childhood",
+        "maxAgeComplete": "P14W",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P6W"
+                }
+              },
+              {
+                "minInterval": "P4W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P10W"
+                }
+              },
+              {
+                "minInterval": "P4W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P14W"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "SERIES_CANNOT_COMPLETE",
+      "severity": "warn",
+      "path": "/series/0/maxAgeComplete",
+      "params": {
+        "id": "main"
+      }
+    }
+  ]
+}

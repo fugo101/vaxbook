@@ -1,0 +1,41 @@
+{
+  "snapshot": {
+    "version": "validate-max-age-not-after-min-age",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-series",
+        "disease": "a",
+        "stage": "childhood",
+        "maxAgeStart": "P6W",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P2M"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "MAX_AGE_NOT_AFTER_MIN_AGE",
+      "severity": "reject",
+      "path": "/series/0/maxAgeStart"
+    }
+  ]
+}

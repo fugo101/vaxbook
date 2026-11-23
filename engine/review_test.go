@@ -523,6 +523,50 @@ func TestManyRecordsWithImpreciseBirthDate(t *testing.T) {
 	})
 }
 
+// TestManyRecordsPastMaxAge: the maximum-age disagreement pass (issue #15
+// In scope 5) must stay linear when every candidate gives every record
+// DOSE_AFTER_MAX_AGE. Rota records with no product, dated 2026-05-01 to
+// 06-29 for a child born 2026-01-01, are past every start limit under all
+// three candidates; an uncounted unnumbered dose does not advance the
+// position, so each record is checked at position 1 and gets its own
+// reason.
+func TestManyRecordsPastMaxAge(t *testing.T) {
+	if testing.Short() || runtime.GOOS == "js" {
+		t.Skip("timing test")
+	}
+	first, err := engine.ParseDate("2026-05-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	today, err := engine.ParseDate("2026-07-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := loadEngine(t, "illustrative-max-age")
+	assertLinear(t, 2000, func(n int) time.Duration {
+		doses := make([]engine.DoseRecord, n)
+		for i := range doses {
+			doses[i] = engine.DoseRecord{ID: fmt.Sprintf("r%05d", i), Diseases: []string{"rota"},
+				Date: engine.RecalledDate{Value: first.AddDays(i % 60).String(), Precision: engine.Day}}
+		}
+		in := engine.Input{Today: today, Profile: engine.Profile{Birth: engine.RecalledDate{Value: "2026-01-01", Precision: engine.Day}}, Doses: doses}
+		began := time.Now()
+		out, err := e.Evaluate(in)
+		d := time.Since(began)
+		if err != nil {
+			t.Fatal(err)
+		}
+		named := map[string]bool{}
+		for _, r := range reasonsWith(out.Assessments[0], engine.ReasonDoseAfterMaxAge) {
+			named[r.Params.Dose] = true
+		}
+		if len(named) != n || productDisagreement(out.Assessments[0]) {
+			t.Errorf("want DOSE_AFTER_MAX_AGE on each of %d records and no disagreement, got %d records", n, len(named))
+		}
+		return d
+	})
+}
+
 // assertLinear fails when evaluating 4n items takes more than 8× as long as
 // n items (linear ≈ 4×, quadratic ≈ 16×). It compares the best of three runs
 // at each size, so it does not depend on how fast the machine is (a fixed

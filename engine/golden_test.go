@@ -356,6 +356,9 @@ var reasonParams = map[engine.ReasonCode][]string{
 	engine.ReasonOnTrack:                   nil,
 	engine.ReasonAgeAtStartUncertain:       {"candidates"},
 	engine.ReasonOutOfAge:                  nil,
+	engine.ReasonDoseAfterMaxAge:           {"checks", "dose", "number"},
+	engine.ReasonCheckProductName:          nil,
+	engine.ReasonMixedProducts:             nil,
 }
 
 // checkReasonParams fails when a reason of a carries params other than
@@ -383,10 +386,27 @@ func checkReasonParams(t testing.TB, a engine.Assessment) {
 		if !slices.Equal(got, want) {
 			t.Errorf("%s: %s params %v, want exactly %v", a.Disease, r.Code, got, want)
 		}
+		// Checks are in catalog order, without repeats. DOSE_INVALID lists
+		// minimums only and DOSE_AFTER_MAX_AGE maximum ages only (issue #15,
+		// Q62); DOSE_POSSIBLY_INVALID lists either.
+		minimums := []engine.Check{engine.CheckMinAge, engine.CheckMinInterval, engine.CheckMinIntervalFromFirst}
+		maximums := []engine.Check{engine.CheckMaxAgeStart, engine.CheckMaxAgeComplete}
+		allowed := slices.Concat(minimums, maximums)
+		switch r.Code {
+		case engine.ReasonDoseInvalid:
+			allowed = minimums
+		case engine.ReasonDoseAfterMaxAge:
+			allowed = maximums
+		}
+		last := -1
 		for _, c := range r.Params.Checks {
-			if c != engine.CheckMinAge && c != engine.CheckMinInterval && c != engine.CheckMinIntervalFromFirst {
+			i := slices.Index(allowed, c)
+			if i < 0 {
 				t.Errorf("%s: %s has unknown check %q", a.Disease, r.Code, c)
+			} else if i <= last {
+				t.Errorf("%s: %s checks %v are not in catalog order", a.Disease, r.Code, r.Params.Checks)
 			}
+			last = max(last, i)
 		}
 		if h := r.Params.Hint; h != "" && h != engine.HintBirthMonth && h != engine.HintFullBirthDate {
 			t.Errorf("%s: %s has unknown hint %q", a.Disease, r.Code, h)

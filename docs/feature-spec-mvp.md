@@ -580,7 +580,7 @@ Note: layer 5 above layer 6 reverses the earlier order in which "Chưa nhập" (
 - No dose given, first milestone more than 6 months away → "Chưa tới lịch tiêm" ("Not yet scheduled") block, no email (F05.4a).
 - Series with a maximum age to complete and a first-dose-anchored milestone after it (e.g. maximum age to complete 20 years, dose 2 at first dose + 12 months, dose 1 at 19 years 7 months) → 🟠 "hạn chót" ("last day"), `DUE_CAPPED_BY_MAX_AGE`, never 🔴; the same with a month-precision date of birth uses the older end (F05.4b). These are test inputs, not medical values.
 - RotaTeq dose 1 at 14 weeks, today 29 weeks → dose 2 still shown, `SERIES_MAY_NOT_COMPLETE` (F05.4b).
-- Rotarix dose 1 + RotaTeq dose 2, today past Rotarix's limit but before RotaTeq's → ⚪ `MIXED_PRODUCTS` (F05.3).
+- Rotarix dose 1 + RotaTeq dose 2 given after Rotarix's maximum age to complete (before RotaTeq's) → ⚪ `MIXED_PRODUCTS` (F05.3, F05.10).
 - Rule set with alternative plans of different dose counts in one series → rejected by validation (F05.2).
 - Rotarix dose 1 at 16 weeks 4 days → ⚪ `DOSE_AFTER_MAX_AGE` (F05.10).
 - HPV dose 1 dated, dose 2 level 4, dose 3 dated with a feasible placement → ✅ estimated, `INTERVAL_UNVERIFIABLE`; with no feasible placement → ⚪ `DOSE_INVALID` (F05.10).

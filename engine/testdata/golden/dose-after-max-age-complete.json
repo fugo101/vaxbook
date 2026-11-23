@@ -1,0 +1,61 @@
+{
+  "ruleset": "illustrative-max-age",
+  "input": {
+    "today": "2026-07-10",
+    "profile": {
+      "birth": {
+        "value": "2026-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "rota"
+        ],
+        "product": "rotarix",
+        "date": {
+          "value": "2026-03-01",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "rota"
+        ],
+        "product": "rotarix",
+        "date": {
+          "value": "2026-06-20",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-max-age-s4a",
+    "today": "2026-07-10",
+    "assessments": [
+      {
+        "disease": "rota",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "rota-rotarix"
+        ],
+        "reasons": [
+          {
+            "code": "DOSE_AFTER_MAX_AGE",
+            "params": {
+              "checks": [
+                "maxAgeComplete"
+              ],
+              "dose": "r2",
+              "number": 2
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

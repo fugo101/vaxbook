@@ -1,0 +1,86 @@
+{
+  "version": "minimal-max-age-complete-s4a",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "z",
+      "name": "Bệnh minh hoạ tuổi tối đa hoàn thành"
+    }
+  ],
+  "products": [
+    {
+      "id": "za",
+      "name": "Vắc xin minh hoạ ZA",
+      "diseases": [
+        "z"
+      ],
+      "live": false
+    },
+    {
+      "id": "zb",
+      "name": "Vắc xin minh hoạ ZB",
+      "diseases": [
+        "z"
+      ],
+      "live": false
+    }
+  ],
+  "series": [
+    {
+      "id": "z-a",
+      "disease": "z",
+      "product": "za",
+      "stage": "adult",
+      "maxAgeComplete": "P20Y",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P18Y",
+              "recommended": {
+                "from": "birth",
+                "offset": "P18Y"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "firstDose",
+                "offset": "P12M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "z-b",
+      "disease": "z",
+      "product": "zb",
+      "stage": "adult",
+      "maxAgeComplete": "P21Y",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P18Y",
+              "recommended": {
+                "from": "birth",
+                "offset": "P18Y"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "firstDose",
+                "offset": "P12M"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -270,6 +270,11 @@ func TestProblemCodeStrings(t *testing.T) {
 		// The two Warns of S3b.
 		FirstDoseMinAgeAboveStartAge: "FIRST_DOSE_MIN_AGE_ABOVE_START_AGE",
 		FirstDoseMinAgeDiffers:       "FIRST_DOSE_MIN_AGE_DIFFERS",
+		// The maximum-age checks of S4a: one Reject, three Warns.
+		MaxAgeNotAfterMinAge:      "MAX_AGE_NOT_AFTER_MIN_AGE",
+		MaxAgeMayNotBeAfterMinAge: "MAX_AGE_MAY_NOT_BE_AFTER_MIN_AGE",
+		MaxAgeStartAfterComplete:  "MAX_AGE_START_AFTER_COMPLETE",
+		SeriesCannotComplete:      "SERIES_CANNOT_COMPLETE",
 	}
 	for c, s := range want {
 		if string(c) != s {
@@ -433,6 +438,48 @@ func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
 			t.Parallel()
 			s := mustDecode(t, validCase)
 			s.Series[0].StartAge = tc.startAge
+			if got := Validate(s); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Validate =\n  %v\nwant\n  %v", got, tc.want)
+			}
+		})
+	}
+	// A maximum age with an invalid span gets only the span problem (issue
+	// #15): each one below would otherwise be MAX_AGE_NOT_AFTER_MIN_AGE (a
+	// negative span) or MAX_AGE_START_AFTER_COMPLETE (1000 weeks after the
+	// valid P20W). JSON cannot express the zero Span (P0D decodes to a valid
+	// zero span), so REQUIRED is for a Go-built snapshot, as for
+	// startAge.min.
+	const maxStart, maxComplete = "/series/0/maxAgeStart", "/series/0/maxAgeComplete"
+	maxCases := []struct {
+		name                  string
+		want                  []Problem
+		maxStart, maxComplete *Span
+	}{
+		{"zero max age start", []Problem{{Code: Required, Severity: Reject, Path: maxStart}}, &Span{}, nil},
+		{"zero max age complete", []Problem{{Code: Required, Severity: Reject, Path: maxComplete}}, nil, &Span{}},
+		{"max age start too long", []Problem{invalid(maxStart, Span{N: 1000, Unit: Weeks})},
+			&Span{N: 1000, Unit: Weeks}, &Span{N: 20, Unit: Weeks}},
+		{"max age complete negative", []Problem{invalid(maxComplete, Span{N: -1, Unit: Days})},
+			nil, &Span{N: -1, Unit: Days}},
+		{"max age start bad unit", []Problem{invalid(maxStart, Span{N: 15, Unit: 'x'})},
+			&Span{N: 15, Unit: 'x'}, &Span{N: 1, Unit: Years}},
+		{"max ages at the cap", nil, &Span{N: MaxSpanN, Unit: Weeks}, &Span{N: MaxSpanN, Unit: Years}},
+		// Document order: maxAgeStart's relational problems come before a
+		// span problem of maxAgeComplete (dose 1's minAge is P6W).
+		{"max age start not after min age, complete invalid", []Problem{
+			{Code: MaxAgeNotAfterMinAge, Severity: Reject, Path: maxStart},
+			invalid(maxComplete, Span{N: 1000, Unit: Weeks}),
+		}, &Span{N: 6, Unit: Weeks}, &Span{N: 1000, Unit: Weeks}},
+		{"max age start not after min age, complete zero", []Problem{
+			{Code: MaxAgeNotAfterMinAge, Severity: Reject, Path: maxStart},
+			{Code: Required, Severity: Reject, Path: maxComplete},
+		}, &Span{N: 1, Unit: Months}, &Span{}},
+	}
+	for _, tc := range maxCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := mustDecode(t, validCase)
+			s.Series[0].MaxAgeStart, s.Series[0].MaxAgeComplete = tc.maxStart, tc.maxComplete
 			if got := Validate(s); !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("Validate =\n  %v\nwant\n  %v", got, tc.want)
 			}

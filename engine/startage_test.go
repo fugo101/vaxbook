@@ -263,11 +263,11 @@ func withHPVOther(s *ruleset.Snapshot) {
 // group plus a generic hpv-generic (no startAge) used by product hpv-other.
 // One exact gardasil9 dose at 50y (birth 1970-01-01, dose 2020-01-01, today
 // 2020-06-01): no bracket matches and the dose is past every max, so the
-// latest-max bracket 15–45 is kept and the dose is counted normally (A5,
-// C3). Dose 2: E = r1 + 4w = 01-29, Du = r1 + 2m = 03-01, O = 03-08 → 🔴.
-//
-// S4 changes this case: the dose is after 15–45's startAge.max, so it gets
-// DOSE_AFTER_MAX_AGE (issue #23 Q45, #15).
+// latest-max bracket 15–45 is kept (A5, C3), not hpv-generic. Since S4a the
+// group's last bracket max (46y@b = 2016-01-01) is dose 1's start limit
+// (issue #15 In scope 2, Q55), and r1 is on or after it: ⚪
+// DOSE_AFTER_MAX_AGE{[maxAgeStart], r1, 1}, not counted, with no
+// SAFEST_SERIES. In S3b the dose was counted and dose 2 was 🔴.
 func TestTierBeforeStartAge(t *testing.T) {
 	t.Parallel()
 	s := loadSnapshot(t, "illustrative-start-age")
@@ -279,10 +279,10 @@ func TestTierBeforeStartAge(t *testing.T) {
 	got := hpvAssessment(t, e, "2020-06-01", "1970-01-01", hpvDose("r1", "2020-01-01", "gardasil9"))
 	checkAssessment(t, got, engine.Assessment{
 		Disease:    "hpv",
-		Bucket:     engine.BucketOverdue,
-		NextDose:   nextDose(t, 2, "2020-01-29", "2020-03-01", "2020-03-08"),
+		Bucket:     engine.BucketUnknown,
 		SeriesUsed: []string{"hpv-g9-15to45"},
-		Products:   []string{"gardasil9"},
+		Reasons: []engine.Reason{{Code: engine.ReasonDoseAfterMaxAge, Params: engine.ReasonParams{
+			Checks: []engine.Check{engine.CheckMaxAgeStart}, Dose: "r1", Number: 1}}},
 	})
 }
 

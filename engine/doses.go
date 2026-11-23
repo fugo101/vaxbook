@@ -39,6 +39,79 @@ type item struct {
 	pos     int
 	dose    givenDose
 	counted bool
+	// maxDef and maxPos are an undated slot's maximum-age checks at the
+	// earliest dates the feasibility chain gives it, failed definitely and
+	// possibly (issue #15 In scope 4, Q56). They are reported when the run
+	// of slots closes (closeRun, checkTrailing).
+	maxDef, maxPos []Check
+}
+
+// doseVerdict is the validity of one dose at one position under one series
+// (SAD §5.3 step 5, issue #15 In scope 3): the verdict of the minimum checks
+// (best over plans, A7) with the checks that reach it, and the maximum-age
+// checks failed definitely and possibly (series-level). An undated slot's
+// maximum-age checks are added to the record that carries them.
+type doseVerdict struct {
+	minV           verdict
+	minChecks      []Check
+	maxDef, maxPos []Check
+}
+
+// addMax adds maximum-age checks, keeping each list in catalog order.
+func (d *doseVerdict) addMax(def, poss []Check) {
+	d.maxDef, d.maxPos = unionChecks(d.maxDef, def), unionChecks(d.maxPos, poss)
+}
+
+// counted reports whether the dose counts: no definite failure.
+func (d doseVerdict) counted() bool {
+	return d.minV != verdictDefinite && len(d.maxDef) == 0
+}
+
+// reasons returns the dose's reasons, in the order of one dose under one
+// candidate: DOSE_INVALID for a definite minimum failure, DOSE_AFTER_MAX_AGE
+// for a definite maximum failure, or, when the dose counts, one
+// DOSE_POSSIBLY_INVALID listing every possible check, minimum and maximum,
+// in catalog order. A dose that is not counted drops its possible checks
+// (Q62). With no maximum age this is S2's verdict.
+func (d doseVerdict) reasons(id string, pos int) []Reason {
+	var out []Reason
+	if d.minV == verdictDefinite {
+		out = append(out, Reason{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: d.minChecks, Dose: id, Number: pos}})
+	}
+	if len(d.maxDef) > 0 {
+		out = append(out, Reason{Code: ReasonDoseAfterMaxAge, Params: ReasonParams{Checks: d.maxDef, Dose: id, Number: pos}})
+	}
+	if d.counted() {
+		var poss []Check
+		if d.minV == verdictPossible {
+			poss = d.minChecks
+		}
+		if poss = unionChecks(poss, d.maxPos); len(poss) > 0 {
+			out = append(out, Reason{Code: ReasonDosePossiblyInvalid, Params: ReasonParams{Checks: poss, Dose: id, Number: pos}})
+		}
+	}
+	return out
+}
+
+// checkOrder is the catalog order of the checks.
+var checkOrder = []Check{CheckMinAge, CheckMinInterval, CheckMinIntervalFromFirst, CheckMaxAgeStart, CheckMaxAgeComplete}
+
+// unionChecks returns the checks in a or b, in catalog order; nil when both
+// are empty. It never modifies a or b.
+func unionChecks(a, b []Check) []Check {
+	if len(b) == 0 {
+		return a
+	}
+	if len(a) == 0 {
+		return b
+	}
+	var out []Check
+	for _, c := range checkOrder {
+		if slices.Contains(a, c) || slices.Contains(b, c) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // walkResult is steps 5 and 6 at one birth end.
@@ -106,11 +179,22 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 	// (chain), so that minIntervalFromFirst is checked against the most
 	// favourable placement of dose 1 (EQ20b).
 	var first *Range
+	//
+	// Every slot is also checked against the maximum ages at the earliest
+	// dates the chain gives it, from the dated dose before its run: best
+	// from that dose's Lo, worst from its Hi (issue #15 In scope 4, Q56).
+	// first stays the slot's chain dates even when its own maximum age makes
+	// it not counted.
 	appendSlot := func(it item) {
+		from, run := w.tail()
 		if it.pos == 1 {
-			from, _ := w.tail()
 			if lo, hi, bounded := s.chain(b, from, []item{it}, nil); bounded {
 				first = &Range{Lo: lo, Hi: hi}
+			}
+		}
+		if b.known && s.hasMaxAges() {
+			if best, worst, bounded := s.chain(b, from, append(slices.Clip(run), it), first); bounded {
+				it.maxDef, it.maxPos = s.maxAges(it.pos, b, Range{Lo: best, Hi: worst})
 			}
 		}
 		w.seq = append(w.seq, it)
@@ -145,21 +229,24 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 		}
 		insertSlots(pos)
 		from, run := w.tail()
+		// The dated dose closes the run of slots before it: their records
+		// report their own maximum ages, and the implied ones' are carried
+		// by this dose.
+		carry := w.closeRun(run)
 		it := item{pos: pos, dose: g}
 		if pos > s.length {
 			// Not checked itself, but the undated slots before it must fit
 			// on or before it; when they do not, it carries the chain
-			// failure, as a dated dose after the run in the series does.
+			// failure, as a dated dose after the run in the series does,
+			// and so the maximum ages of the implied slots before it.
 			if len(run) > 0 {
 				if best, worst, bounded := s.chain(b, from, run, first); bounded {
-					switch against(g.date, best, worst) {
-					case verdictDefinite:
-						w.reasons = append(w.reasons, Reason{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: []Check{CheckMinInterval}, Dose: g.id, Number: pos}})
-					case verdictPossible:
-						w.reasons = append(w.reasons, Reason{Code: ReasonDosePossiblyInvalid, Params: ReasonParams{Checks: []Check{CheckMinInterval}, Dose: g.id, Number: pos}})
+					if carry.minV = against(g.date, best, worst); carry.minV != verdictOK {
+						carry.minChecks = []Check{CheckMinInterval}
 					}
 				}
 			}
+			w.reasons = append(w.reasons, carry.reasons(g.id, pos)...)
 			w.seq = append(w.seq, it)
 			if g.number > 0 {
 				last = max(last, pos)
@@ -167,18 +254,17 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 			continue
 		}
 		v, checks := s.check(pos, b, g.date, from, run, first)
-		switch {
-		case v == verdictDefinite:
-			w.reasons = append(w.reasons, Reason{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: checks, Dose: g.id, Number: pos}})
-		case v == verdictPossible:
-			w.reasons = append(w.reasons, Reason{Code: ReasonDosePossiblyInvalid, Params: ReasonParams{Checks: checks, Dose: g.id, Number: pos}})
-			it.counted = true
-		case len(run) > 0 && s.hasInterval(pos):
-			w.reasons = append(w.reasons, Reason{Code: ReasonIntervalUnverifiable, Params: ReasonParams{Dose: g.id, Number: pos}})
-			it.counted = true
-		default:
-			it.counted = true
+		dv := doseVerdict{minV: v, minChecks: checks}
+		dv.addMax(s.maxAges(pos, b, g.date))
+		dv.addMax(carry.maxDef, carry.maxPos)
+		reasons := dv.reasons(g.id, pos)
+		it.counted = dv.counted()
+		// A dose that counts with no reason has its interval waived behind
+		// the undated slots; a possible failure says more.
+		if it.counted && len(reasons) == 0 && len(run) > 0 && s.hasInterval(pos) {
+			reasons = append(reasons, Reason{Code: ReasonIntervalUnverifiable, Params: ReasonParams{Dose: g.id, Number: pos}})
 		}
+		w.reasons = append(w.reasons, reasons...)
 		if it.counted || g.number > 0 {
 			last = max(last, pos)
 		}
@@ -207,10 +293,13 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 // counted, but the result is ⚪, not ✅ (F05.10). Without them, narrowing a
 // dose range could make a counted dose invalid (SAD §5.7).
 //
-// When no placement fits, the last floating dose by ID is DOSE_INVALID, not
-// counted, with the position and checks it fails when all of them are
-// placed after the last dated dose (checked like a dose given today, as a
-// trailing slot is).
+// When no placement fits, the last floating dose by ID is not counted, with
+// the number and checks it fails when all of them are placed after the last
+// dated dose (failedIn): DOSE_INVALID when it cannot lie by today (checked
+// like a dose given today, as a trailing slot is), and since S4a
+// DOSE_AFTER_MAX_AGE when a maximum age fails there (issue #15 In scope 4).
+// The other floating doses stay counted, with any DOSE_POSSIBLY_INVALID they
+// get there.
 func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl placement) {
 	fit, fallback, failed := s.floatingFit(*w, b, today, pl)
 	switch fit {
@@ -222,8 +311,12 @@ func (s seriesModel) checkFloating(w *walkResult, b birthEnd, today Date, pl pla
 		}
 		w.reasons = append(w.reasons, fallback...)
 	case fitNowhere:
-		w.reasons = append(w.reasons, failed)
-		w.floating = slices.DeleteFunc(slices.Clone(w.floating), func(g givenDose) bool { return g.id == failed.Params.Dose })
+		w.reasons = append(w.reasons, failed...)
+		w.floating = slices.DeleteFunc(slices.Clone(w.floating), func(g givenDose) bool {
+			return slices.ContainsFunc(failed, func(r Reason) bool {
+				return r.Params.Dose == g.id && (r.Code == ReasonDoseInvalid || r.Code == ReasonDoseAfterMaxAge)
+			})
+		})
 	}
 }
 
@@ -255,10 +348,15 @@ const coverBudget = 512
 // placement is tried in front of one; trying fewer placements can only
 // report more DOSE_INVALID (P1).
 //
+// A DOSE_AFTER_MAX_AGE is bad like a DOSE_INVALID (issue #15 In scope 4):
+// records w already has one on do not count against a placement, and a new
+// one makes it not fit. A maximum-age DOSE_POSSIBLY_INVALID is a
+// DOSE_POSSIBLY_INVALID.
+//
 // fallback is the DOSE_POSSIBLY_INVALID reasons of the first placement
-// tried that fits only at one end; failed is the first DOSE_INVALID of all
-// of them after the last dated dose.
-func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placement) (f fit, fallback []Reason, failed Reason) {
+// tried that fits only at one end; failed is the reasons on the floating
+// doses with all of them after the last dated dose (failedIn).
+func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placement) (f fit, fallback []Reason, failed []Reason) {
 	counted := 0
 	movable := map[string]bool{}
 	for _, it := range w.seq {
@@ -270,36 +368,40 @@ func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placem
 		}
 	}
 	if len(pl.floating) == 0 || counted >= s.length {
-		return fitEverywhere, nil, Reason{}
+		return fitEverywhere, nil, nil
 	}
 	fl := pl.floating[len(pl.floating)-min(len(pl.floating), s.length-counted):]
 	invalid, flagged := map[string]bool{}, map[string]bool{}
 	for _, r := range w.reasons {
 		switch r.Code {
-		case ReasonDoseInvalid:
+		case ReasonDoseInvalid, ReasonDoseAfterMaxAge:
 			invalid[r.Params.Dose] = true
 			flagged[r.Params.Dose] = true
 		case ReasonDosePossiblyInvalid:
 			flagged[r.Params.Dose] = true
 		}
 	}
-	// assess returns the first DOSE_INVALID a placement's walk adds (bad
-	// when there is one) and the DOSE_POSSIBLY_INVALID reasons it adds.
-	assess := func(r walkResult) (failed Reason, bad bool, possible []Reason) {
+	isBad := func(x Reason) bool {
+		return (x.Code == ReasonDoseInvalid || x.Code == ReasonDoseAfterMaxAge) && !invalid[x.Params.Dose]
+	}
+	// assess reports whether a placement's walk adds a DOSE_INVALID or a
+	// DOSE_AFTER_MAX_AGE (bad), and the DOSE_POSSIBLY_INVALID reasons it
+	// adds.
+	assess := func(r walkResult) (bad bool, possible []Reason) {
 		for _, x := range r.reasons {
 			switch {
-			case x.Code == ReasonDoseInvalid && !invalid[x.Params.Dose]:
-				return x, true, nil
+			case isBad(x):
+				return true, nil
 			case x.Code == ReasonDosePossiblyInvalid && !flagged[x.Params.Dose]:
 				possible = append(possible, x)
 			}
 		}
-		return Reason{}, false, possible
+		return false, possible
 	}
 	// fitsEverywhere reports whether a placement fits at every end, and
 	// records the first one that fits only at one end.
 	fitsEverywhere := func(r walkResult) bool {
-		_, bad, possible := assess(r)
+		bad, possible := assess(r)
 		if bad {
 			return false
 		}
@@ -316,9 +418,9 @@ func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placem
 	ins := make([][]givenDose, n+1)
 	ins[n] = fl
 	all := s.walkWith(b, today, pl, ins)
-	failed, _, _ = assess(all)
+	failed = failedIn(all, fl, isBad)
 	if fitsEverywhere(all) {
-		return fitEverywhere, nil, Reason{}
+		return fitEverywhere, nil, nil
 	}
 	// The insertion points, ascending: in front of the movable dated doses
 	// after the last numbered one, then after everything.
@@ -353,11 +455,53 @@ func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placem
 	clear(ins)
 	switch {
 	case try(0, fl):
-		return fitEverywhere, nil, Reason{}
+		return fitEverywhere, nil, nil
 	case fallback != nil:
 		return fitAtOneEnd, fallback, failed
 	}
 	return fitNowhere, nil, failed
+}
+
+// failedIn returns the reasons for the floating doses fl when no placement
+// fits, from walk r, all of them placed after the last dated dose. As in S2,
+// the last floating dose by ID is named, with the numbers and checks it fails
+// there (issue #15 In scope 4: DOSE_INVALID, or DOSE_AFTER_MAX_AGE when a
+// maximum age fails), so it alone is not counted. Since S4a another dose of
+// fl can be the one that fails while the last does not: the dose at position
+// 1 past the start limit. The first such reason is then given to the last
+// floating dose, with its checks and number. The DOSE_POSSIBLY_INVALID
+// reasons r gives the other doses of fl are kept on them, as they stay
+// counted; the named dose drops its own (Q62). When no dose of fl fails, it
+// is the first bad reason of r.
+func failedIn(r walkResult, fl []givenDose, isBad func(Reason) bool) []Reason {
+	last := fl[len(fl)-1].id
+	var own, other, possible, firstBad []Reason
+	for _, x := range r.reasons {
+		if isBad(x) && firstBad == nil {
+			firstBad = []Reason{x}
+		}
+		if !slices.ContainsFunc(fl, func(g givenDose) bool { return g.id == x.Params.Dose }) {
+			continue
+		}
+		switch {
+		case isBad(x) && x.Params.Dose == last:
+			own = append(own, x)
+		case isBad(x):
+			if other == nil {
+				x.Params.Dose = last
+				other = []Reason{x}
+			}
+		case x.Code == ReasonDosePossiblyInvalid && x.Params.Dose != last:
+			possible = append(possible, x)
+		}
+	}
+	switch {
+	case own != nil:
+		return append(own, possible...)
+	case other != nil:
+		return append(other, possible...)
+	}
+	return firstBad
 }
 
 // covered reports whether every day inside the dated ranges of pl has a
@@ -420,6 +564,26 @@ func (w *walkResult) tail() (from *Range, run []item) {
 	return from, w.seq[j:]
 }
 
+// closeRun reports the maximum-age checks of a run of undated slots that a
+// record after it closes (issue #15 In scope 4, Q56): a level-4 slot carries
+// its own (DOSE_AFTER_MAX_AGE, not counted, or DOSE_POSSIBLY_INVALID), and
+// the implied slots' checks are returned for the record that carries them,
+// as a chain failure of the run is (S2). An implied slot stays counted.
+func (w *walkResult) closeRun(run []item) (carry doseVerdict) {
+	for i := range run {
+		it := &run[i]
+		if it.dose.id == "" {
+			carry.addMax(it.maxDef, it.maxPos)
+			continue
+		}
+		var dv doseVerdict
+		dv.addMax(it.maxDef, it.maxPos)
+		w.reasons = append(w.reasons, dv.reasons(it.dose.id, it.pos)...)
+		it.counted = dv.counted()
+	}
+	return carry
+}
+
 // checkTrailing checks that the undated slots after the last dated dose can
 // lie on or before today. The last of them is checked like a dose given
 // today (check), with the slots before it as its run: when even its
@@ -432,31 +596,34 @@ func (w *walkResult) tail() (from *Range, run []item) {
 // implies it is a level-4 dose beyond the series (an in-series or dated
 // record would follow it). The lowest such record carries the reason, with
 // its number, and the implied doses stay counted.
+//
+// The maximum ages of the trailing slots are reported as closeRun does,
+// except that the last slot's record merges its own and the implied slots'
+// into one verdict with its by-today check, so DOSE_INVALID comes before
+// DOSE_AFTER_MAX_AGE and one DOSE_POSSIBLY_INVALID lists every possible
+// check (Q62).
 func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first *Range, beyond []givenDose) {
 	from, run := w.tail()
 	if len(run) == 0 {
 		return
 	}
+	carry := w.closeRun(run[:len(run)-1])
 	lastSlot := &w.seq[len(w.seq)-1]
 	carrier, number := lastSlot.dose.id, lastSlot.pos
 	if carrier == "" {
+		carry.addMax(lastSlot.maxDef, lastSlot.maxPos)
 		if len(beyond) == 0 {
 			return
 		}
 		carrier, number = beyond[0].id, beyond[0].number
+	} else {
+		carry.addMax(lastSlot.maxDef, lastSlot.maxPos)
 	}
-	v, checks := s.check(lastSlot.pos, b, Range{Lo: today, Hi: today}, from, run[:len(run)-1], first)
-	if v == verdictOK {
-		return
+	carry.minV, carry.minChecks = s.check(lastSlot.pos, b, Range{Lo: today, Hi: today}, from, run[:len(run)-1], first)
+	w.reasons = append(w.reasons, carry.reasons(carrier, number)...)
+	if lastSlot.dose.id != "" && !carry.counted() {
+		lastSlot.counted = false
 	}
-	code := ReasonDosePossiblyInvalid
-	if v == verdictDefinite {
-		code = ReasonDoseInvalid
-		if lastSlot.dose.id != "" {
-			lastSlot.counted = false
-		}
-	}
-	w.reasons = append(w.reasons, Reason{Code: code, Params: ReasonParams{Checks: checks, Dose: carrier, Number: number}})
 }
 
 // hasInterval reports whether some plan has a minimum interval for position

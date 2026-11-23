@@ -763,7 +763,8 @@ func TestReasonCodesClassified(t *testing.T) {
 		ReasonAlternativePlans, ReasonComplete, ReasonProductNotInCatalog, ReasonOnTrack, ReasonAgeAtStartUncertain, ReasonOutOfAge}
 	blockingCodes := []ReasonCode{ReasonInvalidDate, ReasonOutOfRange, ReasonDateInFuture, ReasonDateBeforeBirth,
 		ReasonUnexpectedValue, ReasonUnknownProduct, ReasonOverlappingEstimatedDates, ReasonNumberingConflict, ReasonBirthDateImprecise,
-		ReasonDoseInvalid, ReasonDosePossiblyInvalid, ReasonPreviousDoseDateUnknown, ReasonNoBirthDate}
+		ReasonDoseInvalid, ReasonDosePossiblyInvalid, ReasonPreviousDoseDateUnknown, ReasonNoBirthDate,
+		ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts}
 	for _, c := range informational {
 		if c.blocks() {
 			t.Errorf("%s blocks, want informational", c)

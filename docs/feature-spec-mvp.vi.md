@@ -581,7 +581,7 @@ Ghi chú: việc đặt tầng 5 trên tầng 6 đảo ngược thứ tự trư�
 - Chưa tiêm mũi nào, mốc đầu tiên còn hơn 6 tháng → khối "Chưa tới lịch tiêm", không email (F05.4a).
 - Phác đồ có tuổi tối đa hoàn thành và một mốc tính từ mũi đầu rơi vào sau tuổi đó (ví dụ tuổi tối đa hoàn thành 20 tuổi, mũi 2 vào mũi đầu + 12 tháng, mũi 1 lúc 19 tuổi 7 tháng) → 🟠 "hạn chót", `DUE_CAPPED_BY_MAX_AGE`, không bao giờ 🔴; cùng ca đó với ngày sinh chỉ có tháng/năm thì dùng đầu già (F05.4b). Đây là dữ liệu đầu vào kiểm thử, không phải giá trị y khoa.
 - RotaTeq mũi 1 lúc 14 tuần, hôm nay 29 tuần → mũi 2 vẫn hiện, `SERIES_MAY_NOT_COMPLETE` (F05.4b).
-- Rotarix mũi 1 + RotaTeq mũi 2, hôm nay đã qua giới hạn của Rotarix nhưng chưa tới giới hạn của RotaTeq → ⚪ `MIXED_PRODUCTS` (F05.3).
+- Rotarix mũi 1 + RotaTeq mũi 2 tiêm sau tuổi tối đa hoàn thành của Rotarix (trước giới hạn của RotaTeq) → ⚪ `MIXED_PRODUCTS` (F05.3, F05.10).
 - Bộ quy tắc có các phương án thay thế với số mũi khác nhau trong một phác đồ → bị kiểm tra bộ quy tắc từ chối (F05.2).
 - Rotarix mũi 1 lúc 16 tuần 4 ngày → ⚪ `DOSE_AFTER_MAX_AGE` (F05.10).
 - HPV mũi 1 có ngày, mũi 2 mức 4, mũi 3 có ngày và có cách đặt khả thi → ✅ ước lượng, `INTERVAL_UNVERIFIABLE`; không có cách đặt khả thi → ⚪ `DOSE_INVALID` (F05.10).

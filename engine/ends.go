@@ -18,6 +18,13 @@ type endResult struct {
 	products []string          // the products for next; set with hasNext
 	cands    []candidateResult // per candidate series, for later merges (S4)
 	series   []int             // the end's candidate series, in rule-set order (seriesUsed)
+	// disagreeing are the records whose DOSE_AFTER_MAX_AGE a maximum-age
+	// disagreement dropped (issue #15 In scope 5), by ID; for compared
+	// results, those of every result. This is narrower than S4b's
+	// questioned records (issue #28: any record that some candidate gives
+	// DOSE_INVALID or DOSE_AFTER_MAX_AGE), which its counted view counts;
+	// an agreed DOSE_AFTER_MAX_AGE or a DOSE_INVALID is not listed here.
+	disagreeing []string
 }
 
 // class is the result as the user sees it: ⚪ whenever a reason blocks, and
@@ -59,19 +66,20 @@ func distanceOnly(class string) bool {
 // Otherwise the result is ⚪ BIRTH_DATE_IMPRECISE{hint} with no dates,
 // followed by every result's reasons, from the latest birth date down,
 // without repeats. It keeps the latest result's candidate series
-// (seriesUsed, Q40) but not its products. When some result is outOfAge and
-// another is not, the hint is fullBirthDate whatever the birth precision
-// (SAD §5.3 step 4: an end hits an age limit). Such results never agree:
-// outOfAge has k 0 and the others k ≥ 1.
+// (seriesUsed, Q40) but not its products. When any of the results has an
+// age-limit reason (ageLimit), the hint is fullBirthDate whatever the birth
+// precision (SAD §5.3 step 4: an end hits an age limit; issue #15 Q58). On
+// S3b's inputs this is "some result is outOfAge and another is not": two
+// outOfAge results agree.
 func compareResults(rs []endResult, hint Hint) endResult {
 	later := rs[len(rs)-1]
-	agree, mixedOutOfAge := true, false
+	agree, limit := true, ageLimit(later.reasons)
 	for _, r := range rs[:len(rs)-1] {
 		co, cl := r.class(), later.class()
 		agree = agree && r.k == later.k &&
 			slices.EqualFunc(blockingOnly(r.reasons), blockingOnly(later.reasons), sameReason) &&
 			(co == cl || distanceOnly(co) && distanceOnly(cl))
-		mixedOutOfAge = mixedOutOfAge || (r.block == BlockOutOfAge) != (later.block == BlockOutOfAge)
+		limit = limit || ageLimit(r.reasons)
 	}
 	// listed holds the reasons already in res.reasons, so that removing
 	// duplicates stays linear in the number of reasons (one DOSE_INVALID
@@ -83,8 +91,15 @@ func compareResults(rs []endResult, hint Hint) endResult {
 			res.reasons = append(res.reasons, r)
 		}
 	}
+	var disagreeing []string
+	for _, r := range rs {
+		disagreeing = append(disagreeing, r.disagreeing...)
+	}
+	slices.Sort(disagreeing)
+	disagreeing = slices.Compact(disagreeing)
 	if agree {
 		res := later
+		res.disagreeing = disagreeing
 		res.reasons = slices.Clone(later.reasons)
 		for _, r := range later.reasons {
 			listed[reasonKey(r)] = true
@@ -98,10 +113,10 @@ func compareResults(rs []endResult, hint Hint) endResult {
 		}
 		return res
 	}
-	if mixedOutOfAge {
+	if limit {
 		hint = HintFullBirthDate
 	}
-	res := endResult{bucket: BucketUnknown, k: later.k, series: later.series}
+	res := endResult{bucket: BucketUnknown, k: later.k, series: later.series, disagreeing: disagreeing}
 	add(&res, Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: hint}})
 	for i := len(rs) - 1; i >= 0; i-- {
 		for _, r := range rs[i].reasons {
@@ -109,6 +124,23 @@ func compareResults(rs []endResult, hint Hint) endResult {
 		}
 	}
 	return res
+}
+
+// ageLimit reports whether reasons hold an age-limit reason (issue #15
+// Q58): OUT_OF_AGE, DOSE_AFTER_MAX_AGE, CHECK_PRODUCT_NAME, MIXED_PRODUCTS,
+// or a DOSE_POSSIBLY_INVALID listing a maximum age.
+func ageLimit(reasons []Reason) bool {
+	for _, r := range reasons {
+		switch r.Code {
+		case ReasonOutOfAge, ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts:
+			return true
+		case ReasonDosePossiblyInvalid:
+			if slices.Contains(r.Params.Checks, CheckMaxAgeStart) || slices.Contains(r.Params.Checks, CheckMaxAgeComplete) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // bucketReason reports whether a reason describes one end's bucket: COMPLETE,

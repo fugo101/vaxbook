@@ -218,12 +218,17 @@ func TestUndatedDoseOneBehindUncountedDatedDose(t *testing.T) {
 // implied dose stays counted, so z-a is complete (k 3) and COMPLETE is
 // masked: the result is ⚪, not a false ✅.
 //
+// This deviates from issue #15's engine-test list, reported to the owner:
+// #15 expects ⚪ [IMPLIED_EARLIER_DOSES{[2]}, DOSE_AFTER_MAX_AGE{maxAgeComplete,
+// r2, 3}] on the unmodified fixture, which the decided rules cannot give.
 // An implied dose makes every series a candidate (Q30), and under z-b
 // (21y@b = 2027-06-01) the implied dose is within its limit and z-b is
 // complete, leaving r2 unchecked beyond its length: the candidates
 // disagree on r2 (Q52), and the implied dose is an unknown product →
-// CHECK_PRODUCT_NAME. To pin the carrier itself, the first case removes
-// series z-b (product zb stays in the catalog).
+// CHECK_PRODUCT_NAME (the second case, on the unmodified fixture). #15's
+// list also omits the masked COMPLETE, which a blocking reason keeps (SAD
+// §5.3 step 10). To pin the carrier itself, the first case removes series
+// z-b (product zb stays in the catalog).
 func TestTrailingImpliedDoseBelowRecordBeyondSeries(t *testing.T) {
 	t.Parallel()
 	birth := dayDate("2006-06-01")

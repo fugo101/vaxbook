@@ -568,9 +568,11 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 		}
 		slices.Sort(free)
 		ev := dz.evaluate(arr, cands, today, free, false)
-		// The implied doses the output reports (IMPLIED_EARLIER_DOSES) count
-		// as unknown products (issue #15 In scope 6).
-		ev.unknownProduct = dz.anyUnknownProduct(doses, len(arr.forLength(longest).implied) > 0)
+		// Every implied dose counts as an unknown product (issue #15 In scope
+		// 6, Q30), as in the candidate rule above: one numbered above every
+		// candidate's length widens the candidates although
+		// IMPLIED_EARLIER_DOSES does not list it.
+		ev.unknownProduct = dz.anyUnknownProduct(doses, implied)
 		at = ev.at
 	} else {
 		// No dose given: each birth date chooses its brackets from its own

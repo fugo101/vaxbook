@@ -1,9 +1,11 @@
 package engine_test
 
 import (
+	"cmp"
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/fugo101/vaxbook/engine"
@@ -111,7 +113,8 @@ func nearLimitInput(t testing.TB, rng *rand.Rand, s *ruleset.Snapshot, limits []
 // disease and two or more series in seriesUsed, never both. MIXED_PRODUCTS
 // appears iff every record of the disease is named (a catalog product that
 // lists the disease, retired allowed, or an off-catalog product) and there
-// is no implied dose (IMPLIED_EARLIER_DOSES); otherwise it is
+// is no implied dose (hasImpliedDose, including one above every series
+// length, which IMPLIED_EARLIER_DOSES does not list); otherwise it is
 // CHECK_PRODUCT_NAME. Named and unknown are re-derived from the input and
 // the snapshot. The near-limit inputs must reach both reasons and
 // DOSE_AFTER_MAX_AGE, or the property is vacuous.
@@ -156,7 +159,7 @@ func TestPropertyProductDisagreement(t *testing.T) {
 					any = true
 					named = named && (r.FreeProduct != nil || r.Product != nil && listing[*r.Product][a.Disease])
 				}
-				named = named && !hasCode(a, engine.ReasonImpliedEarlierDoses)
+				named = named && !hasImpliedDose(t, in, a.Disease)
 				switch {
 				case cpn && mixed:
 					t.Fatalf("%s %s: both CHECK_PRODUCT_NAME and MIXED_PRODUCTS: %+v", fx.name, a.Disease, a)
@@ -226,4 +229,54 @@ func TestPropertyMaxAgeCoverage(t *testing.T) {
 			}
 		}
 	}
+}
+
+// hasImpliedDose re-derives from the records alone whether the disease has an
+// implied dose (SAD §5.3 step 2, F04.1), with no series length: the records
+// take positions 1, 2, … (a user-entered number its own, an unnumbered dated
+// dose the next free position after the last one reached, in time order),
+// unnumbered level-4 doses fill the gaps, and the positions left below the
+// highest one taken are implied. So there is one iff the highest position
+// taken is above the number of records. Within one exact day the unnumbered
+// doses go first, as orderSameDay fills the free positions around the
+// numbered ones. Only meaningful when step 2 does not block.
+func hasImpliedDose(t testing.TB, in engine.Input, disease string) bool {
+	t.Helper()
+	type rec struct {
+		lo, hi engine.Date
+		number int
+		id     string
+	}
+	var dated []rec
+	taken := map[int]bool{}
+	n, highest := 0, 0
+	for _, r := range in.Doses {
+		if !slices.Contains(r.Diseases, disease) {
+			continue
+		}
+		n++
+		num := int(r.DoseNumbers[disease])
+		if num > 0 {
+			taken[num] = true
+			highest = max(highest, num)
+		}
+		if lo, hi, ok := testPeriod(r.Date, in.Today); ok {
+			dated = append(dated, rec{lo: lo, hi: hi, number: num, id: r.ID})
+		}
+	}
+	slices.SortFunc(dated, func(x, y rec) int {
+		return cmp.Or(x.lo.Compare(y.lo), x.hi.Compare(y.hi), cmp.Compare(min(x.number, 1), min(y.number, 1)), strings.Compare(x.id, y.id))
+	})
+	last := 0
+	for _, d := range dated {
+		if d.number > 0 {
+			last = max(last, d.number)
+			continue
+		}
+		for last++; taken[last]; last++ {
+		}
+		taken[last] = true
+		highest = max(highest, last)
+	}
+	return highest > n
 }

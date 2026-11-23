@@ -381,3 +381,38 @@ func TestMaxAgeCheckListsAreCatalogOrdered(t *testing.T) {
 		t.Errorf("reasons %+v, want %+v", got.Reasons, want)
 	}
 }
+
+// TestImpliedDoseAboveEverySeriesIsUnknown (issue #15 In scope 6, Q30): an
+// implied dose numbered above every candidate's length still widens the
+// candidates to every series (S3a: whether there are implied doses is
+// decided from the records alone), so it is a dose of the disease with an
+// unknown product for the reason too. r1 rotarix on 03-01, r2 on 06-25, r3
+// on 07-01, r4 rotarix with an unknown date numbered 5 (dose 4 implied),
+// today 07-10.
+//   - rota-rotarix: r1 counted; r2 ≥ 24w@b = 06-18 → DOSE_AFTER_MAX_AGE, not
+//     counted, so r3 is checked at 2: before r2 + 4w = 07-23 →
+//     DOSE_INVALID{minInterval} and ≥ 06-18 → DOSE_AFTER_MAX_AGE. k 2.
+//   - rota-rotateq: r1, r2 counted (< 32w@b = 08-13); r3 at 3 → DOSE_INVALID
+//     {minInterval}. k 3.
+//   - rota-rotavin: r1 (< 12w@b = 03-26), r2 counted, complete; r3 beyond.
+//
+// rota-rotateq counts r2 and the complete rota-rotavin leaves r3 unchecked,
+// so both DOSE_AFTER_MAX_AGE are dropped. The implied dose 4 is above the
+// longest candidate (3), so IMPLIED_EARLIER_DOSES does not list it (Q48),
+// but it is unknown → CHECK_PRODUCT_NAME, not MIXED_PRODUCTS. k 2 from
+// rota-rotarix: overdue, masked, with no reason.
+func TestImpliedDoseAboveEverySeriesIsUnknown(t *testing.T) {
+	t.Parallel()
+	e := loadEngine(t, "illustrative-max-age")
+	r4 := rota("r4", unknownDate, "rotarix")
+	r4.DoseNumbers = map[string]engine.DoseNumber{"rota": 5}
+	got := assessmentOf(t, e, "rota", "2026-07-10", birthRota, rota("r1", dayDate("2026-03-01"), "rotarix"),
+		rota("r2", dayDate("2026-06-25"), "rotarix"), rota("r3", dayDate("2026-07-01"), "rotarix"), r4)
+	invalid := func(number int) engine.Reason {
+		return engine.Reason{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: []engine.Check{engine.CheckMinInterval}, Dose: "r3", Number: number}}
+	}
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: rotaAll, Estimated: true,
+		Reasons: []engine.Reason{rotaRefs, invalid(2), invalid(3), {Code: engine.ReasonCheckProductName}},
+	})
+}

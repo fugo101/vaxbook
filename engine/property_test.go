@@ -449,6 +449,14 @@ func invalidDoses(a engine.Assessment) []string {
 	return out
 }
 
+// bracketed reports whether some series of the disease has a start-age
+// bracket. Only then can a narrower date choose another series by bracket
+// (Q44): without brackets the S3b bracket choice keeps every candidate, so a
+// seriesUsed change under narrowing would be a candidate-selection bug.
+func bracketed(s *ruleset.Snapshot, disease string) bool {
+	return slices.ContainsFunc(s.Series, func(sr ruleset.Series) bool { return sr.Disease == disease && sr.StartAge != nil })
+}
+
 // visible is how an assessment shows: its bucket or block.
 func visible(a engine.Assessment) string { return string(a.Bucket) + string(a.Block) }
 
@@ -459,7 +467,9 @@ func visible(a engine.Assessment) string { return string(a.Bucket) + string(a.Bl
 // extension, SAD §5.7). The wide result is computed at both ends of the
 // range, and for a fixed series steps 5–9 are monotone in the birth date
 // between them; a narrower birth date can choose another start-age bracket,
-// with other dates.
+// with other dates. The skip applies only to diseases with start-age
+// brackets (see bracketed); for the others the clause is checked whatever
+// seriesUsed does, as in S3a.
 func TestPropertyNarrowingBirthDate(t *testing.T) {
 	t.Parallel()
 	calm := map[string]bool{string(engine.BucketComplete): true, string(engine.BucketUpcoming): true, string(engine.BlockNotYetScheduled): true}
@@ -477,7 +487,7 @@ func TestPropertyNarrowingBirthDate(t *testing.T) {
 			got, _ := evaluate(t, fx.engine, narrow)
 			for i, a := range wide.Assessments {
 				b := got.Assessments[i]
-				if !slices.Equal(a.SeriesUsed, b.SeriesUsed) {
+				if bracketed(fx.snap, a.Disease) && !slices.Equal(a.SeriesUsed, b.SeriesUsed) {
 					continue // Q44: another bracket, other dates
 				}
 				if calm[visible(a)] && (b.Bucket == engine.BucketOverdue || b.Bucket == engine.BucketDue) {
@@ -511,7 +521,11 @@ func TestPropertyNarrowingBirthDate(t *testing.T) {
 // seriesUsed as the wide one (issue #23, Q44 and its extension, SAD §5.7): a
 // narrower dose range can match fewer start-age brackets, and the
 // most-doses rule then selects another series (TestNarrowingChangesBracket
-// pins both kinds of change).
+// pins both kinds of change). The skip applies only to diseases with
+// start-age brackets (see bracketed). For the others the test keeps S3a's
+// stronger check: the candidates do not depend on the birth date, and on
+// dose dates only through the placement (issue #14), so the date clause
+// fails when seriesUsed differs and the validity clause has no guard.
 func TestPropertyNarrowingDoseDate(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
@@ -543,7 +557,8 @@ func TestPropertyNarrowingDoseDate(t *testing.T) {
 			got, _ := evaluate(t, fx.engine, narrow)
 			for j, a := range wide.Assessments {
 				b := got.Assessments[j]
-				if !slices.Equal(a.SeriesUsed, b.SeriesUsed) {
+				sameSeries := slices.Equal(a.SeriesUsed, b.SeriesUsed)
+				if bracketed(fx.snap, a.Disease) && !sameSeries {
 					continue // Q44: another bracket
 				}
 				placed := len(reasonsWith(a, engine.ReasonOverlappingEstimatedDates)) == 0 && len(reasonsWith(a, engine.ReasonNumberingConflict)) == 0 &&
@@ -560,10 +575,10 @@ func TestPropertyNarrowingDoseDate(t *testing.T) {
 				}
 				wn, nn := *a.NextDose, *b.NextDose
 				onePlan := !slices.ContainsFunc(seriesUsed(t, fx.snap, a), func(sr ruleset.Series) bool { return len(sr.Plans) > 1 })
-				if nn.Due.After(wn.Due) || nn.Overdue.After(wn.Overdue) ||
+				if !sameSeries || nn.Due.After(wn.Due) || nn.Overdue.After(wn.Overdue) ||
 					(onePlan && nn.Earliest.After(wn.Earliest)) {
-					t.Fatalf("%s %s: narrowing %s to %s moved a date later\nwide   %+v\nnarrow %+v",
-						fx.name, a.Disease, in.Doses[i].Date.Value, narrow.Doses[i].Date.Value, wn, nn)
+					t.Fatalf("%s %s: narrowing %s to %s moved a date later or changed seriesUsed\nwide   %+v %v\nnarrow %+v %v",
+						fx.name, a.Disease, in.Doses[i].Date.Value, narrow.Doses[i].Date.Value, wn, a.SeriesUsed, nn, b.SeriesUsed)
 				}
 			}
 		}

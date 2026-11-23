@@ -175,6 +175,10 @@ func (ev evaluation) at(b birthEnd) endResult {
 	drop := ev.disagreements(rs)
 	res.reasons = append(res.reasons, ev.walkReasons(rs, drop)...)
 	if len(drop) > 0 {
+		for d := range drop {
+			res.questioned = append(res.questioned, d)
+		}
+		slices.Sort(res.questioned)
 		code := ReasonMixedProducts
 		if ev.unknownProduct {
 			code = ReasonCheckProductName

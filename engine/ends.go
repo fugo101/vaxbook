@@ -18,6 +18,10 @@ type endResult struct {
 	products []string          // the products for next; set with hasNext
 	cands    []candidateResult // per candidate series, for later merges (S4)
 	series   []int             // the end's candidate series, in rule-set order (seriesUsed)
+	// questioned are the records whose DOSE_AFTER_MAX_AGE a maximum-age
+	// disagreement dropped (issue #15 In scope 5), by ID; for compared
+	// results, those of every result.
+	questioned []string
 }
 
 // class is the result as the user sees it: ⚪ whenever a reason blocks, and
@@ -84,8 +88,15 @@ func compareResults(rs []endResult, hint Hint) endResult {
 			res.reasons = append(res.reasons, r)
 		}
 	}
+	var questioned []string
+	for _, r := range rs {
+		questioned = append(questioned, r.questioned...)
+	}
+	slices.Sort(questioned)
+	questioned = slices.Compact(questioned)
 	if agree {
 		res := later
+		res.questioned = questioned
 		res.reasons = slices.Clone(later.reasons)
 		for _, r := range later.reasons {
 			listed[reasonKey(r)] = true
@@ -102,7 +113,7 @@ func compareResults(rs []endResult, hint Hint) endResult {
 	if limit {
 		hint = HintFullBirthDate
 	}
-	res := endResult{bucket: BucketUnknown, k: later.k, series: later.series}
+	res := endResult{bucket: BucketUnknown, k: later.k, series: later.series, questioned: questioned}
 	add(&res, Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: hint}})
 	for i := len(rs) - 1; i >= 0; i-- {
 		for _, r := range rs[i].reasons {

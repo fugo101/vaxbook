@@ -498,3 +498,60 @@ func TestNarrowingNamedFloatingDoseShape(t *testing.T) {
 			invalid("r2", 2, engine.CheckMinInterval), afterMaxAge("r2", 2, engine.CheckMaxAgeComplete), unknownR1},
 	})
 }
+
+// TestNarrowingQuestionedRecordShape pins the known exception to the
+// narrowing property (SAD §5.7) that Q52 and Q62 together give, reported to
+// the owner: a record whose DOSE_AFTER_MAX_AGE a disagreement drops shows no
+// reason from the candidate that does not count it, so a possible minimum
+// check hidden there (Q62) can narrow to a definite DOSE_INVALID that the
+// wider result gave no sign of. Issue #15 says this cannot happen ("a wide
+// result with no DOSE_POSSIBLY_INVALID has no possible max-age failure").
+// No candidate's count changes: rota-rotateq does not count r1 in either
+// result, and the others leave it beyond their length.
+//
+// Birth 2009-11-29 (6w@b = 2010-01-10, 12w@b = 02-21, 15w@b = 03-14, 24w@b =
+// 05-16, 32w@b = 07-11), today 2011-03-30. r4 rotarix 2010-01-22, r2 with
+// no product 2010-05-10 numbered 2, r3 rotarix 2010-08-11, r0 with no
+// product 2011-01-10, r1 rotarix in 2011-02. Every series is a candidate.
+//   - rota-rotarix and rota-rotavin: r4 and r2 counted (within every limit),
+//     complete; r3, r0 and r1 beyond the length.
+//   - rota-rotateq: r4, r2 counted; r3, r0 and r1 at 3, each ≥ 07-11 →
+//     DOSE_AFTER_MAX_AGE, not counted. r1 is also possibly before r0 + 4w =
+//     02-07 (Lo 02-01, Hi 02-28), a check it drops as it is not counted.
+//
+// The complete candidates leave r3, r0 and r1 unchecked, so all three
+// disagree and lose their DOSE_AFTER_MAX_AGE: [SAFEST_SERIES,
+// CHECK_PRODUCT_NAME]. Narrowed to 2011-02-04, r1 is definitely before
+// 02-07 under rota-rotateq: DOSE_INVALID{minInterval, r1, 3} is kept (Q31).
+func TestNarrowingQuestionedRecordShape(t *testing.T) {
+	t.Parallel()
+	e := loadEngine(t, "illustrative-max-age")
+	in := func(r1 engine.RecalledDate) engine.Input {
+		r2 := rota("r2", dayDate("2010-05-10"), "")
+		r2.DoseNumbers = map[string]engine.DoseNumber{"rota": 2}
+		return engine.Input{Today: mustDate(t, "2011-03-30"), Profile: engine.Profile{Birth: dayDate("2009-11-29")}, Doses: []engine.DoseRecord{
+			rota("r0", dayDate("2011-01-10"), ""), rota("r1", r1, "rotarix"), r2, rota("r3", dayDate("2010-08-11"), "rotarix"), rota("r4", dayDate("2010-01-22"), "rotarix"),
+		}}
+	}
+	cpn := engine.Reason{Code: engine.ReasonCheckProductName}
+	wide, narrow := in(monthDate("2011-02")), in(dayDate("2011-02-04"))
+	checkAssessment(t, assessmentOf(t, e, "rota", "2011-03-30", wide.Profile.Birth, wide.Doses...), engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: rotaAll, Estimated: true,
+		Reasons: []engine.Reason{rotaRefs, cpn},
+	})
+	checkAssessment(t, assessmentOf(t, e, "rota", "2011-03-30", narrow.Profile.Birth, narrow.Doses...), engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: rotaAll,
+		Reasons: []engine.Reason{rotaRefs,
+			{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: []engine.Check{engine.CheckMinInterval}, Dose: "r1", Number: 3}}, cpn},
+	})
+	// The property's exception covers exactly the questioned records.
+	for _, x := range []engine.Input{wide, narrow} {
+		q, err := engine.QuestionedRecords(e, x)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"r0", "r1", "r3"}; !slices.Equal(q["rota"], want) {
+			t.Errorf("questioned records %v, want %v", q["rota"], want)
+		}
+	}
+}

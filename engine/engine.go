@@ -433,6 +433,21 @@ type birthRange struct {
 // product the rule set does not have) makes every disease of that record ⚪
 // with a reason of the same code instead (A9, EQ27, issue #14 Q35).
 func (e *Engine) Evaluate(in Input) (Output, error) {
+	birth, byDisease, err := e.prepare(in)
+	if err != nil {
+		return Output{}, err
+	}
+	out := Output{RuleSetVersion: e.version, Today: in.Today, Assessments: make([]Assessment, 0, len(e.diseases))}
+	for _, dz := range e.diseases {
+		a, _ := dz.assess(birth, in.Today, byDisease[dz.id])
+		out.Assessments = append(out.Assessments, a)
+	}
+	return out, nil
+}
+
+// prepare validates an input and converts it to the birth range and the
+// dose records of each disease, as Evaluate uses them.
+func (e *Engine) prepare(in Input) (birthRange, map[string][]givenDose, error) {
 	v := e.validate(in)
 	var fatal []Problem
 	for _, p := range v.problems {
@@ -441,12 +456,12 @@ func (e *Engine) Evaluate(in Input) (Output, error) {
 		}
 	}
 	if len(fatal) > 0 {
-		return Output{}, &InputError{Problems: fatal}
+		return birthRange{}, nil, &InputError{Problems: fatal}
 	}
 	birth := birthRange{precision: in.Profile.Birth.Precision}
 	period, dated, err := in.Profile.Birth.Period()
 	if err != nil {
-		return Output{}, fmt.Errorf("engine: birth date passed validation but has no period: %w", err)
+		return birthRange{}, nil, fmt.Errorf("engine: birth date passed validation but has no period: %w", err)
 	}
 	if dated {
 		birth.r, birth.known = period.CapAt(in.Today), true
@@ -464,7 +479,7 @@ func (e *Engine) Evaluate(in Input) (Output, error) {
 		} else {
 			period, dated, err := r.Date.Period()
 			if err != nil {
-				return Output{}, fmt.Errorf("engine: dose date passed validation but has no period: %w", err)
+				return birthRange{}, nil, fmt.Errorf("engine: dose date passed validation but has no period: %w", err)
 			}
 			if dated {
 				g.date, g.dated = period.CapAt(in.Today), true
@@ -476,15 +491,12 @@ func (e *Engine) Evaluate(in Input) (Output, error) {
 			byDisease[dz] = append(byDisease[dz], gd)
 		}
 	}
-	out := Output{RuleSetVersion: e.version, Today: in.Today, Assessments: make([]Assessment, 0, len(e.diseases))}
-	for _, dz := range e.diseases {
-		out.Assessments = append(out.Assessments, dz.assess(birth, in.Today, byDisease[dz.id]))
-	}
-	return out, nil
+	return birth, byDisease, nil
 }
 
-// assess runs SAD §5.3 for one disease.
-func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) Assessment {
+// assess runs SAD §5.3 for one disease. It also returns the result of steps
+// 4–9 the assessment is built from (zero when step 1 or 2 stops).
+func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) (Assessment, endResult) {
 	a := Assessment{Disease: dz.id}
 
 	// Step 1 (EQ20d): estimated when the birth date or a dose date of the
@@ -514,7 +526,7 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 				a.Reasons = append(a.Reasons, Reason{Code: c, Params: ReasonParams{Dose: g.id}})
 			}
 		}
-		return a
+		return a, endResult{}
 	}
 
 	// Step 2: positions. The blocking outcomes do not depend on the series,
@@ -523,13 +535,13 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 	arr := arrange(doses)
 	if arr.blocked() {
 		a.Bucket, a.Reasons = BucketUnknown, arr.reasons
-		return a
+		return a, endResult{}
 	}
 	// With no dose and no birth date, step 7 stops with NO_BIRTH_DATE
 	// whatever the series (EQ19), so no candidates are chosen.
 	if len(doses) == 0 && !birth.known {
 		a.Bucket, a.Reasons = BucketUnknown, []Reason{{Code: ReasonNoBirthDate}}
-		return a
+		return a, endResult{}
 	}
 
 	// Step 3: the candidate series. Implied doses are unknown-product doses
@@ -623,5 +635,5 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) A
 	if slices.ContainsFunc(a.Reasons, func(r Reason) bool { return r.Code == ReasonProductNotInCatalog }) {
 		a.Estimated = true
 	}
-	return a
+	return a, res
 }

@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/fugo101/vaxbook/engine"
@@ -470,6 +471,47 @@ func invalidDoses(a engine.Assessment) []string {
 	return out
 }
 
+// questionedIn returns the records of disease whose DOSE_AFTER_MAX_AGE a
+// maximum-age disagreement drops in the result of any of the inputs
+// (engine.QuestionedRecords).
+func questionedIn(t testing.TB, e *engine.Engine, disease string, ins ...engine.Input) map[string]bool {
+	t.Helper()
+	q := map[string]bool{}
+	for _, in := range ins {
+		recs, err := engine.QuestionedRecords(e, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range recs[disease] {
+			q[id] = true
+		}
+	}
+	return q
+}
+
+// symmetricDifference returns the keys in exactly one of the sorted lists a
+// and b.
+func symmetricDifference(a, b []string) []string {
+	var out []string
+	for _, k := range a {
+		if !slices.Contains(b, k) {
+			out = append(out, k)
+		}
+	}
+	for _, k := range b {
+		if !slices.Contains(a, k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// recordOf returns the record ID of an uncountedKeys key.
+func recordOf(k string) string {
+	id, _, _ := strings.Cut(k, "#")
+	return id
+}
+
 // uncountedKeys is invalidDoses for the narrowing property: dose and
 // position, except that an unnumbered level-4 record is keyed by its ID
 // alone. Such a record that fills no gap floats and has no position (SAD
@@ -648,15 +690,22 @@ func noDoseImprecise(rng *rand.Rand, in engine.Input, maxes []ruleset.Span, wind
 // fails when seriesUsed differs and the validity clause has no guard.
 //
 // Since S4a (issue #15) the validity clause also covers maximum ages: the
-// doses not counted (DOSE_INVALID and DOSE_AFTER_MAX_AGE, invalidDoses) and
-// the presence of CHECK_PRODUCT_NAME or MIXED_PRODUCTS stay the same. A wide
-// result with a DOSE_POSSIBLY_INVALID, minimum or maximum, is skipped as
-// before: a possible failure may narrow to a definite one. A possible check
-// hidden on a dose that is not counted (Q62) can narrow too, so when a
-// maximum-age reason is involved and the wide result has a dose not counted
-// or a disagreement, the doses not counted may only grow, a disagreement
-// stays, and one may appear (checkNarrowingDoseDate). The near-limit inputs
-// of the fixtures with maximum ages run the same check.
+// doses not counted (DOSE_INVALID and DOSE_AFTER_MAX_AGE, by dose and
+// position; uncountedKeys) and the presence of CHECK_PRODUCT_NAME or
+// MIXED_PRODUCTS stay the same. A wide result with a DOSE_POSSIBLY_INVALID,
+// minimum or maximum, is skipped as before: a possible failure may narrow to
+// a definite one. Two readings of #15 are reported to the owner, each pinned
+// by a test:
+//   - an unnumbered level-4 record has no position of its own, so it is
+//     keyed by its ID (TestNarrowingNamedFloatingDoseShape);
+//   - a record whose DOSE_AFTER_MAX_AGE a disagreement drops (Q52) can show
+//     a new DOSE_INVALID when a possible check hidden on it (Q62) narrows to
+//     a definite one, with the same disagreement. Only such a record's
+//     entries may change (engine.QuestionedRecords,
+//     TestNarrowingQuestionedRecordShape).
+//
+// The near-limit inputs of the fixtures with maximum ages run the same
+// check.
 func TestPropertyNarrowingDoseDate(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
@@ -710,20 +759,15 @@ func checkNarrowingDoseDate(t *testing.T, fx fixture, rng *rand.Rand, in engine.
 		if placed && len(reasonsWith(a, engine.ReasonDosePossiblyInvalid)) == 0 {
 			ia, ib := uncountedKeys(a, in), uncountedKeys(b, in)
 			same := slices.Equal(ia, ib) && productDisagreement(a) == productDisagreement(b)
-			// A dose that is not counted drops its possible checks (Q62),
-			// and so does every candidate that does not count a record
-			// whose DOSE_AFTER_MAX_AGE a disagreement drops (Q52).
-			// Narrowing can make such a hidden check definite: a
-			// DOSE_INVALID next to a DOSE_AFTER_MAX_AGE (or on the
-			// questioned record), or a DOSE_AFTER_MAX_AGE next to a
-			// DOSE_INVALID that another candidate's count turns into a
-			// disagreement. The doses not counted and a disagreement stay.
-			maxAge := hasCode(a, engine.ReasonDoseAfterMaxAge) || hasCode(b, engine.ReasonDoseAfterMaxAge) ||
-				productDisagreement(a) || productDisagreement(b)
-			if maxAge && (len(ia) > 0 || productDisagreement(a)) {
-				same = !slices.ContainsFunc(ia, func(k string) bool { return !slices.Contains(ib, k) }) &&
-					(!productDisagreement(a) || hasCode(a, engine.ReasonCheckProductName) == hasCode(b, engine.ReasonCheckProductName) &&
-						hasCode(a, engine.ReasonMixedProducts) == hasCode(b, engine.ReasonMixedProducts))
+			if !same && productDisagreement(a) == productDisagreement(b) {
+				// Known exception (Q52 with Q62, reported to the owner;
+				// TestNarrowingQuestionedRecordShape): a record whose
+				// DOSE_AFTER_MAX_AGE a disagreement drops shows no reason
+				// from the candidate that does not count it, so a possible
+				// check hidden there can narrow to a definite one. Only
+				// that record's entries may change.
+				q := questionedIn(t, fx.engine, a.Disease, in, narrow)
+				same = !slices.ContainsFunc(symmetricDifference(ia, ib), func(k string) bool { return !q[recordOf(k)] })
 			}
 			if !same || len(reasonsWith(b, engine.ReasonDosePossiblyInvalid)) > 0 {
 				t.Fatalf("%s %s: narrowing %s to %s changed validity\nwide   %+v\nnarrow %+v\ninput  %+v",

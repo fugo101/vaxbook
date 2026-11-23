@@ -162,8 +162,14 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 //     reads the same record. Else the earliest dated dose (else [birthLo,
 //     today], which no placement reaches).
 //
-// A wider or extra candidate can only add matching brackets, and the
-// most-doses rule then picks the longer series (P1).
+// A wider or extra candidate can only add matching brackets, so when the
+// group's brackets are contiguous the most-doses rule then picks the longer
+// series (P1). With a gap between brackets this does not hold: matching
+// reads [min, max) and the gap rule (Q33) runs only when nothing matches, so
+// a candidate that may fall in bracket i or in the gap above it matches i
+// alone, and the bracket above the gap never reaches the most-doses rule.
+// That follows issue #23's "One match: use it" as decided; whether such a
+// range should count the bracket above the gap is open with the owner.
 func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today Date) []Range {
 	upTo := today
 	if len(pl.dated) > 0 {

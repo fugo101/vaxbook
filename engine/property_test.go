@@ -800,11 +800,15 @@ func hasCode(a engine.Assessment, c engine.ReasonCode) bool { return len(reasons
 //   - SAFEST_SERIES appears iff seriesUsed has two or more series, at most
 //     once, and its candidates are seriesUsed with each series' product
 //     (omitted for a generic series); with no seriesUsed there is neither.
-//     With no dose given the birth ends can choose different start-age
-//     brackets (issue #23): in a two-end ⚪ BIRTH_DATE_IMPRECISE each end
-//     keeps its own SAFEST_SERIES (A8), so there are at most two, the
-//     later end's first, and seriesUsed (the later end's list, Q40) may
-//     have one series while the older end's SAFEST_SERIES is present;
+//     With no dose given and a birth date, seriesUsed is the later end's
+//     choice (noDoseChoice, Q40), and the birth ends can choose different
+//     start-age brackets (issue #23). Only in a two-end ⚪
+//     BIRTH_DATE_IMPRECISE whose ends chose different lists does each end
+//     keep its own SAFEST_SERIES (A8): the later end's list and then the
+//     older end's, each present iff that end has two or more series, so
+//     seriesUsed may have one series while a SAFEST_SERIES is present.
+//     Ends that chose the same list, or agree on a result that is not ⚪,
+//     keep the rule above;
 //   - outOfAge has neither seriesUsed nor SAFEST_SERIES;
 //   - products present ⇒ nextDose present, and products are non-retired
 //     catalog products that list the disease, in snapshot order without
@@ -844,24 +848,33 @@ func checkCandidates(t testing.TB, fx fixture, in engine.Input, a engine.Assessm
 		}
 		return out
 	}
+	differ := false // no dose, and the birth ends chose different lists
+	if lo, hi, ok := testPeriod(in.Profile.Birth, in.Today); ok && !hasDose {
+		loEnd, hiEnd := noDoseChoice(s, a.Disease, lo, in.Today), noDoseChoice(s, a.Disease, hi, in.Today)
+		if !slices.Equal(a.SeriesUsed, hiEnd) && (len(a.SeriesUsed) > 0 || len(hiEnd) > 0) {
+			fail("no dose: seriesUsed %v, want the later end's choice %v", a.SeriesUsed, hiEnd)
+		}
+		if differ = !slices.Equal(loEnd, hiEnd); differ && hasCode(a, engine.ReasonBirthDateImprecise) {
+			var want [][]engine.SeriesRef
+			for _, end := range [][]string{hiEnd, loEnd} {
+				if len(end) >= 2 {
+					want = append(want, refs(seriesUsed(t, s, engine.Assessment{Disease: a.Disease, SeriesUsed: end})))
+				}
+			}
+			var got [][]engine.SeriesRef
+			for _, r := range safest {
+				got = append(got, r.Params.Candidates)
+			}
+			if !reflect.DeepEqual(got, want) {
+				fail("two-end ⚪, the ends chose %v (later) and %v (older): SAFEST_SERIES %v, want %v", hiEnd, loEnd, got, want)
+			}
+		}
+	}
 	switch {
 	case a.Block == engine.BlockOutOfAge && (a.SeriesUsed != nil || len(safest) > 0):
 		fail("outOfAge with seriesUsed %v and %d SAFEST_SERIES", a.SeriesUsed, len(safest))
-	case !hasDose && hasCode(a, engine.ReasonBirthDateImprecise):
-		if len(safest) > 2 {
-			fail("%d SAFEST_SERIES reasons", len(safest))
-		}
-		for _, r := range safest {
-			if len(r.Params.Candidates) < 2 {
-				fail("SAFEST_SERIES with candidates %v", r.Params.Candidates)
-			}
-			for _, c := range r.Params.Candidates {
-				seriesUsed(t, s, engine.Assessment{Disease: a.Disease, SeriesUsed: []string{c.Series}})
-			}
-		}
-		if len(used) >= 2 && (len(safest) == 0 || !slices.Equal(safest[0].Params.Candidates, refs(used))) {
-			fail("seriesUsed %v, but the first SAFEST_SERIES is not its list: %v", a.SeriesUsed, safest)
-		}
+	case differ && hasCode(a, engine.ReasonBirthDateImprecise):
+		// Checked above against each end's choice.
 	case len(used) < 2 && len(safest) > 0:
 		fail("SAFEST_SERIES with seriesUsed %v", a.SeriesUsed)
 	case len(used) >= 2 && len(safest) != 1:
@@ -899,6 +912,51 @@ func checkCandidates(t testing.TB, fx fixture, in engine.Input, a engine.Assessm
 // on today: no startAge, no max, or b + max after today (EQ10).
 func bracketOpen(sr ruleset.Series, b, today engine.Date) bool {
 	return sr.StartAge == nil || sr.StartAge.Max == nil || b.AddSpan(*sr.StartAge.Max).After(today)
+}
+
+// noDoseChoice returns the IDs of the series chosen at birth end b on today
+// when no dose of the disease is given (issue #23 In scope 5), computed from
+// the snapshot with Date.AddSpan alone: from the series of non-retired
+// products (every series of the disease when none is left, Q38), each
+// product group keeps its first bracket by min that is still open at b
+// (bracketOpen: the bracket the age falls in, the next one above a gap, or
+// the earliest one, EQ10, A5, Q33). When no group keeps one, the choice is
+// redone over every series of the disease (Q50 (b)). In rule-set order; empty
+// means outOfAge (Q24).
+func noDoseChoice(s *ruleset.Snapshot, disease string, b, today engine.Date) []string {
+	retired := func(sr ruleset.Series) bool {
+		return sr.Product != nil && slices.ContainsFunc(s.Products, func(p ruleset.Product) bool { return p.ID == *sr.Product && p.Retired })
+	}
+	choose := func(keep func(ruleset.Series) bool) []string {
+		first := map[string]int{} // product group ("" generic) → index of its chosen series
+		for i, sr := range s.Series {
+			if sr.Disease != disease || !keep(sr) || !bracketOpen(sr, b, today) {
+				continue
+			}
+			g := ""
+			if sr.Product != nil {
+				g = *sr.Product
+			}
+			if j, ok := first[g]; !ok || (sr.StartAge != nil && b.AddSpan(sr.StartAge.Min).Before(b.AddSpan(s.Series[j].StartAge.Min))) {
+				first[g] = i
+			}
+		}
+		var out []string
+		for i, sr := range s.Series {
+			if slices.Contains(slices.Collect(maps.Values(first)), i) {
+				out = append(out, sr.ID)
+			}
+		}
+		return out
+	}
+	keep := func(sr ruleset.Series) bool { return !retired(sr) }
+	if !slices.ContainsFunc(s.Series, func(sr ruleset.Series) bool { return sr.Disease == disease && keep(sr) }) {
+		keep = func(ruleset.Series) bool { return true }
+	}
+	if c := choose(keep); len(c) > 0 {
+		return c
+	}
+	return choose(func(ruleset.Series) bool { return true })
 }
 
 // TestPropertyCandidates runs checkCandidates on random inputs.

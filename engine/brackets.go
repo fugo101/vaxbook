@@ -155,9 +155,12 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 //     dated dose is an insertion point of floatingFit (no number, and no
 //     numbered dated dose after it). Its range is [birthLo, R.Hi of that
 //     dose, or today when there is none];
-//   - when no end gives one, the item at position 1 that is not counted at
-//     either end, else the earliest dated dose (else [birthLo, today], which
-//     no placement reaches).
+//   - when no end gives one, the dose at position 1: the first item in walk
+//     order tried at position 1 and not counted. Each later dose that fails
+//     there is tried at position 1 again, but only the first is dose 1's
+//     record, so every bracket of a group with the same dose-1 minimum age
+//     reads the same record. Else the earliest dated dose (else [birthLo,
+//     today], which no placement reaches).
 //
 // A wider or extra candidate can only add matching brackets, and the
 // most-doses rule then picks the longer series (P1).
@@ -176,13 +179,14 @@ func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today
 	for _, b := range ends {
 		w := s.walk(b, today, pl)
 		var first *item // the first counted dated dose in the series
+		tried := false  // an uncounted item at position 1 was seen at b
 		for i := range w.seq {
 			it := w.seq[i]
 			switch {
 			case it.pos == 1 && it.counted:
 				out = append(out, slot(it))
-			case it.pos == 1:
-				uncounted = append(uncounted, slot(it))
+			case it.pos == 1 && !tried:
+				uncounted, tried = append(uncounted, slot(it)), true
 			}
 			if first == nil && it.counted && it.dose.dated && it.pos <= s.length {
 				first = &w.seq[i]

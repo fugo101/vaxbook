@@ -109,6 +109,40 @@ func TestStartAgeDiffersExactDates(t *testing.T) {
 	})
 }
 
+// TestStartAgeNoDoseCountedFirstAtPositionOne (issue #23 In scope 4, Q32):
+// when no bracket counts a dose as dose 1, the fallback is one dose, the
+// one at position 1, so every bracket of a group with the same dose-1
+// minimum age reads the same record and exact dates match at most one
+// bracket. Both brackets get dose-1 min age 16y (only the two
+// FIRST_DOSE_MIN_AGE_ABOVE_START_AGE Warns). Birth 2000-01-01; doses at 12y
+// (2012-01-01) and 15y6m (2015-07-01); today 2016-01-01.
+//   - Both doses fail min age 16y under either bracket, so none is counted,
+//     and each is tried at position 1 in turn.
+//   - The dose at position 1 is the first one tried, r1 at 12y: only 9–14
+//     ([9y, 15y)) contains it. The later r2 at 15y6m does not make 15–45 a
+//     second match.
+//
+// → 9–14, no AGE_AT_START_UNCERTAIN, not estimated, DOSE_INVALID{minAge}
+// on both doses (⚪).
+func TestStartAgeNoDoseCountedFirstAtPositionOne(t *testing.T) {
+	t.Parallel()
+	s := loadSnapshot(t, "illustrative-start-age")
+	for i := range s.Series {
+		s.Series[i].Plans[0].Doses[0].MinAge = spanOf(t, "P16Y")
+	}
+	e := newEngine(t, s, ruleset.FirstDoseMinAgeAboveStartAge, ruleset.FirstDoseMinAgeAboveStartAge)
+	got := hpvAssessment(t, e, "2016-01-01", "2000-01-01", hpvDose("r1", "2012-01-01", "gardasil9"), hpvDose("r2", "2015-07-01", "gardasil9"))
+	checkAssessment(t, got, engine.Assessment{
+		Disease:    "hpv",
+		Bucket:     engine.BucketUnknown,
+		SeriesUsed: []string{"hpv-g9-9to14"},
+		Reasons: []engine.Reason{
+			{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: []engine.Check{engine.CheckMinAge}, Dose: "r1", Number: 1}},
+			{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: []engine.Check{engine.CheckMinAge}, Dose: "r2", Number: 1}},
+		},
+	})
+}
+
 // withHPVOther adds product hpv-other [hpv] to the illustrative-start-age
 // snapshot.
 func withHPVOther(s *ruleset.Snapshot) {

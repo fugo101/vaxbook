@@ -170,6 +170,19 @@ func TestValidateStartAge(t *testing.T) {
 		{"differs: no reference without a dose-1 minimum age", func(t *testing.T) s {
 			return s{bracketSeries(t, "a", "", "P1Y", "P2Y", ""), bracketSeries(t, "b", "", "P2Y", "", "P6M")}
 		}, []Problem{reject(DoseRuleNoMinimum, "/series/0/plans/0/doses/0", ProblemParams{})}},
+		// A bracket with an invalid span (Go-built, decode rejects it) gets
+		// only the span problem: no START_AGE_EMPTY, overlap or dose-1 Warn
+		// for that bracket (issue #23).
+		{"invalid bracket: no overlap with it", func(t *testing.T) s {
+			a := bracketSeries(t, "a", "", "P1Y", "P2Y", "P1Y")
+			a.StartAge.Max = &Span{N: 1000, Unit: Years}
+			return s{a, bracketSeries(t, "b", "", "P2Y", "P3Y", "P1Y")}
+		}, []Problem{reject(InvalidValue, "/series/0/startAge/max", ProblemParams{Value: Span{N: 1000, Unit: Years}.String()})}},
+		{"invalid bracket: no overlap or dose-1 Warn of its own", func(t *testing.T) s {
+			b := bracketSeries(t, "b", "", "P18M", "P2Y", "P3Y")
+			b.StartAge.Max = &Span{N: 1000, Unit: Years}
+			return s{bracketSeries(t, "a", "", "P1Y", "P2Y", "P1Y"), b}
+		}, []Problem{reject(InvalidValue, "/series/1/startAge/max", ProblemParams{Value: Span{N: 1000, Unit: Years}.String()})}},
 		{"warns after the earlier series' problems", func(t *testing.T) s {
 			a := bracketSeries(t, "a", "", "P1Y", "P2Y", "P1Y")
 			a.Stage = "teen"

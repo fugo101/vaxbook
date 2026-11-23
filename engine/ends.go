@@ -18,10 +18,13 @@ type endResult struct {
 	products []string          // the products for next; set with hasNext
 	cands    []candidateResult // per candidate series, for later merges (S4)
 	series   []int             // the end's candidate series, in rule-set order (seriesUsed)
-	// questioned are the records whose DOSE_AFTER_MAX_AGE a maximum-age
+	// disagreeing are the records whose DOSE_AFTER_MAX_AGE a maximum-age
 	// disagreement dropped (issue #15 In scope 5), by ID; for compared
-	// results, those of every result.
-	questioned []string
+	// results, those of every result. This is narrower than S4b's
+	// questioned records (issue #28: any record that some candidate gives
+	// DOSE_INVALID or DOSE_AFTER_MAX_AGE), which its counted view counts;
+	// an agreed DOSE_AFTER_MAX_AGE or a DOSE_INVALID is not listed here.
+	disagreeing []string
 }
 
 // class is the result as the user sees it: ⚪ whenever a reason blocks, and
@@ -88,15 +91,15 @@ func compareResults(rs []endResult, hint Hint) endResult {
 			res.reasons = append(res.reasons, r)
 		}
 	}
-	var questioned []string
+	var disagreeing []string
 	for _, r := range rs {
-		questioned = append(questioned, r.questioned...)
+		disagreeing = append(disagreeing, r.disagreeing...)
 	}
-	slices.Sort(questioned)
-	questioned = slices.Compact(questioned)
+	slices.Sort(disagreeing)
+	disagreeing = slices.Compact(disagreeing)
 	if agree {
 		res := later
-		res.questioned = questioned
+		res.disagreeing = disagreeing
 		res.reasons = slices.Clone(later.reasons)
 		for _, r := range later.reasons {
 			listed[reasonKey(r)] = true
@@ -113,7 +116,7 @@ func compareResults(rs []endResult, hint Hint) endResult {
 	if limit {
 		hint = HintFullBirthDate
 	}
-	res := endResult{bucket: BucketUnknown, k: later.k, series: later.series, questioned: questioned}
+	res := endResult{bucket: BucketUnknown, k: later.k, series: later.series, disagreeing: disagreeing}
 	add(&res, Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: hint}})
 	for i := len(rs) - 1; i >= 0; i-- {
 		for _, r := range rs[i].reasons {

@@ -585,7 +585,7 @@ func TestNarrowingNamedFloatingDoseShape(t *testing.T) {
 	})
 }
 
-// TestNarrowingQuestionedRecordShape pins the known exception to the
+// TestNarrowingDisagreeingRecordShape pins the known exception to the
 // narrowing property (SAD §5.7) that Q52 and Q62 together give, reported to
 // the owner: a record whose DOSE_AFTER_MAX_AGE a disagreement drops shows no
 // reason from the candidate that does not count it, so a possible minimum
@@ -609,7 +609,7 @@ func TestNarrowingNamedFloatingDoseShape(t *testing.T) {
 // disagree and lose their DOSE_AFTER_MAX_AGE: [SAFEST_SERIES,
 // CHECK_PRODUCT_NAME]. Narrowed to 2011-02-04, r1 is definitely before
 // 02-07 under rota-rotateq: DOSE_INVALID{minInterval, r1, 3} is kept (Q31).
-func TestNarrowingQuestionedRecordShape(t *testing.T) {
+func TestNarrowingDisagreeingRecordShape(t *testing.T) {
 	t.Parallel()
 	e := loadEngine(t, "illustrative-max-age")
 	in := func(r1 engine.RecalledDate) engine.Input {
@@ -630,14 +630,14 @@ func TestNarrowingQuestionedRecordShape(t *testing.T) {
 		Reasons: []engine.Reason{rotaRefs,
 			{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: []engine.Check{engine.CheckMinInterval}, Dose: "r1", Number: 3}}, cpn},
 	})
-	// The property's exception covers exactly the questioned records.
+	// The property's exception covers exactly the disagreeing records.
 	for _, x := range []engine.Input{wide, narrow} {
-		q, err := engine.QuestionedRecords(e, x)
+		q, err := engine.DisagreeingRecords(e, x)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if want := []string{"r0", "r1", "r3"}; !slices.Equal(q["rota"], want) {
-			t.Errorf("questioned records %v, want %v", q["rota"], want)
+			t.Errorf("disagreeing records %v, want %v", q["rota"], want)
 		}
 	}
 }

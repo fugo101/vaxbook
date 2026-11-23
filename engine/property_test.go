@@ -471,14 +471,14 @@ func invalidDoses(a engine.Assessment) []string {
 	return out
 }
 
-// questionedIn returns the records of disease whose DOSE_AFTER_MAX_AGE a
+// disagreeingIn returns the records of disease whose DOSE_AFTER_MAX_AGE a
 // maximum-age disagreement drops in the result of any of the inputs
-// (engine.QuestionedRecords).
-func questionedIn(t testing.TB, e *engine.Engine, disease string, ins ...engine.Input) map[string]bool {
+// (engine.DisagreeingRecords).
+func disagreeingIn(t testing.TB, e *engine.Engine, disease string, ins ...engine.Input) map[string]bool {
 	t.Helper()
 	q := map[string]bool{}
 	for _, in := range ins {
-		recs, err := engine.QuestionedRecords(e, in)
+		recs, err := engine.DisagreeingRecords(e, in)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -701,8 +701,8 @@ func noDoseImprecise(rng *rand.Rand, in engine.Input, maxes []ruleset.Span, wind
 //   - a record whose DOSE_AFTER_MAX_AGE a disagreement drops (Q52) can show
 //     a new DOSE_INVALID when a possible check hidden on it (Q62) narrows to
 //     a definite one, with the same disagreement. Only such a record's
-//     entries may change (engine.QuestionedRecords,
-//     TestNarrowingQuestionedRecordShape).
+//     entries may change (engine.DisagreeingRecords,
+//     TestNarrowingDisagreeingRecordShape).
 //
 // The near-limit inputs of the fixtures with maximum ages run the same
 // check.
@@ -761,12 +761,12 @@ func checkNarrowingDoseDate(t *testing.T, fx fixture, rng *rand.Rand, in engine.
 			same := slices.Equal(ia, ib) && productDisagreement(a) == productDisagreement(b)
 			if !same && productDisagreement(a) == productDisagreement(b) {
 				// Known exception (Q52 with Q62, reported to the owner;
-				// TestNarrowingQuestionedRecordShape): a record whose
+				// TestNarrowingDisagreeingRecordShape): a record whose
 				// DOSE_AFTER_MAX_AGE a disagreement drops shows no reason
 				// from the candidate that does not count it, so a possible
 				// check hidden there can narrow to a definite one. Only
 				// that record's entries may change.
-				q := questionedIn(t, fx.engine, a.Disease, in, narrow)
+				q := disagreeingIn(t, fx.engine, a.Disease, in, narrow)
 				same = !slices.ContainsFunc(symmetricDifference(ia, ib), func(k string) bool { return !q[recordOf(k)] })
 			}
 			if !same || len(reasonsWith(b, engine.ReasonDosePossiblyInvalid)) > 0 {
@@ -919,7 +919,7 @@ func minDateOf(a, b engine.Date) engine.Date {
 // never tried at a maximum age.
 func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 	t.Parallel()
-	questioned := 0 // results that reach a maximum age, from the near-limit inputs
+	atMaxAge := 0 // results that reach a maximum age, from the near-limit inputs
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(13, uint64(len(fx.name))))
 		for range propertyRuns {
@@ -928,10 +928,10 @@ func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 		limits := ageLimits(fx.snap)
 		rng = rand.New(rand.NewPCG(53, uint64(len(fx.name))))
 		for range len(limits) * propertyRuns {
-			questioned += checkDoseOnEarliestDate(t, fx, nearLimitDayInput(t, rng, fx.snap, limits))
+			atMaxAge += checkDoseOnEarliestDate(t, fx, nearLimitDayInput(t, rng, fx.snap, limits))
 		}
 	}
-	if questioned == 0 {
+	if atMaxAge == 0 {
 		t.Fatal("no near-limit input put a dose on the earliest date at or past a maximum age: the property is vacuous there")
 	}
 }
@@ -939,7 +939,7 @@ func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 // checkDoseOnEarliestDate checks TestPropertyDoseOnEarliestDateCounts's
 // clauses on one day-precise input and returns how many of its results with
 // the new dose have a maximum-age reason (maxAgeQuestioned).
-func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (questioned int) {
+func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (atMaxAge int) {
 	t.Helper()
 	out, _ := evaluate(t, fx.engine, in)
 	for i, a := range out.Assessments {
@@ -975,7 +975,7 @@ func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (questio
 		// or questioned by the candidates, so the "no new candidate"
 		// and "counted" clauses skip those results.
 		if maxAgeQuestioned(b) {
-			questioned++
+			atMaxAge++
 			continue
 		}
 		hadDose := slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) })
@@ -1001,7 +1001,7 @@ func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (questio
 				fx.name, a.Disease, a.NextDose.Earliest, a, b)
 		}
 	}
-	return questioned
+	return atMaxAge
 }
 
 // maxAgeQuestioned reports whether a has a maximum-age reason:

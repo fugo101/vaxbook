@@ -351,10 +351,16 @@ func doseCodeRank(c ReasonCode) int {
 // disagreements returns the records on which the candidates disagree on a
 // maximum age (SAD §5.3 step 5, F05.3, F05.10, EQ16; issue #15 In scope 5,
 // Q52): some candidate gives the record DOSE_AFTER_MAX_AGE and another
-// accepts it. A single candidate never disagrees.
+// accepts it. A single candidate never disagrees. Each candidate's
+// acceptances are indexed once (acceptance), so the pass is linear in the
+// reasons and records.
 func (ev evaluation) disagreements(rs []candidateResult) map[string]bool {
 	if len(rs) < 2 {
 		return nil
+	}
+	acc := make([]map[string]bool, len(rs))
+	for j := range rs {
+		acc[j] = ev.acceptance(rs, j)
 	}
 	var drop map[string]bool
 	for i, r := range rs {
@@ -364,7 +370,7 @@ func (ev evaluation) disagreements(rs []candidateResult) map[string]bool {
 				continue
 			}
 			for j := range rs {
-				if j != i && ev.accepts(rs, j, d) {
+				if j != i && acc[j][d] {
 					if drop == nil {
 						drop = map[string]bool{}
 					}
@@ -377,32 +383,49 @@ func (ev evaluation) disagreements(rs []candidateResult) map[string]bool {
 	return drop
 }
 
-// accepts reports whether candidate j accepts record d: it counts it (a
+// acceptance returns the records candidate j accepts: it counts them (a
 // counted item at a position up to the series length, or a floating dose
 // that fits; with no reason, INTERVAL_UNVERIFIABLE or DOSE_POSSIBLY_INVALID),
-// or it is complete and leaves d unchecked beyond its length (a dated dose
-// past the length or a numbered level-4 dose beyond the series). A candidate
-// that gives d DOSE_INVALID or DOSE_AFTER_MAX_AGE, or leaves it unchecked
-// while incomplete, does not accept it (Q52).
-func (ev evaluation) accepts(rs []candidateResult, j int, d string) bool {
+// or it is complete and leaves them unchecked beyond its length (a dated
+// dose past the length or a numbered level-4 dose beyond the series). A
+// candidate that gives a record DOSE_INVALID or DOSE_AFTER_MAX_AGE, or leaves
+// it unchecked while incomplete, does not accept it (Q52). Only accepted
+// records are in the map.
+func (ev evaluation) acceptance(rs []candidateResult, j int) map[string]bool {
 	r, length := rs[j], ev.dz.series[ev.cands[j]].length
+	rejected := map[string]bool{}
 	for _, x := range r.walk.reasons {
-		if x.Params.Dose == d && (x.Code == ReasonDoseInvalid || x.Code == ReasonDoseAfterMaxAge) {
-			return false
+		if x.Code == ReasonDoseInvalid || x.Code == ReasonDoseAfterMaxAge {
+			rejected[x.Params.Dose] = true
 		}
 	}
-	if slices.ContainsFunc(r.walk.floating, func(g givenDose) bool { return g.id == d }) {
-		return true
+	acc := map[string]bool{}
+	seen := map[string]bool{}
+	accept := func(d string, ok bool) {
+		if !seen[d] {
+			seen[d] = true
+			if ok && !rejected[d] {
+				acc[d] = true
+			}
+		}
+	}
+	for _, g := range r.walk.floating {
+		accept(g.id, true)
 	}
 	for _, it := range r.walk.seq {
-		if it.dose.id == d {
-			if it.pos > length {
-				return r.complete
-			}
-			return it.counted
+		if it.dose.id == "" {
+			continue
+		}
+		if it.pos > length {
+			accept(it.dose.id, r.complete)
+		} else {
+			accept(it.dose.id, it.counted)
 		}
 	}
-	return r.complete && slices.ContainsFunc(ev.pls[j].beyond, func(g givenDose) bool { return g.id == d })
+	for _, g := range ev.pls[j].beyond {
+		accept(g.id, r.complete)
+	}
+	return acc
 }
 
 // anyUnknownProduct reports whether some dose of the disease has an unknown

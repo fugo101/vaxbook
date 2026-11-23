@@ -437,3 +437,91 @@ func TestNoDoseThreeSubRanges(t *testing.T) {
 		},
 	})
 }
+
+// TestStartAgeFloatingNotDoseOneBehindFixedSlot (SAD §5.3 step 3, Q49, P1):
+// a floating level-4 dose is a dose-1 candidate only when it can take
+// position 1. A level-4 dose numbered 1 holds position 1, so the floating
+// dose never adds a candidate there, and narrowing a dated dose cannot
+// lengthen one. One group, every dose-1 min age 6m:
+//
+//	series  startAge      doses  minInterval
+//	mg-1    [6m, 1y)      2      4w
+//	mg-2    [13m, 18m)    3      8w
+//	mg-3    [20m, 2y)     1      -
+//	mg-4    [2y, 30m)     2      4w
+//
+// Birth 2020-01-15, today 2021-06-01; r5 level 4 numbered 1, r2 level 4
+// with no number (floating), r1 in 2020-09 (month), r0 2021-03-15. Under
+// mg-2, r1 is dose 2 behind r5 (earliest 2020-07-15) and needs 8w: in
+// 2020-09 it is possibly invalid, on 2020-09-05 certainly invalid
+// (< 2020-09-09), so r0 becomes mg-2's first counted dated dose. Only r5's
+// slot [2020-01-15, R.Hi of r1] is dose 1, and it never reaches mg-2's
+// reach [1y, 18m), so both inputs keep ✅ on mg-1. Before the fix the
+// narrowed input added the floating candidate [2020-01-15, 2021-03-15],
+// matched mg-2 and gave ⚪ with AGE_AT_START_UNCERTAIN [mg-1, mg-2].
+func TestStartAgeFloatingNotDoseOneBehindFixedSlot(t *testing.T) {
+	t.Parallel()
+	series := func(id, minAge, maxAge string, n int, interval string) ruleset.Series {
+		doses := []ruleset.DoseRule{{
+			MinAge:      spanOf(t, "P6M"),
+			Recommended: ruleset.Milestone{From: ruleset.FromBirth, Offset: *spanOf(t, minAge)},
+		}}
+		for range n - 1 {
+			doses = append(doses, ruleset.DoseRule{
+				MinInterval: spanOf(t, interval),
+				Recommended: ruleset.Milestone{From: ruleset.FromPreviousDose, Offset: *spanOf(t, "P2M")},
+			})
+		}
+		return ruleset.Series{
+			ID: id, Disease: "mg", Product: new("mg"), Stage: ruleset.Childhood,
+			StartAge: &ruleset.StartAge{Min: *spanOf(t, minAge), Max: spanOf(t, maxAge)},
+			Plans:    []ruleset.Plan{{ID: "main", Doses: doses}},
+		}
+	}
+	s := &ruleset.Snapshot{
+		Version:  "mg-1",
+		Diseases: []ruleset.Disease{{ID: "mg", Name: "Bệnh minh hoạ nhiều khoảng"}},
+		Products: []ruleset.Product{{ID: "mg", Name: "Vắc xin minh hoạ MG", Diseases: []string{"mg"}}},
+		Series: []ruleset.Series{
+			series("mg-1", "P6M", "P1Y", 2, "P4W"),
+			series("mg-2", "P13M", "P18M", 3, "P8W"),
+			series("mg-3", "P20M", "P2Y", 1, ""),
+			series("mg-4", "P2Y", "P30M", 2, "P4W"),
+		},
+	}
+	e := newEngine(t, s)
+	dose := func(id string, d engine.RecalledDate) engine.DoseRecord {
+		return engine.DoseRecord{ID: id, Diseases: []string{"mg"}, Product: new("mg"), Date: d}
+	}
+	r5 := dose("r5", engine.RecalledDate{Precision: engine.Unknown})
+	r5.DoseNumbers = map[string]engine.DoseNumber{"mg": 1}
+	r2 := dose("r2", engine.RecalledDate{Precision: engine.Unknown})
+	r0 := dose("r0", engine.RecalledDate{Value: "2021-03-15", Precision: engine.Day})
+	assess := func(r1 engine.RecalledDate) engine.Assessment {
+		out, _ := evaluate(t, e, engine.Input{
+			Today:   mustDate(t, "2021-06-01"),
+			Profile: engine.Profile{Birth: engine.RecalledDate{Value: "2020-01-15", Precision: engine.Day}},
+			Doses:   []engine.DoseRecord{r5, r2, dose("r1", r1), r0},
+		})
+		return out.Assessments[0]
+	}
+	want := engine.Assessment{
+		Disease:    "mg",
+		Bucket:     engine.BucketComplete,
+		SeriesUsed: []string{"mg-1"},
+		Estimated:  true,
+		Reasons: []engine.Reason{
+			{Code: engine.ReasonIntervalUnverifiable, Params: engine.ReasonParams{Dose: "r1", Number: 2}},
+			{Code: engine.ReasonComplete},
+		},
+	}
+	for _, r1 := range []engine.RecalledDate{
+		{Value: "2020-09", Precision: engine.Month},
+		{Value: "2020-09-05", Precision: engine.Day},
+		{Value: "2020-09-20", Precision: engine.Day},
+	} {
+		t.Run(r1.Value, func(t *testing.T) {
+			checkAssessment(t, assess(r1), want)
+		})
+	}
+}

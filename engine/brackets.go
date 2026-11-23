@@ -207,10 +207,11 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 //     level-4 dose, or an implied dose) [birthLo, R.Hi of the earliest dated
 //     dose, or today];
 //   - a floating level-4 dose when one may be dose 1: the series has
-//     floating doses, and no dated dose is counted or the first counted
-//     dated dose is an insertion point of floatingFit (no number, and no
-//     numbered dated dose after it). Its range is [birthLo, R.Hi of that
-//     dose, or today when there is none];
+//     floating doses, no record holds position 1 (firstHeld), and no
+//     dated dose is counted or the first counted dated dose is an
+//     insertion point of floatingFit (no number, and no numbered dated
+//     dose after it). Its range is [birthLo, R.Hi of that dose, or today
+//     when there is none];
 //   - when no end gives one, the dose at position 1: the first item in walk
 //     order tried at position 1 and not counted. Each later dose that fails
 //     there is tried at position 1 again, but only the first is dose 1's
@@ -257,7 +258,7 @@ func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today
 				first = &w.seq[i]
 			}
 		}
-		if len(pl.floating) == 0 {
+		if len(pl.floating) == 0 || pl.firstHeld() {
 			continue
 		}
 		switch {
@@ -276,6 +277,20 @@ func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today
 		return []Range{pl.dated[0].date}
 	}
 	return []Range{{Lo: birthLo, Hi: today}}
+}
+
+// firstHeld reports whether a record holds position 1 whatever the dates:
+// an undated slot there (a level-4 dose numbered 1, a gap-filling level-4
+// dose or an implied dose) or a dated dose numbered 1. A floating dose is
+// never inserted in front of either, so it cannot be dose 1. Being
+// independent of the dates, it keeps every series' candidates monotone in
+// the dose ranges (P1), even when the series' own intervals decide which
+// dated dose is counted first.
+func (pl placement) firstHeld() bool {
+	if _, ok := pl.fixed[1]; ok {
+		return true
+	}
+	return slices.ContainsFunc(pl.dated, func(g givenDose) bool { return g.number == 1 })
 }
 
 // numberedAfter reports whether a dated dose after the one with ID id in

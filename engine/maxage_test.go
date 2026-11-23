@@ -358,6 +358,46 @@ func TestStartLimitIsEarlierOfMaxAgeStartAndLastBracket(t *testing.T) {
 	})
 }
 
+// TestBracketChoiceWalksWithoutMaxAges (issue #15 In scope 2): product g
+// with g-y [9m, 1y), g-a [1y, 3y) (maxAgeStart 2y) and g-b [3y, 5y), each
+// with dose-1 minAge 9m and dose 2 minInterval 4w. Birth 2024-01-01, r1 on
+// 2024-07-01 (6m, < 9m@b = 2024-10-01), r2 on 2026-07-01 (2y6m), today
+// 2026-08-01.
+//   - Bracket choice, walking without maximum ages: in every bracket r1
+//     fails the minimum age and r2 is the first record counted at position
+//     1. r2 is in g-a's bracket only, so g-a is chosen. (Walking with g-a's
+//     start limit would leave r2 uncounted too, make the first record tried
+//     at position 1, r1, g-a's dose 1, match no bracket and fall back to
+//     g-y.)
+//   - Step 5 under g-a: r1 → DOSE_INVALID{minAge, 1}; r2 at position 1,
+//     start limit min(2y@b = 2026-01-01, 5y@b) = 2026-01-01 ≤ r2 →
+//     DOSE_AFTER_MAX_AGE{maxAgeStart, 1}. k = 0 → ⚪.
+func TestBracketChoiceWalksWithoutMaxAges(t *testing.T) {
+	t.Parallel()
+	plan := []ruleset.Plan{{ID: "main", Doses: []ruleset.DoseRule{
+		{MinAge: spanOf(t, "P9M"), Recommended: ruleset.Milestone{From: ruleset.FromBirth, Offset: *spanOf(t, "P9M")}},
+		{MinInterval: spanOf(t, "P4W"), Recommended: ruleset.Milestone{From: ruleset.FromPreviousDose, Offset: *spanOf(t, "P1M")}},
+	}}}
+	bracket := func(id, lo, hi string) ruleset.Series {
+		return ruleset.Series{ID: id, Disease: "h", Product: new("g"), Stage: ruleset.Childhood,
+			StartAge: &ruleset.StartAge{Min: *spanOf(t, lo), Max: spanOf(t, hi)}, Plans: plan}
+	}
+	a := bracket("g-a", "P1Y", "P3Y")
+	a.MaxAgeStart = spanOf(t, "P2Y")
+	s := &ruleset.Snapshot{Version: "in-test", Illustrative: true, Diseases: []ruleset.Disease{{ID: "h", Name: "H"}},
+		Products: []ruleset.Product{{ID: "g", Name: "G", Diseases: []string{"h"}}},
+		Series:   []ruleset.Series{bracket("g-y", "P9M", "P1Y"), a, bracket("g-b", "P3Y", "P5Y")}}
+	got := assessmentOf(t, newEngine(t, s), "h", "2026-08-01", dayDate("2024-01-01"),
+		doseOf("h", "r1", dayDate("2024-07-01"), "g"), doseOf("h", "r2", dayDate("2026-07-01"), "g"))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "h", Bucket: engine.BucketUnknown, SeriesUsed: []string{"g-a"},
+		Reasons: []engine.Reason{
+			{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: []engine.Check{engine.CheckMinAge}, Dose: "r1", Number: 1}},
+			afterMaxAge("r2", 1, engine.CheckMaxAgeStart),
+		},
+	})
+}
+
 // TestMinimumAndMaximumBothDefinite (Q62): rota-rotarix with dose 2's
 // minimum interval raised to 12w. r1 on 04-10 (counted), r2 on 06-20, today
 // 07-10: r2 is before r1 + 12w = 07-03 and on or after 24w@b = 06-18, so it

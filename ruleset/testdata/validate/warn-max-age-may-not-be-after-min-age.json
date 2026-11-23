@@ -1,0 +1,41 @@
+{
+  "snapshot": {
+    "version": "validate-max-age-may-not-be-after-min-age",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-series",
+        "disease": "a",
+        "stage": "childhood",
+        "maxAgeStart": "P1M",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P4W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P4W"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "MAX_AGE_MAY_NOT_BE_AFTER_MIN_AGE",
+      "severity": "warn",
+      "path": "/series/0/maxAgeStart"
+    }
+  ]
+}

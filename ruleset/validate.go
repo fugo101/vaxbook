@@ -73,6 +73,7 @@ func Validate(s *Snapshot) []Problem {
 		if sa := sr.StartAge; sa != nil {
 			v.startAge(p+"/startAge", *sa, f.overlaps[i])
 		}
+		v.maxAges(p, sr)
 		v.plans(p, sr.Plans, f.warnings(sr, i))
 	}
 	return v.problems

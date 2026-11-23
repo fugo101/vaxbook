@@ -1,6 +1,6 @@
 package ruleset
 
-// Snapshot is an immutable rule set version: the S3b subset of SAD §5.2.
+// Snapshot is an immutable rule set version: the S4a subset of SAD §5.2.
 // Fields are added additively by later slices.
 type Snapshot struct {
 	Version string `json:"version"`
@@ -65,7 +65,19 @@ type Series struct {
 	// it applies to. Required in a product group of more than one series,
 	// whose brackets may not overlap (EQ26). Added in S3b.
 	StartAge *StartAge `json:"startAge,omitzero"`
-	Plans    []Plan    `json:"plans"`
+	// MaxAgeStart is the exclusive maximum age at dose 1: dose 1 must be
+	// given before birth + MaxAgeStart, so its last allowed day is birth +
+	// MaxAgeStart − 1 day ("14 weeks 6 days" is written as its exclusive
+	// bound P15W, see Span). It belongs to the series, not to a plan. The
+	// engine also limits dose 1 by the last start-age bracket max of the
+	// series' product group, whichever is earlier (issue #15, Q55). Added
+	// in S4a.
+	MaxAgeStart *Span `json:"maxAgeStart,omitzero"`
+	// MaxAgeComplete is the exclusive maximum age for every dose of the
+	// series: each dose must be given before birth + MaxAgeComplete. Added
+	// in S4a.
+	MaxAgeComplete *Span  `json:"maxAgeComplete,omitzero"`
+	Plans          []Plan `json:"plans"`
 }
 
 // StartAge is a start-age bracket: the half-open range [Min, Max) of the age

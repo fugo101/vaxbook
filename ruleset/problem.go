@@ -18,7 +18,7 @@ const (
 // ProblemCode is a code from the closed catalog of rule set problems.
 type ProblemCode string
 
-// The rule set problem catalog (S3b). Renaming a code is a contract change.
+// The rule set problem catalog (S4a). Renaming a code is a contract change.
 const (
 	// PlanDoseCountMismatch: a plan has a different number of doses from
 	// plan 0 of its series (EQ5). Path: the plan.
@@ -78,6 +78,27 @@ const (
 	// differ, except zero. Path: dose 1's minAge in the plan. Params: id
 	// (the group's first series). Added in S3b.
 	FirstDoseMinAgeDiffers ProblemCode = "FIRST_DOSE_MIN_AGE_DIFFERS"
+	// MaxAgeNotAfterMinAge: maxAgeStart or maxAgeComplete is certainly at
+	// or before the dose-1 minAge of some plan, or maxAgeStart is certainly
+	// at or before startAge.min, for every month length (SAD §5.2 span
+	// comparison): the series can never start. Path: the member. Added in
+	// S4a.
+	MaxAgeNotAfterMinAge ProblemCode = "MAX_AGE_NOT_AFTER_MIN_AGE"
+	// MaxAgeMayNotBeAfterMinAge: Warn. The same pairs as
+	// MAX_AGE_NOT_AFTER_MIN_AGE are neither certainly after nor certainly
+	// at or before each other, so the series cannot start for some birth
+	// dates. Path: the member. Added in S4a.
+	MaxAgeMayNotBeAfterMinAge ProblemCode = "MAX_AGE_MAY_NOT_BE_AFTER_MIN_AGE"
+	// MaxAgeStartAfterComplete: Warn. maxAgeStart may be after
+	// maxAgeComplete. Path: the series' maxAgeStart. Added in S4a.
+	MaxAgeStartAfterComplete ProblemCode = "MAX_AGE_START_AFTER_COMPLETE"
+	// SeriesCannotComplete: Warn. For some plan, maxAgeComplete is
+	// certainly at or before a lower bound of the age at the last dose (the
+	// minimum ages and intervals added as numbers), for every month length:
+	// the series can never be completed in time. Path: the series'
+	// maxAgeComplete. Params: id (the plan), one problem per such plan, in
+	// plan order. Added in S4a.
+	SeriesCannotComplete ProblemCode = "SERIES_CANNOT_COMPLETE"
 )
 
 // Problem is one finding of Validate. Path is a JSON pointer (RFC 6901)

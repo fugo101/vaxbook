@@ -124,9 +124,16 @@ func (dz diseaseModel) openAt(cands []int, b, today Date) []int {
 //   - One match: it. Several: the matching series with the most doses, all
 //     of them on a tie (Q34), and AGE_AT_START_UNCERTAIN listing every
 //     match in rule-set order.
-//   - No match only when every candidate is at or past the last bracket's
-//     max: the latest-max bracket (A5, C3), with the doses counted
-//     normally.
+//   - No match: with a the earliest dose-1 candidate date of the group, the
+//     first bracket whose max is absent or after a (A5), else the one with
+//     the latest max (C3); the doses are counted normally. When every
+//     bracket reads the same dose-1 record (the same dose-1 minAge across
+//     the group), no match means every candidate is at or past the last
+//     max, so this is the latest-max bracket. When the dose-1 minAge
+//     differs (the FIRST_DOSE_MIN_AGE_DIFFERS Warn, Q43), each bracket
+//     walks its own dose 1, and nothing can match while a candidate is
+//     younger than every max: a then picks the bracket whose reach holds
+//     the earliest candidate.
 //
 // The candidates are in rule-set order; the reasons are one per group with
 // several matches, in group order.
@@ -145,16 +152,30 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 			if !birth.r.IsExact() {
 				ends = append(ends, birthEnd{date: birth.r.Hi, known: true})
 			}
+			var a Date // the earliest dose-1 candidate of the group
+			seen := false
 			for _, i := range members {
 				s := dz.series[i]
-				if slices.ContainsFunc(s.doseOneRanges(arr.forLength(s.length), ends, birth.r.Lo, today), func(d Range) bool {
-					return s.start.mayContain(d, birth.r)
-				}) {
+				hit := false
+				for _, d := range s.doseOneRanges(arr.forLength(s.length), ends, birth.r.Lo, today) {
+					hit = hit || s.start.mayContain(d, birth.r)
+					if !seen || d.Lo.Before(a) {
+						a, seen = d.Lo, true
+					}
+				}
+				if hit {
 					matched = append(matched, i)
 				}
 			}
 			if len(matched) == 0 {
-				cands = append(cands, members[len(members)-1])
+				pick := members[len(members)-1]
+				for _, i := range members {
+					if br := dz.series[i].start; !br.max.ok || a.Before(birth.r.Hi.AddSpan(br.max.span)) {
+						pick = i
+						break
+					}
+				}
+				cands = append(cands, pick)
 				continue
 			}
 		}
@@ -201,9 +222,13 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 // test is monotone in the candidate's range, and the reaches of a group
 // tile every age below the last max (Q33), so a range that may fall in a
 // bracket or in the gap above it matches both, and the most-doses rule
-// then picks the longer series. Nothing matches only when every
+// then picks the longer series. When every bracket of the group reads the
+// same dose-1 record (one dose-1 minAge), nothing matches only when every
 // candidate is at or past the last max; the last bracket is then kept,
-// and a wider candidate still matches it.
+// and a wider candidate still matches it. With the FIRST_DOSE_MIN_AGE_DIFFERS
+// Warn (Q43) each bracket reads its own record, so a group can match
+// nothing while a candidate is younger than every max, and P1 is not
+// claimed there.
 func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today Date) []Range {
 	upTo := today
 	if len(pl.dated) > 0 {

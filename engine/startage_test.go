@@ -143,6 +143,115 @@ func TestStartAgeNoDoseCountedFirstAtPositionOne(t *testing.T) {
 	})
 }
 
+// TestStartAgeDiffersNoMatchUsesEarliestCandidate (Q43, A5): when the
+// dose-1 minimum age differs between the brackets of a group (the
+// FIRST_DOSE_MIN_AGE_DIFFERS Warn), each bracket walks its own dose 1, so
+// nothing can match while a candidate is younger than every max. The
+// no-match rule then uses a, the earliest dose-1 candidate across the
+// group: the first bracket whose max is after a (else the latest max).
+// Disease w, one generic group:
+//
+//	series  startAge      doses  dose-1 minAge
+//	w-a     [18m, 2y)     3      18m
+//	w-b     [2y, 5y)      2      1y
+//
+// Birth 2020-01-01; doses x 2021-04-01 (15m) and y 2023-01-01 (3y); today
+// 2026-11-23; every date exact.
+//   - Under w-a, x fails min age 18m, so dose 1 is y at 3y, at or past w-a's
+//     max 2y: no match.
+//   - Under w-b, dose 1 is x at 15m, below w-b's reach [2y, 5y): no match.
+//
+// a is x at 15m, before w-a's max 2y → w-a, the bracket whose reach holds
+// 15m: x is DOSE_INVALID{minAge, x, 1} (⚪), not dose 1 of w-b (which would
+// be a false ✅ COMPLETE).
+func TestStartAgeDiffersNoMatchUsesEarliestCandidate(t *testing.T) {
+	t.Parallel()
+	dose := func(minAge, minInterval, offset string, from ruleset.Anchor) ruleset.DoseRule {
+		d := ruleset.DoseRule{Recommended: ruleset.Milestone{From: from, Offset: *spanOf(t, offset)}}
+		if minAge != "" {
+			d.MinAge = spanOf(t, minAge)
+		}
+		if minInterval != "" {
+			d.MinInterval = spanOf(t, minInterval)
+		}
+		return d
+	}
+	s := &ruleset.Snapshot{
+		Version:  "w-1",
+		Diseases: []ruleset.Disease{{ID: "w", Name: "Bệnh minh hoạ W"}},
+		Series: []ruleset.Series{
+			{
+				ID: "w-a", Disease: "w", Stage: ruleset.Childhood,
+				StartAge: &ruleset.StartAge{Min: *spanOf(t, "P18M"), Max: spanOf(t, "P2Y")},
+				Plans: []ruleset.Plan{{ID: "main", Doses: []ruleset.DoseRule{
+					dose("P18M", "", "P18M", ruleset.FromBirth),
+					dose("", "P4W", "P2M", ruleset.FromPreviousDose),
+					dose("", "P4W", "P2M", ruleset.FromPreviousDose),
+				}}},
+			},
+			{
+				ID: "w-b", Disease: "w", Stage: ruleset.Childhood,
+				StartAge: &ruleset.StartAge{Min: *spanOf(t, "P2Y"), Max: spanOf(t, "P5Y")},
+				Plans: []ruleset.Plan{{ID: "main", Doses: []ruleset.DoseRule{
+					dose("P1Y", "", "P2Y", ruleset.FromBirth),
+					dose("", "P4W", "P2M", ruleset.FromPreviousDose),
+				}}},
+			},
+		},
+	}
+	e := newEngine(t, s, ruleset.FirstDoseMinAgeDiffers)
+	w := func(id, date string) engine.DoseRecord {
+		return engine.DoseRecord{ID: id, Diseases: []string{"w"}, Date: engine.RecalledDate{Value: date, Precision: engine.Day}}
+	}
+	out, _ := evaluate(t, e, engine.Input{
+		Today:   mustDate(t, "2026-11-23"),
+		Profile: engine.Profile{Birth: engine.RecalledDate{Value: "2020-01-01", Precision: engine.Day}},
+		Doses:   []engine.DoseRecord{w("x", "2021-04-01"), w("y", "2023-01-01")},
+	})
+	checkAssessment(t, out.Assessments[0], engine.Assessment{
+		Disease:    "w",
+		Bucket:     engine.BucketUnknown,
+		SeriesUsed: []string{"w-a"},
+		Reasons: []engine.Reason{
+			{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: []engine.Check{engine.CheckMinAge}, Dose: "x", Number: 1}},
+		},
+	})
+}
+
+// TestStartAgeDiffersNoMatchBelowGap (Q43, A5): the no-match rule with a
+// gap, on minimal-start-age-gap with gap-b's dose-1 min age lowered to 6m
+// (the FIRST_DOSE_MIN_AGE_DIFFERS Warn). Birth 2020-01-01; doses r1
+// 2020-09-01 (8m) and r2 2022-07-01 (2y6m); today 2026-11-01; every date
+// exact.
+//   - Under gap-a and gap-c, r1 fails min age 1y, so dose 1 is r2 at 2y6m:
+//     outside gap-a's reach [birth, 2y) and gap-c's [5y, —).
+//   - Under gap-b, dose 1 is r1 at 8m, below gap-b's reach [2y, 5y).
+//
+// Nothing matches; a is r1 at 8m, before gap-a's max 2y → gap-a, not the
+// last bracket gap-c. Under gap-a r1 is DOSE_INVALID{minAge, r1, 1} (⚪).
+func TestStartAgeDiffersNoMatchBelowGap(t *testing.T) {
+	t.Parallel()
+	s := loadSnapshot(t, "minimal-start-age-gap")
+	s.Series[1].Plans[0].Doses[0].MinAge = spanOf(t, "P6M")
+	e := newEngine(t, s, ruleset.FirstDoseMinAgeDiffers)
+	gap := func(id, date string) engine.DoseRecord {
+		return engine.DoseRecord{ID: id, Diseases: []string{"gap"}, Date: engine.RecalledDate{Value: date, Precision: engine.Day}}
+	}
+	out, _ := evaluate(t, e, engine.Input{
+		Today:   mustDate(t, "2026-11-01"),
+		Profile: engine.Profile{Birth: engine.RecalledDate{Value: "2020-01-01", Precision: engine.Day}},
+		Doses:   []engine.DoseRecord{gap("r1", "2020-09-01"), gap("r2", "2022-07-01")},
+	})
+	checkAssessment(t, out.Assessments[0], engine.Assessment{
+		Disease:    "gap",
+		Bucket:     engine.BucketUnknown,
+		SeriesUsed: []string{"gap-a"},
+		Reasons: []engine.Reason{
+			{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: []engine.Check{engine.CheckMinAge}, Dose: "r1", Number: 1}},
+		},
+	})
+}
+
 // withHPVOther adds product hpv-other [hpv] to the illustrative-start-age
 // snapshot.
 func withHPVOther(s *ruleset.Snapshot) {

@@ -16,20 +16,19 @@
     "assessments": [
       {
         "disease": "hpv",
-        "bucket": "overdue",
-        "nextDose": {
-          "number": 1,
-          "earliest": "2020-12-31",
-          "due": "2020-12-31",
-          "overdue": "2021-01-07"
-        },
+        "bucket": "unknown",
         "seriesUsed": [
           "hpv-g9-9to14"
         ],
-        "products": [
-          "gardasil9"
-        ],
-        "estimated": true
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "BIRTH_DATE_IMPRECISE",
+            "params": {
+              "hint": "birthMonth"
+            }
+          }
+        ]
       }
     ]
   }

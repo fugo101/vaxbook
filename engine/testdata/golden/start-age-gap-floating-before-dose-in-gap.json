@@ -1,0 +1,79 @@
+{
+  "ruleset": "minimal-start-age-gap",
+  "input": {
+    "today": "2026-11-10",
+    "profile": {
+      "birth": {
+        "value": "2023-11-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "gap"
+        ],
+        "date": {
+          "precision": "unknown"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "gap"
+        ],
+        "date": {
+          "value": "2026-05-10",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-start-age-gap-s3b",
+    "today": "2026-11-10",
+    "assessments": [
+      {
+        "disease": "gap",
+        "bucket": "complete",
+        "seriesUsed": [
+          "gap-a",
+          "gap-b"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "AGE_AT_START_UNCERTAIN",
+            "params": {
+              "candidates": [
+                {
+                  "series": "gap-a"
+                },
+                {
+                  "series": "gap-b"
+                }
+              ]
+            }
+          },
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "series": "gap-a"
+                },
+                {
+                  "series": "gap-b"
+                }
+              ]
+            }
+          },
+          {
+            "code": "COMPLETE"
+          }
+        ]
+      }
+    ]
+  }
+}

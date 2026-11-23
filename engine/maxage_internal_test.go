@@ -188,3 +188,43 @@ func TestPropertyMaxAgeDisagreement(t *testing.T) {
 func hasReason(rs []Reason, c ReasonCode) bool {
 	return slices.ContainsFunc(rs, func(r Reason) bool { return r.Code == c })
 }
+
+// TestBirthHintForAgeLimitReasons (issue #15 Q58, SAD §5.3 step 4): when the
+// compared results differ, the hint is fullBirthDate whatever the birth
+// precision as soon as any of them has an age-limit reason: OUT_OF_AGE,
+// DOSE_AFTER_MAX_AGE, CHECK_PRODUCT_NAME, MIXED_PRODUCTS, or a
+// DOSE_POSSIBLY_INVALID listing a maximum age. A minimum-only reason keeps
+// the precision's hint (birthMonth here). The reason is on the older end's
+// ⚪ result, and the later end is 🟠 with none; the same holds with the two
+// swapped.
+func TestBirthHintForAgeLimitReasons(t *testing.T) {
+	t.Parallel()
+	checked := func(code ReasonCode, checks ...Check) Reason {
+		return Reason{Code: code, Params: ReasonParams{Checks: checks, Dose: "r1", Number: 1}}
+	}
+	cases := []struct {
+		name   string
+		reason Reason
+		want   Hint
+	}{
+		{"out of age", Reason{Code: ReasonOutOfAge}, HintFullBirthDate},
+		{"dose after max age", checked(ReasonDoseAfterMaxAge, CheckMaxAgeStart), HintFullBirthDate},
+		{"check product name", Reason{Code: ReasonCheckProductName}, HintFullBirthDate},
+		{"mixed products", Reason{Code: ReasonMixedProducts}, HintFullBirthDate},
+		{"possibly after max age to start", checked(ReasonDosePossiblyInvalid, CheckMaxAgeStart), HintFullBirthDate},
+		{"possibly after max age to complete", checked(ReasonDosePossiblyInvalid, CheckMinAge, CheckMaxAgeComplete), HintFullBirthDate},
+		{"possibly before min age", checked(ReasonDosePossiblyInvalid, CheckMinAge), HintBirthMonth},
+		{"dose invalid", checked(ReasonDoseInvalid, CheckMinInterval), HintBirthMonth},
+	}
+	for _, tc := range cases {
+		withReason := endResult{bucket: BucketUnknown, k: 1, reasons: []Reason{tc.reason}}
+		plain := endResult{bucket: BucketDue, k: 1}
+		for end, rs := range [][]endResult{{withReason, plain}, {plain, withReason}} {
+			res := compareResults(rs, HintBirthMonth)
+			want := Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: tc.want}}
+			if res.bucket != BucketUnknown || len(res.reasons) == 0 || !sameReason(res.reasons[0], want) {
+				t.Errorf("%s (reason at end %d): %s %v, want ⚪ led by %v", tc.name, end, res.bucket, res.reasons, want)
+			}
+		}
+	}
+}

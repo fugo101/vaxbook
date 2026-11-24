@@ -344,6 +344,72 @@ func TestGapBoundSameDay(t *testing.T) {
 	})
 }
 
+// TestGapBoundSameDayImplied (issue #35, Q99 (a), F05.10): when the last
+// trailing slot S is implied, the record a day can be given to is its
+// carrier, the level-4 dose #N beyond the series. Dated on U(k+1)'s day,
+// the carrier walks before U(k+1) only when q_(k+1) > N (orderSameDay);
+// otherwise U(k+1) takes a position before it, and the implied slots
+// between them are chained from U(k+1), which is the next gap. So the
+// same-day rule reads the carrier's number, not the implied slot's.
+//   - minimal-anchors (dose 1 minAge 9y, dose 2 minInterval 4w, dose 3
+//     minInterval 12w), today 07-12: d0 02-25 and d1 06-17 (before 9y,
+//     DOSE_INVALID{minAge} at 1, uncounted), u #4 undated (beyond the
+//     3-dose series), so dose 3 is implied and u carries it. Step 2: d0 1,
+//     d1 2 (4 is u's), so q_2 = 2 < 4. As walked: d1 + 12w = 09-09 >
+//     today. Gap 0 needs dose 1 ≥ 9y > today. Gap 1 (q_1 = 1): dose 2 ≥
+//     d0 + 4w = 03-25, dose 3 ≥ 03-25 + 12w = 06-17 = d1's day; u dated
+//     06-17 walks after d1, which takes position 2, and dose 3 then needs
+//     d1 + 12w. No day clears u → DOSE_INVALID{minInterval, u, 4}, as on
+//     main. The implied dose 3 stays counted, so k = 4 > 3 → COMPLETE.
+//   - In-test series q-1 (maxAgeStart 10w = 03-12): dose 1 minAge 6w,
+//     doses 2 and 3 minInterval 4w. Today 04-20: u1 02-01 (before 6w →
+//     DOSE_INVALID{minAge, u1, 1}), u2 03-29 (past 10w →
+//     DOSE_AFTER_MAX_AGE{maxAgeStart, u2, 1}), both uncounted; s #4
+//     undated, so dose 3 is implied and s carries it. Step 2: u1 1, u2 2,
+//     so q_2 = 2 < 4. As walked: u2 + 4w = 04-26 > today. Gap 0: dose 3 ≥
+//     02-12 + 4w + 4w = 04-09 > u1.Hi. Gap 1 (q_1 = 1): dose 2 ≥ 03-01,
+//     dose 3 ≥ 03-29 = u2's day, where s walks after u2 → no fit →
+//     DOSE_INVALID{minInterval, s, 4} and COMPLETE, as on main.
+//
+// Reading the implied slot's own number (0) as "no same-day order" would
+// fit gap 1 on that day and demote both to DOSE_POSSIBLY_INVALID, although
+// no day clears them.
+func TestGapBoundSameDayImplied(t *testing.T) {
+	t.Parallel()
+	implied3 := engine.Reason{Code: engine.ReasonImpliedEarlierDoses, Params: engine.ReasonParams{Numbers: []int{3}}}
+	e := loadEngine(t, "minimal-anchors")
+	got := assessmentOf(t, e, "anchored", "2026-07-12", birthGap,
+		doseOf("anchored", "d0", dayDate("2026-02-25"), ""), doseOf("anchored", "d1", dayDate("2026-06-17"), ""),
+		numbered(doseOf("anchored", "u", unknownDate, ""), 4))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "anchored", Bucket: engine.BucketUnknown, SeriesUsed: []string{"anchored-series"}, Estimated: true,
+		Reasons: []engine.Reason{
+			implied3,
+			invalidDose("d0", 1, engine.CheckMinAge), invalidDose("d1", 1, engine.CheckMinAge),
+			invalidDose("u", 4, engine.CheckMinInterval),
+			complete,
+		},
+	})
+	e = newEngine(t, oneDiseaseSnapshot(nil, qSeries(t, "q-1", "", "P10W", "", []ruleset.DoseRule{
+		rule(t, "P6W", "", "", ruleset.FromBirth, "P2M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+	})))
+	got = assessmentOf(t, e, "q", "2026-04-20", birthGap,
+		doseOf("q", "u1", dayDate("2026-02-01"), ""), doseOf("q", "u2", dayDate("2026-03-29"), ""),
+		numbered(doseOf("q", "s", unknownDate, ""), 4))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"q-1"}, Estimated: true,
+		Reasons: []engine.Reason{
+			implied3,
+			invalidDose("u1", 1, engine.CheckMinAge),
+			afterMaxAge("u2", 1, engine.CheckMaxAgeStart),
+			invalidDose("s", 4, engine.CheckMinInterval),
+			complete,
+		},
+	})
+}
+
 // TestGapZeroChecksFromFirst (issue #35, Q99 (a), F05.10): gap 0 chains from
 // birth through position 1, so when the walk has no dose 1 (U1, at step-2
 // position 1, is uncounted), dose 1 of that gap is the chain's own position

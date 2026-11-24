@@ -1001,15 +1001,17 @@ func (gb gapBound) lower(x Range, def Date, minInterval optSpan) Date {
 // plan per position, as chain does; gap 0 chains through position 1, so
 // its dose 1 is that position at its earliest dates, as the walk takes an
 // undated dose 1. The gap fits when last's earliest date there is before
-// U(k+1).Hi, or on it when last walks first on that day: dated on
-// U(k+1)'s day, a numbered last walks before U(k+1) only when U(k+1)'s
-// step-2 position q_(k+1) is above n (orderSameDay), and otherwise
-// measures its interval from U(k+1), which is gap k + 1. An unnumbered or
-// implied last has no such order and fits on the day (the safe side). Gap
-// m, behind Um, is the walk's own chain, which check measures. The result
-// is unset when no gap fits or m = 0. It reads only the walk, two chains
-// per gap, and q_k grows with k, so at most n − 1 gaps are chained.
-func (w *walkResult) gapBound(s seriesModel, b birthEnd, first *Range, last item) gapBound {
+// U(k+1).Hi, or on it when last walks first on that day. order is the
+// number of the record a day can be given to: last's own number, or for an
+// implied last the number N of its carrier beyond the series (0 for an
+// unnumbered last). Dated on U(k+1)'s day, that record walks before U(k+1)
+// only when U(k+1)'s step-2 position q_(k+1) is above order (orderSameDay),
+// and otherwise measures its chain from U(k+1), which is gap k + 1. An
+// unnumbered last has no such order and fits on the day (the safe side).
+// Gap m, behind Um, is the walk's own chain, which check measures. The
+// result is unset when no gap fits or m = 0. It reads only the walk, two
+// chains per gap, and q_k grows with k, so at most n − 1 gaps are chained.
+func (w *walkResult) gapBound(s seriesModel, b birthEnd, first *Range, last item, order int) gapBound {
 	seq := w.seq[:len(w.seq)-1]
 	j := len(seq)
 	var us []item
@@ -1054,7 +1056,7 @@ func (w *walkResult) gapBound(s seriesModel, b birthEnd, first *Range, last item
 			}
 		}
 		if end, _, ok := s.chain(b, from, append(slices.Clip(run), last), f); ok &&
-			(end.After(next.dose.date.Hi) || end == next.dose.date.Hi && last.dose.number > 0 && next.step < last.pos) {
+			(end.After(next.dose.date.Hi) || end == next.dose.date.Hi && order > 0 && next.step < order) {
 			continue
 		}
 		pred, _, ok := s.chain(b, from, run, f)
@@ -1157,7 +1159,11 @@ func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first 
 	forced := lastSlot.dose.id != "" && pl.forced(lastSlot.dose.id, lastSlot.pos)
 	if carry.minV == verdictDefinite && !forced && !pl.forceAll && !pl.noGapSearch {
 		if g, ok := pl.fixed[lastSlot.pos]; ok && g.id == lastSlot.dose.id {
-			if gb := w.gapBound(s, b, first, *lastSlot); gb.set {
+			order := lastSlot.dose.number
+			if lastSlot.dose.id == "" {
+				order = number // the carrier beyond the series
+			}
+			if gb := w.gapBound(s, b, first, *lastSlot, order); gb.set {
 				if v, checks := s.check(lastSlot.pos, b, u, from, run[:len(run)-1], first, gb); v != verdictDefinite {
 					carry.minV, carry.minChecks = v, checks
 					// Only a slot that now counts is demoted for 0b (Q103):

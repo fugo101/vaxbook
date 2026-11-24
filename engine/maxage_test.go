@@ -741,6 +741,18 @@ func TestFloatingDoseInFrontOfUncountedDose(t *testing.T) {
 		want: engine.Assessment{Disease: "rota", Bucket: engine.BucketComplete, SeriesUsed: []string{"rota-rotarix"},
 			Reasons: []engine.Reason{{Code: engine.ReasonComplete}}},
 	}, {
+		// As above with rotateq and two floating doses: with f1 and f2 in
+		// front, d counts at 3 and e is beyond the series, so e (at 2 in
+		// the redone walk, 11 days after d) is forced counted with no
+		// reason. The fit of f2 after e must not bring e's reason back.
+		name: "record after a rescued dose, two floating doses", today: "2026-06-01",
+		doses: []engine.DoseRecord{
+			rota("d", dayDate("2026-04-20"), "rotateq"), rota("e", dayDate("2026-05-01"), "rotateq"),
+			rota("f1", unknownDate, "rotateq"), rota("f2", unknownDate, "rotateq"),
+		},
+		want: engine.Assessment{Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotateq"}, Estimated: true,
+			Reasons: []engine.Reason{possiblyInvalid("d", 1, engine.CheckMaxAgeStart), {Code: engine.ReasonComplete}}},
+	}, {
 		// An undated record after a rescued dose is settled like a dated
 		// one. rotateq d on 07-20 (past 15w@b = 04-16 at 1), u #2 undated
 		// and f undated, today 09-01. With f at 1 and u at 2 in front, d

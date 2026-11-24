@@ -439,6 +439,9 @@ const coverBudget = 512
 // one makes it not fit. A maximum-age DOSE_POSSIBLY_INVALID is a
 // DOSE_POSSIBLY_INVALID.
 //
+// A forced record's reasons at the position it has in w are its verdict
+// from the rescue (forceLater), so they never count against a placement.
+//
 // fallback is the DOSE_POSSIBLY_INVALID reasons of the first placement
 // tried that fits only at one end; failed is the reasons on the floating
 // doses with all of them after the last dated dose (failedIn).
@@ -476,6 +479,17 @@ func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placem
 	isBad := func(x Reason) bool {
 		return (x.Code == ReasonDoseInvalid || x.Code == ReasonDoseAfterMaxAge) && !invalid[x.Params.Dose]
 	}
+	// settled are the forced records (rescue, forceLater) at their
+	// positions in w: the rescue already gave them their verdict there, and
+	// forceLater may have dropped its reason (beyond the series in the
+	// rescuing walk), so their reasons at that position are not the
+	// placement's.
+	settled := map[string]int{}
+	for _, it := range w.seq {
+		if it.dose.id != "" && pl.force[it.dose.id] {
+			settled[it.dose.id] = it.pos
+		}
+	}
 	n := len(pl.dated)
 	ins := make([][]givenDose, n+1)
 	uncounted := s.uncountedPoints(w, pl)
@@ -490,6 +504,9 @@ func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placem
 			}
 		}
 		for _, x := range r.reasons {
+			if p, ok := settled[x.Params.Dose]; ok && p == x.Params.Number {
+				continue
+			}
 			switch {
 			case isBad(x):
 				return true, nil

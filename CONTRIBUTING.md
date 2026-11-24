@@ -8,6 +8,7 @@ VaxBook is not medical advice, and neither is any issue or review comment here.
 
 - **Bug reports.** Something in the app, API or engine behaves differently from the spec ([`docs/feature-spec-mvp.md`](docs/feature-spec-mvp.md)) or the SAD ([`docs/sad.md`](docs/sad.md)).
 - **Catalog and rule data errors.** A product, series, dose rule or rule looks wrong. Use the "Catalog or rule data error" form. Name the Source document and give a Citation: the article, clause or page that says otherwise. A report without a source cannot be acted on, because every catalog item and rule must cite one. Catalog and rule data are editorial data, not code: they will live in the database and change only through the admin changeset flow ([SAD](docs/sad.md) §6.2, §7.3). The admin area is not built yet. Until it is, an accepted correction is recorded in the issue. Do not send a PR that edits test fixtures to change real catalog data.
+- **Accessibility.** A barrier in the web app, the emails or the admin area. Use the Bug report form with the Area "Accessibility". The target and how it is checked are in [`ACCESSIBILITY.md`](ACCESSIBILITY.md); no web UI is built yet.
 - **Documentation.** Fixes and clarifications to the README, SAD, ADRs, glossary or research notes.
 - **Code.** Fixes and features, after the issue-first step below where it applies.
 
@@ -83,6 +84,8 @@ Do not commit or post operator domains, server IPs, host paths, usernames, email
 ## Review
 
 The maintainer reviews every PR, on a best-effort basis. A PR is merged only when the required checks are green (`Conventional PR title`, `Go (gen check, lint, test, WASM test)` and `Container image builds`) and review comments are resolved. Review follows [`CODING_STANDARDS.md`](CODING_STANDARDS.md).
+
+A change to web UI is built and reviewed against WCAG 2.2 level AA, and a change to email templates follows it as far as it applies, as described in [`ACCESSIBILITY.md`](ACCESSIBILITY.md).
 
 ## License
 

@@ -18,6 +18,7 @@ body:
         - Rule set or catalog
         - API or backend
         - Docs
+        - Accessibility
         - Other
     validations:
       required: true
@@ -39,7 +40,7 @@ body:
     id: steps
     attributes:
       label: Steps to reproduce
-      description: The smallest input or sequence that triggers it, using made-up data.
+      description: The smallest input or sequence that triggers it, using made-up data. For an accessibility barrier, name the browser, the device and any assistive technology (for example a screen reader or zoom level).
       placeholder: |
         1. ...
         2. ...

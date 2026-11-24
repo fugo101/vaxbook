@@ -33,7 +33,7 @@ The API contract is [`contracts/openapi.yaml`](contracts/openapi.yaml). Write re
 
 ## Contributing
 
-Issues and pull requests are welcome; see [`CONTRIBUTING.md`](CONTRIBUTING.md). Everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately as described in [`SECURITY.md`](SECURITY.md). For questions, see [`SUPPORT.md`](SUPPORT.md).
+Issues and pull requests are welcome; see [`CONTRIBUTING.md`](CONTRIBUTING.md). Everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately as described in [`SECURITY.md`](SECURITY.md). For questions, see [`SUPPORT.md`](SUPPORT.md). The web app targets WCAG 2.2 level AA; see [`ACCESSIBILITY.md`](ACCESSIBILITY.md).
 
 ## License
 

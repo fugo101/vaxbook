@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Version** | 1.2 — 2026-11-21: BE skeleton decisions (§3, §8, §12, §18; issue #5). 1.1 — 2026-11-11: engine semantics (§5.6 B1–B13) settled in spec v1.2; v1.0 approved by the project owner on 2026-11-10 |
-| **Date** | 2026-11-21 |
+| **Version** | 1.3 — 2026-11-24: accessibility target WCAG 2.2 level AA (§1, §17). 1.2 — 2026-11-21: BE skeleton decisions (§3, §8, §12, §18; issue #5). 1.1 — 2026-11-11: engine semantics (§5.6 B1–B13) settled in spec v1.2; v1.0 approved by the project owner on 2026-11-10 |
+| **Date** | 2026-11-24 |
 | **Inputs** | [`feature-spec-mvp.md`](feature-spec-mvp.md) v1.0 and v1.2 (engine semantics EQ1–EQ27, Appendix C), [`research/2026-11-10-feature-research.md`](research/2026-11-10-feature-research.md), SAD grilling session (Q1–Q34), engine prototype (`engine-prototype/`) |
 | **Hard-to-reverse decisions** | [`docs/adr/`](adr/) — ADR-0001 → 0011 |
 | **Terminology** | [`GLOSSARY.md`](../GLOSSARY.md) |
@@ -18,8 +18,9 @@
 - One operator, nonprofit, low budget. Infrastructure must run on the existing VPS (2 vCPU, 3.8 GB RAM, shared with other stacks).
 - Vaccination data is **sensitive health data** (Nghị định 356/2025 (Decree 356/2025/ND-CP), Article 4(1)(d)).
 - Vietnamese only, mobile first, basic PWA.
+- Accessibility target: WCAG 2.2 level AA ([`ACCESSIBILITY.md`](../ACCESSIBILITY.md)).
 
-**Quality attributes (in priority order)**
+**Quality attributes (in priority order; rows marked – are not ranked yet)**
 
 | # | Attribute | Meaning in VaxBook | Main mechanism |
 |---|---|---|---|
@@ -28,6 +29,7 @@
 | 3 | **Privacy** | Minimal collection; admin and MCP never see user data | Separation by host, no user-data screens, logs contain no PII |
 | 4 | **Cheap, low-effort operation** | One binary, one database, no separate queue or worker | ADR-0001, ADR-0009, in-process scheduler |
 | 5 | **Extensible (P6)** | Add prices, push, profile sharing without a large migration | `ProfileMembership`, notification content separated from delivery channel, replaceable price source layer |
+| – | **Accessibility** | The web app, the admin area and, as far as applicable, the emails target WCAG 2.2 level AA (owner decision 2026-11-24); color is never the only signal, so every bucket keeps its text label. A target, not a conformance claim | [`ACCESSIBILITY.md`](../ACCESSIBILITY.md); semantic HTML and accessible component primitives (shadcn/ui, §12); automated axe-core checks through Playwright in CI once `apps/web` exists; manual keyboard, zoom and screen reader checks before each release |
 
 ---
 
@@ -832,7 +834,9 @@ sequenceDiagram
    - F05.4a/F05.4b case 3/F05.11 layer 5: "certainly over age" also needs the earliest possible dose dates (R.Lo of an imprecise date, no EQ20c stand-in for an undated or implied dose 1); otherwise ⚪ `OUT_OF_AGE_UNCERTAIN{numbers}` ("có thể đã quá tuổi tiêm mũi tiếp theo — nhập ngày tiêm chính xác của mũi N để biết" ("the next dose may already be past the age limit — enter the exact date of dose N to find out")), and no next dose is drawn from the earliest dates (P1) (owner 2026-11-24, PR #31).
    Apply in the next spec bump.
 
-Items 1–4 were applied in spec v1.1 (Appendix B); item 5 was applied in spec v1.2 (Appendix C); items 6–11 wait for the next spec bump. Appendix A was not edited.
+12. **§2, §3.1 (accessibility, owner decision 2026-11-24):** add a principle or a line next to the platform statement ("mobile-first web, Vietnamese only, basic PWA"): the web app, the admin area and, as far as applicable, the emails target WCAG 2.2 level AA ([`ACCESSIBILITY.md`](../ACCESSIBILITY.md)); color is never the only signal, so every bucket keeps its text label in every surface, emails and the print page included. Apply in the next spec bump.
+
+Items 1–4 were applied in spec v1.1 (Appendix B); item 5 was applied in spec v1.2 (Appendix C); items 6–12 wait for the next spec bump. Appendix A was not edited.
 
 ## 18. Next steps
 

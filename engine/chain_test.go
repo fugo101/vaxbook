@@ -16,7 +16,8 @@ import (
 // after Uk (or after P, the latest dated dose that is counted or numbered,
 // or birth) when Uk's step-2 position q_k < n. The gap fits when S's
 // earliest date, chained from Uk through positions q_k + 1 … n − 1, is on
-// or before U(k+1).Hi; S's minInterval is then at most possible. Birth
+// or before U(k+1).Hi (on it only when S walks first that day,
+// TestGapBoundSameDay); S's minInterval is then at most possible. Birth
 // 2026-01-01 (exact) everywhere, so 6w@b = 02-12 and 15w@b = 04-16;
 // minimal-single dose 2 and illustrative-vn pertussis doses 2–3 need 4w.
 
@@ -298,6 +299,46 @@ func TestGapSearchKeepsMaxAgeDefinite(t *testing.T) {
 			invalidDose("s", 3, engine.CheckMinInterval),
 			afterMaxAge("s", 3, engine.CheckMaxAgeComplete),
 			complete,
+		},
+	})
+}
+
+// TestGapBoundSameDay (issue #35, Q99 (a), F05.10): when S's earliest date
+// in gap k is U(k+1)'s own day, S dated that day lies before U(k+1) only
+// when it walks first on that day, that is when U(k+1)'s step-2 position
+// q_(k+1) is above n (orderSameDay gives the unnumbered U(k+1) the next
+// free position). Otherwise U(k+1) takes a position before S, S's
+// interval is measured from U(k+1), and that day is the gap after U(k+1).
+//   - Fits: minimal-single, today 03-08, r1 01-12 and r2 02-09 (< 6w@b,
+//     DOSE_INVALID{minAge} at 1), u #2 undated. Step 2: r1 1, r2 3 (2 is
+//     u's), so q_2 = 3 > 2. Gap 1: u ≥ r1 + 4w = 02-09 = r2's day → fits;
+//     u dated 02-09 walks at 2 before r2 (then at 3, beyond the series) and
+//     is valid. As walked: r2 + 4w = 03-09 > today →
+//     DOSE_POSSIBLY_INVALID{minInterval, u, 2}, counted, k = 3 > 2 →
+//     COMPLETE.
+//   - Does not fit: illustrative-vn hpv (dose 1 minAge 9y, dose 2
+//     minInterval 4w, dose 3 minInterval 12w and minIntervalFromFirst 5m),
+//     birth 2017-01-01, today 2025-10-01: r1 2025-06-01 and r2 2025-09-21
+//     (both before 9y, DOSE_INVALID{minAge} at 1), u #3 undated. Step 2: r1
+//     1, r2 2 (3 is u's), so q_2 = 2 < 3. Gap 0 needs dose 1 ≥ 9y > today.
+//     Gap 1 (q_1 = 1): dose 2 ≥ r1 + 4w = 06-29, u ≥ 06-29 + 12w = 09-21 =
+//     r2's day; u dated 09-21 walks after r2, which takes position 2, and
+//     needs r2 + 12w. Behind r2: r2 + 12w = 12-14 > today. No day clears u
+//     → DOSE_INVALID{minInterval, u, 3}, as on main.
+func TestGapBoundSameDay(t *testing.T) {
+	t.Parallel()
+	checkAssessment(t, gapAssessment(t, "2026-03-08", single("r1", "2026-01-12"), single("r2", "2026-02-09"), numbered(single("u", ""), 2)), singleUnknown(
+		invalidDose("r1", 1, engine.CheckMinAge), invalidDose("r2", 1, engine.CheckMinAge),
+		possiblyInvalid("u", 2, engine.CheckMinInterval), complete))
+	e := loadEngine(t, "illustrative-vn")
+	got := assessmentOf(t, e, "hpv", "2025-10-01", dayDate("2017-01-01"),
+		doseOf("hpv", "r1", dayDate("2025-06-01"), ""), doseOf("hpv", "r2", dayDate("2025-09-21"), ""),
+		numbered(doseOf("hpv", "u", unknownDate, ""), 3))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "hpv", Bucket: engine.BucketUnknown, SeriesUsed: []string{"hpv-generic"}, Estimated: true,
+		Reasons: []engine.Reason{
+			invalidDose("r1", 1, engine.CheckMinAge), invalidDose("r2", 1, engine.CheckMinAge),
+			invalidDose("u", 3, engine.CheckMinInterval),
 		},
 	})
 }

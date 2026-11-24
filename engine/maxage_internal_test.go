@@ -196,9 +196,10 @@ func TestPropertyMaxAgeDisagreement(t *testing.T) {
 // precision as soon as any of them has an age-limit reason: OUT_OF_AGE,
 // DOSE_AFTER_MAX_AGE, CHECK_PRODUCT_NAME, MIXED_PRODUCTS, a
 // DOSE_POSSIBLY_INVALID listing a maximum age, and since S4b (issue #28 In
-// scope 6) DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE, and a compared
-// result that is itself ⚪ BIRTH_DATE_IMPRECISE{fullBirthDate}, whose
-// reason is then listed once. A minimum-only reason keeps
+// scope 6) DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE,
+// OUT_OF_AGE_UNCERTAIN (owner 2026-11-24), and a compared result that is
+// itself ⚪ BIRTH_DATE_IMPRECISE{fullBirthDate}, whose reason is then listed
+// once. A minimum-only reason keeps
 // the precision's hint (birthMonth here). The reason is on the older end's
 // ⚪ result, and the later end is 🟠 with none; the same holds with the two
 // swapped.
@@ -223,6 +224,7 @@ func TestBirthHintForAgeLimitReasons(t *testing.T) {
 		{"due capped by max age", Reason{Code: ReasonDueCappedByMaxAge, Params: ReasonParams{LastDay: d(t, "2026-05-31")}}, HintFullBirthDate},
 		{"series may not complete", Reason{Code: ReasonSeriesMayNotComplete, Params: ReasonParams{LastDay: d(t, "2026-08-12")}}, HintFullBirthDate},
 		{"age-limit ⚪ at one date", Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: HintFullBirthDate}}, HintFullBirthDate},
+		{"out of age uncertain", Reason{Code: ReasonOutOfAgeUncertain, Params: ReasonParams{Numbers: []int{1}}}, HintFullBirthDate},
 	}
 	for _, tc := range cases {
 		withReason := endResult{bucket: BucketUnknown, k: 1, reasons: []Reason{tc.reason}}

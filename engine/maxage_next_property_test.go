@@ -478,11 +478,16 @@ func TestPropertyOutOfAgeNoCompleteCandidate(t *testing.T) {
 // doses given, the counted view of the final result (ResultViews; the
 // latest evaluated date's) has no complete candidate, and each incomplete
 // one is certainly out at that date, recomputed from the snapshot with the
-// limits at that date b: its own F_c = max(today, its most lenient plan's
-// earliest date) is past Limit^b = min(b + maxAgeComplete, and for dose 1
-// b + maxAgeStart and b + the group's last bracket max) − 1 day, or step 7
-// stopped on PREVIOUS_DOSE_DATE_UNKNOWN and today is past b +
-// maxAgeComplete − 1 day (EQ11).
+// limits at that date b: its own F_c^lo is past Limit^b = min(b +
+// maxAgeComplete, and for dose 1 b + maxAgeStart and b + the group's last
+// bracket max) − 1 day, or step 7 stopped on PREVIOUS_DOSE_DATE_UNKNOWN and
+// today is past b + maxAgeComplete − 1 day (EQ11).
+//
+// F_c^lo (owner 2026-11-24) is max(today, the smallest over c's plans of
+// max(b + minAge, R.Lo of the latest dated record + minInterval, R.Lo of
+// dose 1 + minIntervalFromFirst)) for dose k: from the earliest possible
+// dose dates, and with no dose-1 term when position 1 holds no dated record
+// (the EQ20c stand-in is no lower bound for the real dose 1).
 func TestPropertyOutOfAgeFromCountedView(t *testing.T) {
 	t.Parallel()
 	checked := 0
@@ -502,6 +507,7 @@ func TestPropertyOutOfAgeFromCountedView(t *testing.T) {
 					continue
 				}
 				checked++
+				latest, first := doseRangeEnds(in, a.Disease)
 				for _, cv := range views[a.Disease].Counted {
 					sr := seriesByID(fx.snap, cv.Series)
 					limit := spanLimit(b, sr.MaxAgeComplete)
@@ -514,7 +520,11 @@ func TestPropertyOutOfAgeFromCountedView(t *testing.T) {
 						if cv.K == 1 {
 							limit = limit.min(startLimitOf(fx.snap, sr, b, b))
 						}
-						certain = limit.exceededBy(maxOf(in.Today, slices.MinFunc(cv.Earliest, engine.Date.Compare)))
+						var firstLo *engine.Date
+						if cv.FirstDated {
+							firstLo = first
+						}
+						certain = limit.exceededBy(maxOf(in.Today, earliestLo(sr, cv.K, b, latest, firstLo)))
 					}
 					if !certain {
 						t.Fatalf("%s %s: outOfAge, but in the counted view %+v is not certainly out at %s\nassessment %+v\ninput %+v", fx.name, a.Disease, cv, b, a, in)
@@ -526,6 +536,49 @@ func TestPropertyOutOfAgeFromCountedView(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no near-limit input gave outOfAge with doses given: the property is vacuous")
 	}
+}
+
+// doseRangeEnds returns R.Lo of the latest and of the earliest dated record
+// of disease in in (nil when none is dated). Placed records of one disease
+// do not overlap, so they are ordered by R.Lo.
+func doseRangeEnds(in engine.Input, disease string) (latest, first *engine.Date) {
+	for _, r := range in.Doses {
+		lo, _, ok := testPeriod(r.Date, in.Today)
+		if !ok || !slices.Contains(r.Diseases, disease) {
+			continue
+		}
+		if latest == nil || lo.After(*latest) {
+			latest = &lo
+		}
+		if first == nil || lo.Before(*first) {
+			first = &lo
+		}
+	}
+	return latest, first
+}
+
+// earliestLo is the smallest over sr's plans of dose k's earliest date from
+// the earliest possible anchors: max(b, b + minAge, latest + minInterval,
+// first + minIntervalFromFirst), each anchor term only when it is given.
+func earliestLo(sr ruleset.Series, k int, b engine.Date, latest, first *engine.Date) engine.Date {
+	var out engine.Date
+	for i, p := range sr.Plans {
+		r := p.Doses[k-1]
+		e := b
+		if r.MinAge != nil {
+			e = maxOf(e, b.AddSpan(*r.MinAge))
+		}
+		if r.MinInterval != nil && latest != nil {
+			e = maxOf(e, latest.AddSpan(*r.MinInterval))
+		}
+		if r.MinIntervalFromFirst != nil && first != nil {
+			e = maxOf(e, first.AddSpan(*r.MinIntervalFromFirst))
+		}
+		if i == 0 || e.Before(out) {
+			out = e
+		}
+	}
+	return out
 }
 
 // TestPropertyImpreciseOutOfAgeEveryDay (issue #28, F05.4a, Q65): outOfAge

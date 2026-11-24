@@ -149,8 +149,8 @@ func compareResults(rs []endResult, hint Hint) endResult {
 // ageLimit reports whether reasons hold an age-limit reason (issue #15
 // Q58): OUT_OF_AGE, DOSE_AFTER_MAX_AGE, CHECK_PRODUCT_NAME, MIXED_PRODUCTS,
 // a DOSE_POSSIBLY_INVALID listing a maximum age, and since S4b (issue #28
-// In scope 6) DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE and
-// BIRTH_DATE_IMPRECISE{fullBirthDate}. An end's own reasons hold
+// In scope 6) DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE,
+// OUT_OF_AGE_UNCERTAIN and BIRTH_DATE_IMPRECISE{fullBirthDate}. An end's own reasons hold
 // BIRTH_DATE_IMPRECISE only when it is an age-limit ⚪ (not certainly out
 // of age at that date), so that result's reason then has the same key as
 // the comparison's and is listed once.
@@ -158,7 +158,7 @@ func ageLimit(reasons []Reason) bool {
 	for _, r := range reasons {
 		switch r.Code {
 		case ReasonOutOfAge, ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts,
-			ReasonDueCappedByMaxAge, ReasonSeriesMayNotComplete:
+			ReasonDueCappedByMaxAge, ReasonSeriesMayNotComplete, ReasonOutOfAgeUncertain:
 			return true
 		case ReasonBirthDateImprecise:
 			if r.Params.Hint == HintFullBirthDate {
@@ -201,7 +201,8 @@ func capKey(reasons []Reason) string {
 
 // reasonRank is a code's place in the reason order of one evaluated date
 // (SAD §5.4). The per-dose codes share one rank, so a stable sort keeps
-// their walk order. Only two agreeing outOfAge results are sorted: their
+// their walk order. OUT_OF_AGE_UNCERTAIN takes OUT_OF_AGE's place; the two
+// never share a list. Only two agreeing outOfAge results are sorted: their
 // reasons are otherwise merged by appending.
 func reasonRank(c ReasonCode) int {
 	switch c {
@@ -217,7 +218,7 @@ func reasonRank(c ReasonCode) int {
 		return 5
 	case ReasonProductNotInCatalog:
 		return 6
-	case ReasonOutOfAge:
+	case ReasonOutOfAge, ReasonOutOfAgeUncertain:
 		return 7
 	case ReasonPreviousDoseDateUnknown:
 		return 8

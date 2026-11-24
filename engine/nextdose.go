@@ -32,6 +32,18 @@ type nextResult struct {
 	// first is the first-dose anchor the dates used (an.first, possibly the
 	// EQ20c stand-in): C_c,k measures minIntervalFromFirst from it.
 	first *Range
+	// lows are each plan's earliest date of dose k from the earliest
+	// possible anchors, parallel to plans: R.Lo of the latest dose and of
+	// dose 1, with no dose-1 term when dose 1 is the EQ20c stand-in (the
+	// real dose 1 is earlier by an unknown amount). They decide only
+	// whether an out-of-age conclusion is certain (owner 2026-11-24).
+	lows []Date
+	// loose are the positions, ascending, whose exact date could move a
+	// plan's earliest date earlier: the latest dated dose when some plan
+	// has a minInterval and its range is not one day, and 1 when some plan
+	// has a minIntervalFromFirst and dose 1 is the stand-in or its range is
+	// not one day (OUT_OF_AGE_UNCERTAIN's numbers).
+	loose []int
 }
 
 // next computes next dose k for every plan and merges the plans (SAD §5.3
@@ -96,9 +108,10 @@ func (s seriesModel) next(b birthEnd, w walkResult) nextResult {
 	}
 
 	var an anchors
+	var latestPos int
 	for i := len(w.seq) - 1; i >= 0; i-- {
 		if w.seq[i].dose.dated {
-			an.latest = &w.seq[i].dose.date
+			an.latest, latestPos = &w.seq[i].dose.date, w.seq[i].pos
 			break
 		}
 	}
@@ -121,8 +134,16 @@ func (s seriesModel) next(b birthEnd, w walkResult) nextResult {
 		}
 	}
 
+	// The earliest possible anchors: R.Lo of the latest dose and of dose 1,
+	// and no dose-1 anchor when it is the stand-in.
+	lowLatest, lowFirst := an.latest.lower(), (*Range)(nil)
+	if an.first != nil && firstSlot.dose.dated {
+		lowFirst = an.first.lower()
+	}
+	looseLatest, looseFirst := false, false
 	for _, p := range s.plans {
-		pd, ok := p.doses[k-1].dates(b, an)
+		d := p.doses[k-1]
+		pd, ok := d.dates(b, an)
 		if !ok && !b.known {
 			return noBirth
 		}
@@ -135,10 +156,30 @@ func (s seriesModel) next(b birthEnd, w walkResult) nextResult {
 			return nextResult{stop: true}
 		}
 		r.plans = append(r.plans, pd)
+		low, _ := d.earliest(b, lowLatest, lowFirst)
+		r.lows = append(r.lows, low)
+		looseLatest = looseLatest || d.minInterval.ok && an.latest != nil && an.latest.Lo != an.latest.Hi
+		looseFirst = looseFirst || d.minFromFirst.ok && an.first != nil && (lowFirst == nil || an.first.Lo != an.first.Hi)
 	}
+	if looseFirst {
+		r.loose = append(r.loose, 1)
+	}
+	if looseLatest {
+		r.loose = append(r.loose, latestPos)
+	}
+	slices.Sort(r.loose)
+	r.loose = slices.Compact(r.loose)
 	r.first = an.first
 	r.next, _ = choosePlans(k, r.plans, func(planDates) bool { return true })
 	return r
+}
+
+// lower is the range's earlier end as a one-day range, or nil for nil.
+func (x *Range) lower() *Range {
+	if x == nil {
+		return nil
+	}
+	return &Range{Lo: x.Lo, Hi: x.Lo}
 }
 
 // choosePlans merges the plans that keep accepts into next dose k (A7, EQ6
@@ -183,28 +224,8 @@ func choosePlans(k int, plans []planDates, keep func(planDates) bool) (NextDose,
 // is not birth-anchored in the same unit family. ok is false when a needed
 // anchor is missing.
 func (r doseRule) dates(b birthEnd, an anchors) (planDates, bool) {
-	var earliest Date
-	set := false
-	raise := func(d Date) {
-		if !set || d.After(earliest) {
-			earliest, set = d, true
-		}
-	}
-	if b.known {
-		raise(b.date)
-		if r.minAge.ok {
-			raise(b.date.AddSpan(r.minAge.span))
-		}
-	} else if an.latest != nil {
-		raise(an.latest.Hi)
-	}
-	if r.minInterval.ok && an.latest != nil {
-		raise(an.latest.Hi.AddSpan(r.minInterval.span))
-	}
-	if r.minFromFirst.ok && an.first != nil {
-		raise(an.first.Hi.AddSpan(r.minFromFirst.span))
-	}
-	if !set {
+	earliest, ok := r.earliest(b, an.latest, an.first)
+	if !ok {
 		return planDates{}, false
 	}
 	due := earliest
@@ -232,4 +253,33 @@ func (r doseRule) dates(b birthEnd, an anchors) (planDates, bool) {
 		overdue = maxDate(overdue, due.AddSpan(r.buffer.span))
 	}
 	return planDates{earliest: earliest, due: due, overdue: overdue}, true
+}
+
+// earliest is the earliest date of dates, from the R.Hi of the given latest
+// and first anchors (each nil when absent): max(birth + minAge, latest +
+// minInterval, first + minIntervalFromFirst), and with no birth date at
+// least latest. ok is false when no term applies.
+func (r doseRule) earliest(b birthEnd, latest, first *Range) (Date, bool) {
+	var earliest Date
+	set := false
+	raise := func(d Date) {
+		if !set || d.After(earliest) {
+			earliest, set = d, true
+		}
+	}
+	if b.known {
+		raise(b.date)
+		if r.minAge.ok {
+			raise(b.date.AddSpan(r.minAge.span))
+		}
+	} else if latest != nil {
+		raise(latest.Hi)
+	}
+	if r.minInterval.ok && latest != nil {
+		raise(latest.Hi.AddSpan(r.minInterval.span))
+	}
+	if r.minFromFirst.ok && first != nil {
+		raise(first.Hi.AddSpan(r.minFromFirst.span))
+	}
+	return earliest, set
 }

@@ -307,7 +307,10 @@ func reasonsWith(a engine.Assessment, code engine.ReasonCode) []engine.Reason {
 //     due ≤ overdue ≤ its lastDay;
 //   - a cap reason comes with a next dose that is never 🔴 (P3), or in a ⚪
 //     from step 4's comparison (with BIRTH_DATE_IMPRECISE); never under
-//     outOfAge and never in a ⚪ from steps 5–7 alone.
+//     outOfAge and never in a ⚪ from steps 5–7 alone;
+//   - OUT_OF_AGE_UNCERTAIN comes only in a ⚪ (so with no next dose), never
+//     under outOfAge, only in an estimated assessment (it rests on an
+//     imprecise or missing dose date), with its numbers strictly ascending.
 func checkAssessmentShape(t testing.TB, name string, a engine.Assessment) {
 	t.Helper()
 	checkReasonParams(t, a)
@@ -334,6 +337,12 @@ func checkAssessmentShape(t testing.TB, name string, a engine.Assessment) {
 		a.NextDose == nil && !hasCode(a, engine.ReasonBirthDateImprecise) ||
 		a.NextDose != nil && len(caps) > 1:
 		t.Fatalf("%s %s: cap reasons %v with bucket %q, block %q, nextDose %v and reasons %v", name, a.Disease, caps, a.Bucket, a.Block, a.NextDose, a.Reasons)
+	}
+	for _, r := range reasonsWith(a, engine.ReasonOutOfAgeUncertain) {
+		if a.Bucket != engine.BucketUnknown || !a.Estimated || !slices.IsSorted(r.Params.Numbers) ||
+			len(slices.Compact(slices.Clone(r.Params.Numbers))) != len(r.Params.Numbers) {
+			t.Fatalf("%s %s: %v with bucket %q, block %q, estimated %v", name, a.Disease, r, a.Bucket, a.Block, a.Estimated)
+		}
 	}
 	if nd := a.NextDose; nd != nil {
 		if nd.Due.Before(nd.Earliest) {
@@ -747,6 +756,11 @@ func noDoseImprecise(rng *rand.Rand, in engine.Input, maxes []ruleset.Span, wind
 // has a cap reason and a candidate has a later dose with minIntervalFromFirst:
 // C_c,k measures it from dose 1's R.Hi, so narrowing dose 1 can move the
 // last allowed day, and the capped dates, later. No fixture has both yet.
+//
+// Since the owner decision of 2026-11-24 (PR #31), a certain outOfAge is
+// judged from the earliest possible dose dates, so a third clause holds: a
+// wide outOfAge with doses given stays outOfAge when narrowed, with the
+// same seriesUsed and its doses placed.
 func TestPropertyNarrowingDoseDate(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
@@ -815,6 +829,12 @@ func checkNarrowingDoseDate(t *testing.T, fx fixture, rng *rand.Rand, in engine.
 				t.Fatalf("%s %s: narrowing %s to %s changed validity\nwide   %+v\nnarrow %+v\ninput  %+v",
 					fx.name, a.Disease, in.Doses[i].Date.Value, narrow.Doses[i].Date.Value, a, b, in)
 			}
+		}
+		// Certain outOfAge is judged from the earliest possible dose dates
+		// (owner 2026-11-24), so a narrower date never undoes it.
+		if a.Block == engine.BlockOutOfAge && a.SeriesUsed != nil && sameSeries && placed && b.Block != engine.BlockOutOfAge {
+			t.Fatalf("%s %s: narrowing %s to %s undid outOfAge\nwide   %+v\nnarrow %+v\ninput  %+v",
+				fx.name, a.Disease, in.Doses[i].Date.Value, narrow.Doses[i].Date.Value, a, b, in)
 		}
 		if a.NextDose == nil || b.NextDose == nil || a.NextDose.Number != b.NextDose.Number {
 			continue

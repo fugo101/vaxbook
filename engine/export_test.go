@@ -21,14 +21,17 @@ func DisagreeingRecords(e *Engine, in Input) (map[string][]string, error) {
 // CandidateView is one candidate series of the final result of steps 4–9
 // for a disease, as the S4b properties read it (issue #28): complete or
 // not, its next dose number, the per-plan earliest dates of that dose
-// (none when step 7 stopped) and whether step 7 stopped on
-// PREVIOUS_DOSE_DATE_UNKNOWN.
+// (none when step 7 stopped), whether step 7 stopped on
+// PREVIOUS_DOSE_DATE_UNKNOWN, and whether position 1 holds a dated record
+// (else dose 1 is undated or implied, and step 7 may use the EQ20c
+// stand-in).
 type CandidateView struct {
 	Series           string
 	Complete         bool
 	K                int
 	Earliest         []Date
 	StoppedOnUnknown bool
+	FirstDated       bool
 }
 
 // ResultView is the final result of steps 4–9 of one disease: its
@@ -52,6 +55,11 @@ func ResultViews(e *Engine, in Input) (map[string]ResultView, error) {
 				StoppedOnUnknown: r.next.stop && hasReason(r.next.reasons, ReasonPreviousDoseDateUnknown)}
 			for _, p := range r.next.plans {
 				v.Earliest = append(v.Earliest, p.earliest)
+			}
+			for _, it := range r.walk.seq {
+				if it.pos == 1 {
+					v.FirstDated = it.dose.dated
+				}
 			}
 			out = append(out, v)
 		}

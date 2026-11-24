@@ -15,7 +15,8 @@ package engine
 //
 // b_old is the older end of the whole birth range and b_s the older end of
 // the evaluated sub-range (Q65, Q73; birthEnd). The same values with b in
-// place of b_old and b_s (Limit^b, L^b) decide only whether an out-of-age
+// place of b_old and b_s (Limit^b, L^b), with F_c^lo from the earliest
+// possible dose dates (ownFLo), decide only whether an out-of-age
 // conclusion is certain at b.
 
 // boundKind is the state of a limit: absent (no limit), impossible (no day
@@ -175,6 +176,20 @@ func (r candidateResult) ownF(today Date) Date {
 	return maxDate(today, f)
 }
 
+// ownFLo is the candidate's own F_c^lo (owner 2026-11-24): today, or the
+// smallest earliest date of its plans from the earliest possible anchors
+// (nextResult.lows) when later. It equals ownF when every dose date
+// involved is one day and dose 1 is not the EQ20c stand-in.
+func (r candidateResult) ownFLo(today Date) Date {
+	f := today
+	for i, d := range r.next.lows {
+		if i == 0 || d.Before(f) {
+			f = d
+		}
+	}
+	return maxDate(today, f)
+}
+
 // kept returns next dose k from the candidate's plans whose own F is not
 // past Limit_c,k (Q88), with A7's choice made over them, and how many plans
 // are kept.
@@ -185,20 +200,38 @@ func (r candidateResult) kept(today Date) (NextDose, int) {
 }
 
 // outOf reports whether an incomplete candidate is out of age, and
-// certainly so at the evaluated date (issue #28 In scope 2): its step 7
-// runs and its own F_c is past Limit_c,k (Q86, Q88: every plan is
+// certainly so at the evaluated date (issue #28 In scope 2): out when its
+// step 7 runs and its own F_c is past Limit_c,k (Q86, Q88: every plan is
 // dropped), or step 7 stopped on PREVIOUS_DOSE_DATE_UNKNOWN and today is
-// past L_c (EQ11; never without maxAgeComplete, Q75). A stop on
-// NO_BIRTH_DATE or a missing anchor is never out.
+// past L_c (EQ11; never without maxAgeComplete, Q75). Certain when it is
+// out even at the young end and from the earliest possible dose dates:
+// F_c^lo past Limit^b_c,k (owner 2026-11-24), or for EQ11 today past L^b_c,
+// which involves no dose date. A stop on NO_BIRTH_DATE or a missing anchor
+// is never out.
 func (r candidateResult) outOf(today Date) (out, certain bool) {
 	switch {
 	case !r.next.stop:
-		f := r.ownF(today)
-		return r.limits.lim.exceededBy(f), r.limits.limOwn.exceededBy(f)
+		return r.limits.lim.exceededBy(r.ownF(today)), r.limits.limOwn.exceededBy(r.ownFLo(today))
 	case hasReason(r.next.reasons, ReasonPreviousDoseDateUnknown):
 		return r.limits.lc.exceededBy(today), r.limits.lcOwn.exceededBy(today)
 	}
 	return false, false
+}
+
+// uncertainCauses reports, for a candidate that is out but not certainly
+// out, what its certainty waits on: the birth date (out from F_c^lo, or not
+// out at b from F_c) and the dose dates (out at b from F_c, or not out from
+// F_c^lo). With X = Limit^b exceeded by F_c and Y = Limit exceeded by
+// F_c^lo, birth = ¬X ∨ Y and dose = X ∨ ¬Y: one alone when only that input
+// is imprecise, both when neither alone or each alone would decide. An
+// EQ11 stop involves no dose date: birth only.
+func (r candidateResult) uncertainCauses(today Date) (birth, dose bool) {
+	if r.next.stop {
+		return true, false
+	}
+	x := r.limits.limOwn.exceededBy(r.ownF(today))
+	y := r.limits.lim.exceededBy(r.ownFLo(today))
+	return !x || y, x || !y
 }
 
 // hasReason reports whether reasons hold one with code c.

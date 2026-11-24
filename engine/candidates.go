@@ -372,11 +372,14 @@ func (ev evaluation) productCode() ReasonCode {
 //     its masked dates uncapped (a complete candidate in the counted view
 //     keeps it too, F05.10).
 //   - Clean result (the two views are the same): every incomplete
-//     candidate out, none complete, not all certain → ⚪
-//     BIRTH_DATE_IMPRECISE{fullBirthDate}; some out, or merged-out (its
-//     step 7 runs and the merged F is past Limit_c,k) → ⚪
-//     CHECK_PRODUCT_NAME or MIXED_PRODUCTS; otherwise the EQ15 cap (merge).
-//     These conclusions emit no step-7 reason.
+//     candidate out, none complete, not all certain → ⚪ with
+//     BIRTH_DATE_IMPRECISE{fullBirthDate} and OUT_OF_AGE_UNCERTAIN{numbers}
+//     as the birth date or the dose dates would decide (uncertain); some
+//     out, or merged-out (its step 7 runs and the merged F is past
+//     Limit_c,k) → ⚪ CHECK_PRODUCT_NAME or MIXED_PRODUCTS; otherwise the
+//     EQ15 cap (merge). These conclusions emit no step-7 reason. Out,
+//     merged-out and the cap use F from the latest possible dose dates, so
+//     a next dose is never drawn from the earliest ones (P1).
 //
 // S5 (issue #16) adds the other layers around this; its layer 6 compares
 // the capped due date with historyStatusAt.
@@ -423,13 +426,51 @@ func (ev evaluation) conclude(b birthEnd, rs []candidateResult, res endResult, s
 	unknown.bucket, unknown.block = BucketUnknown, ""
 	switch {
 	case !anyComplete && allOut:
-		return conclusion(unknown, Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: HintFullBirthDate}})
+		return conclusion(unknown, ev.uncertain(cv)...)
 	case someOut || ev.mergedOut(rs, atK):
 		return conclusion(unknown, Reason{Code: ev.productCode()})
 	}
 	res.reasons = head
 	ev.merge(&res, rs, atK, true)
 	return res
+}
+
+// uncertain returns the reasons of a clean result whose incomplete
+// candidates are all out of age in the counted view cv, some not certainly
+// (owner 2026-11-24): BIRTH_DATE_IMPRECISE{fullBirthDate} when the birth
+// date would decide for some candidate, then OUT_OF_AGE_UNCERTAIN{numbers}
+// when its dose dates would, with numbers the union of those candidates'
+// positions whose exact date could decide (nextResult.loose). A dose
+// cause means F_c^lo < F_c, so some date involved is not one day or is the
+// stand-in, and numbers is never empty (the property tests check every
+// reason's params). The view is clean, so the positions are the as-walked
+// ones the per-dose reasons name.
+func (ev evaluation) uncertain(cv []candidateResult) []Reason {
+	birth, dose := false, false
+	var numbers []int
+	for _, r := range cv {
+		if r.complete {
+			continue
+		}
+		if _, certain := r.outOf(ev.today); certain {
+			continue
+		}
+		b, d := r.uncertainCauses(ev.today)
+		birth = birth || b
+		if d {
+			dose = true
+			numbers = append(numbers, r.next.loose...)
+		}
+	}
+	var out []Reason
+	if birth {
+		out = append(out, Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: HintFullBirthDate}})
+	}
+	if dose {
+		slices.Sort(numbers)
+		out = append(out, Reason{Code: ReasonOutOfAgeUncertain, Params: ReasonParams{Numbers: slices.Compact(numbers)}})
+	}
+	return out
 }
 
 // mergedOut reports whether a candidate at k is past its Limit_c,k at the

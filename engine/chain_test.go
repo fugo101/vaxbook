@@ -1,0 +1,255 @@
+package engine_test
+
+import (
+	"fmt"
+	"runtime"
+	"testing"
+	"time"
+
+	"github.com/fugo101/vaxbook/engine"
+	"github.com/fugo101/vaxbook/ruleset"
+)
+
+// Engine tests of the S2 chain gap search (issue #35, Q98, Q99, Q103): the
+// last trailing undated slot S at position n may lie before the uncounted
+// unnumbered dated doses U1 < … < Um at the end of the walk, in the gap
+// after Uk (or after P, the latest dated dose that is counted or numbered,
+// or birth) when Uk's step-2 position q_k < n. The gap fits when S's
+// earliest date, chained from Uk through positions q_k + 1 … n − 1, is on
+// or before U(k+1).Hi; S's minInterval is then at most possible. Birth
+// 2026-01-01 (exact) everywhere, so 6w@b = 02-12 and 15w@b = 04-16;
+// minimal-single dose 2 and illustrative-vn pertussis doses 2–3 need 4w.
+
+var birthGap = dayDate("2026-01-01")
+
+func single(id, date string) engine.DoseRecord {
+	if date == "" {
+		return doseOf("single", id, unknownDate, "")
+	}
+	return doseOf("single", id, dayDate(date), "")
+}
+
+// gapAssessment is the assessment of a minimal-single profile.
+func gapAssessment(t *testing.T, today string, doses ...engine.DoseRecord) engine.Assessment {
+	t.Helper()
+	return assessmentOf(t, loadEngine(t, "minimal-single"), "single", today, birthGap, doses...)
+}
+
+func singleUnknown(reasons ...engine.Reason) engine.Assessment {
+	return engine.Assessment{Disease: "single", Bucket: engine.BucketUnknown, SeriesUsed: []string{"single-series"}, Estimated: true, Reasons: reasons}
+}
+
+var complete = engine.Reason{Code: engine.ReasonComplete}
+
+// TestTrailingSlotBeforeUncountedDose (issue #35 repro 2, Q87's shape):
+// illustrative-max-age, today 08-28. d0 rotateq 07-11 (past 15w@b, so
+// DOSE_AFTER_MAX_AGE at 1, uncounted), u rotateq #3 undated, so dose 2 is
+// implied.
+//   - rotateq, as walked: d0 → implied 2 ≥ 08-08 → u ≥ 09-05 > today. Gap 0
+//     (before d0, q_0 = 0 < 3): implied 1 ≥ 02-12, implied 2 ≥ 03-12, u ≥
+//     04-09 ≤ d0.Hi → fits. Definite threshold 04-09 ≤ today, possible
+//     09-05 > today → DOSE_POSSIBLY_INVALID{minInterval} on u, counted, which
+//     keeps 0c's possible maxAgeComplete (Q62) in the same reason.
+//   - rotarix (2 doses, u beyond the series) carries implied dose 2's
+//     possible maxAgeComplete on u, as on main; d0's reasons are main's.
+//
+// u counted at 3 → k = 4 > 3 → COMPLETE. Main gave rotateq's u
+// DOSE_INVALID{minInterval, u, 3} and no COMPLETE.
+func TestTrailingSlotBeforeUncountedDose(t *testing.T) {
+	t.Parallel()
+	e := loadEngine(t, "illustrative-max-age")
+	got := assessmentOf(t, e, "rota", "2026-08-28", birthGap,
+		rota("d0", dayDate("2026-07-11"), "rotateq"), numbered(rota("u", unknownDate, "rotateq"), 3))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: rotaAll, Estimated: true,
+		Reasons: []engine.Reason{
+			{Code: engine.ReasonImpliedEarlierDoses, Params: engine.ReasonParams{Numbers: []int{2}}},
+			rotaRefs,
+			afterMaxAge("d0", 1, engine.CheckMaxAgeStart, engine.CheckMaxAgeComplete),
+			afterMaxAge("d0", 1, engine.CheckMaxAgeStart),
+			possiblyInvalid("u", 3, engine.CheckMaxAgeComplete),
+			possiblyInvalid("u", 3, engine.CheckMinInterval, engine.CheckMaxAgeComplete),
+			complete,
+		},
+	})
+}
+
+// TestGapBound (issue #35, Q99 (a)): gap 1 (after r1, before r2) fits only
+// when S's earliest date there is on or before r2.Hi. minimal-single, today
+// 03-09, u #2 undated; r1 and r2 are before 6w@b (DOSE_INVALID{minAge} at
+// 1, uncounted), and step 2 gives r1 position 1, r2 position 3.
+//   - Fitting half: r1 01-12, r2 02-11. Gap 0 needs dose 1 ≥ 02-12, so u ≥
+//     03-12 > r1. Gap 1: u ≥ r1 + 4w = 02-09 ≤ r2.Hi → fits. As walked: r2 +
+//     4w = 03-11 > today → DOSE_POSSIBLY_INVALID{minInterval, u, 2},
+//     counted, so k = 3 > 2 → COMPLETE. (Main: DOSE_INVALID, no COMPLETE.)
+//   - Failing half (guard, as on main): r1 01-19 → u ≥ 02-16 > r2.Hi 02-11,
+//     no gap fits → DOSE_INVALID{minInterval, u, 2}. Under Q99 (b) (skip the
+//     uncounted doses, no implied positions or bound) it would be possible.
+func TestGapBound(t *testing.T) {
+	t.Parallel()
+	u := numbered(single("u", ""), 2)
+	checkAssessment(t, gapAssessment(t, "2026-03-09", single("r1", "2026-01-12"), single("r2", "2026-02-11"), u), singleUnknown(
+		invalidDose("r1", 1, engine.CheckMinAge), invalidDose("r2", 1, engine.CheckMinAge),
+		possiblyInvalid("u", 2, engine.CheckMinInterval), complete))
+	checkAssessment(t, gapAssessment(t, "2026-03-09", single("r1", "2026-01-19"), single("r2", "2026-02-11"), u), singleUnknown(
+		invalidDose("r1", 1, engine.CheckMinAge), invalidDose("r2", 1, engine.CheckMinAge),
+		invalidDose("u", 2, engine.CheckMinInterval)))
+}
+
+// TestGapSearchKeepsRescue (issue #35 Q103 (a)): a definite reason that a
+// placement's walk gives a slot that the gap search made possible does not
+// count against the placement in S4b 0b's rescue. illustrative-max-age, all
+// rotateq, today 07-09: d1 01-18 (< 6w@b → DOSE_INVALID{minAge} at 1), d0
+// 07-01 (past 15w@b at 1), u0 undated with no number (floating), u1 #3
+// undated.
+//   - Step 2 gives d1 position 1 and d0 position 2 (3 is u1's). Base walk:
+//     u1 trails d0 at 3, d0 + 4w = 07-29 > today. Gap 0 needs dose 1 ≥
+//     02-12 > d1. Gap 1 (after d1, q_1 = 1 < 3): dose 2 ≥ d1 + 4w = 02-15,
+//     u1 ≥ 03-15 ≤ d0.Hi → fits. So u1 is lowered to possible.
+//   - Rescue: u0 in front of d0 counts d0 at 2 (possible maxAgeStart from u0
+//     at 1). That walk gives u1, behind d0 at 3, DOSE_INVALID{minInterval}
+//     (d0 + 4w > today); u1 is lowered in the base walk, so this does not
+//     count against the placement and d0 is rescued.
+//   - forceLater does not keep u1's definite either: u1 is forced counted
+//     with DOSE_POSSIBLY_INVALID{minInterval, u1, 3}.
+//   - u0 then fits (beyond the series): k = 5 > 3 → COMPLETE.
+//
+// u0 on 02-12 with u1 on 04-09 gives [DOSE_INVALID{minAge, d1, 1},
+// COMPLETE]. Main: [DOSE_INVALID{d1}, DOSE_POSSIBLY_INVALID{maxAgeStart,
+// d0, 1}, DOSE_INVALID{minInterval, u1, 3}, PREVIOUS_DOSE_DATE_UNKNOWN{u0}];
+// with the gap search but without Q103, d0 loses its rescue and becomes
+// DOSE_AFTER_MAX_AGE{maxAgeStart, d0, 1}.
+func TestGapSearchKeepsRescue(t *testing.T) {
+	t.Parallel()
+	e := loadEngine(t, "illustrative-max-age")
+	got := assessmentOf(t, e, "rota", "2026-07-09", birthGap,
+		rota("d1", dayDate("2026-01-18"), "rotateq"), rota("d0", dayDate("2026-07-01"), "rotateq"),
+		rota("u0", unknownDate, "rotateq"), numbered(rota("u1", unknownDate, "rotateq"), 3))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotateq"}, Estimated: true,
+		Reasons: []engine.Reason{
+			invalidDose("d1", 1, engine.CheckMinAge),
+			possiblyInvalid("d0", 1, engine.CheckMaxAgeStart),
+			possiblyInvalid("u1", 3, engine.CheckMinInterval),
+			complete,
+		},
+	})
+}
+
+// TestGapUsesStepTwoPositions (issue #35 In scope 1): q_k is Uk's step-2
+// position, which skips the positions that numbered level-4 slots reserve.
+// In-test series q-1: dose 1 minAge 6w, doses 2 and 3 minInterval 4w, dose
+// 4 minInterval 2w. Today 04-25: p 02-12, v #2 undated, u1 04-01, u2 04-20,
+// s #4 undated. Step 2: p 1, u1 3, u2 5 (2 and 4 reserved).
+//   - Walk: p counts at 1; v at 2 ≥ 03-12; u1 at 3 needs 04-09 →
+//     DOSE_INVALID{minInterval, u1, 3}; u2 at 3 needs u1 + 4w = 04-29 →
+//     DOSE_INVALID{minInterval, u2, 3}. s trails u2 at 4: u2 + 2w = 05-04 >
+//     today.
+//   - Gap 0 (after p, q_0 = 1): positions 2 and 3 between, s ≥ 04-09 + 2w =
+//     04-23 > u1.Hi → no fit. Gap 1 (after u1, q_1 = 3 < 4, nothing
+//     between): s ≥ u1 + 2w = 04-15 ≤ u2.Hi → fits; s dated 04-15 is valid
+//     at 4. → DOSE_POSSIBLY_INVALID{minInterval, s, 4}, counted, k = 5 >
+//     4 → COMPLETE.
+//
+// Giving the U's positions P + 1, P + 2 (u1 2, u2 3) would put position 3
+// between u1 and s, s ≥ 05-13 > u2.Hi, and keep s DOSE_INVALID, as main.
+func TestGapUsesStepTwoPositions(t *testing.T) {
+	t.Parallel()
+	e := newEngine(t, oneDiseaseSnapshot(nil, qSeries(t, "q-1", "", "", "", []ruleset.DoseRule{
+		rule(t, "P6W", "", "", ruleset.FromBirth, "P2M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+		rule(t, "", "P2W", "", ruleset.FromPreviousDose, "P1M"),
+	})))
+	got := assessmentOf(t, e, "q", "2026-04-25", birthGap,
+		doseOf("q", "p", dayDate("2026-02-12"), ""), numbered(doseOf("q", "v", unknownDate, ""), 2),
+		doseOf("q", "u1", dayDate("2026-04-01"), ""), doseOf("q", "u2", dayDate("2026-04-20"), ""),
+		numbered(doseOf("q", "s", unknownDate, ""), 4))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"q-1"}, Estimated: true,
+		Reasons: []engine.Reason{
+			invalidDose("u1", 3, engine.CheckMinInterval),
+			invalidDose("u2", 3, engine.CheckMinInterval),
+			possiblyInvalid("s", 4, engine.CheckMinInterval),
+			complete,
+		},
+	})
+}
+
+// TestGapImpliedPositions (issue #35, guard): positions q_k + 1 … n − 1
+// lie between Uk and S. illustrative-vn pertussis, today 02-16: r1 01-09
+// and r2 02-09 (< 6w@b, DOSE_INVALID{minAge} at 1), u #3 undated. Gap 1
+// (after r1, q_1 = 1) needs dose 2 between r1 and u: u ≥ r1 + 4w + 4w =
+// 03-06 > r2.Hi; gap 0 needs dose 1 ≥ 02-12 > r1 → u stays
+// DOSE_INVALID{minInterval, u, 3}, as on main.
+func TestGapImpliedPositions(t *testing.T) {
+	t.Parallel()
+	e := loadEngine(t, "illustrative-vn")
+	got := assessmentOf(t, e, "pertussis", "2026-02-16", birthGap,
+		doseOf("pertussis", "r1", dayDate("2026-01-09"), ""), doseOf("pertussis", "r2", dayDate("2026-02-09"), ""),
+		numbered(doseOf("pertussis", "u", unknownDate, ""), 3))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "pertussis", Bucket: engine.BucketUnknown, SeriesUsed: []string{"pertussis-primary"}, Estimated: true,
+		Reasons: []engine.Reason{
+			invalidDose("r1", 1, engine.CheckMinAge), invalidDose("r2", 1, engine.CheckMinAge),
+			invalidDose("u", 3, engine.CheckMinInterval),
+			{Code: engine.ReasonAlternativePlans, Params: engine.ReasonParams{Series: "pertussis-primary"}},
+		},
+	})
+}
+
+// TestGapSearchKeepsTrueDefinites (issue #35, guards that pass on main):
+// minimal-single, u #2 undated.
+//   - One uncounted dose, today 02-22: r2 02-10. Gap 0 needs dose 1 ≥ 02-12,
+//     u ≥ 03-12 > r2; after r2, u ≥ 03-10 > today → DOSE_INVALID.
+//   - Counted predecessor, today 02-22: r1 02-12 counts at 1, so there is no
+//     gap; r1 + 4w = 03-12 > today → DOSE_INVALID.
+//   - Floating dose, today 02-22: r1 01-09, r2 02-10 and u with no number.
+//     The gap search covers fixed slots only; S4b 0b's search is unchanged
+//     → PREVIOUS_DOSE_DATE_UNKNOWN{u}.
+//   - q_k ≥ n, today 02-20: r1 01-05, r2 01-10, r3 02-09 (all < 6w@b), so
+//     step 2 gives 1, 3 and 4. Gap 0: u ≥ 03-12 > r1. Gap 1 (q_1 = 1):
+//     u ≥ r1 + 4w = 02-02 > r2.Hi. Gap 2 is not tried: q_2 = 3 ≥ 2, and u #2
+//     dated between r2 and r3 is a NUMBERING_CONFLICT. After r3, u ≥ 03-09 >
+//     today → DOSE_INVALID. Trying gap 2 (u ≥ 02-07 ≤ r3.Hi) would demote a
+//     definite that holds on every allowed day.
+func TestGapSearchKeepsTrueDefinites(t *testing.T) {
+	t.Parallel()
+	u := numbered(single("u", ""), 2)
+	checkAssessment(t, gapAssessment(t, "2026-02-22", single("r2", "2026-02-10"), u), singleUnknown(
+		invalidDose("r2", 1, engine.CheckMinAge), invalidDose("u", 2, engine.CheckMinInterval)))
+	checkAssessment(t, gapAssessment(t, "2026-02-22", single("r1", "2026-02-12"), u), singleUnknown(
+		invalidDose("u", 2, engine.CheckMinInterval)))
+	checkAssessment(t, gapAssessment(t, "2026-02-22", single("r1", "2026-01-09"), single("r2", "2026-02-10"), single("u", "")), singleUnknown(
+		invalidDose("r1", 1, engine.CheckMinAge), invalidDose("r2", 1, engine.CheckMinAge),
+		engine.Reason{Code: engine.ReasonPreviousDoseDateUnknown, Params: engine.ReasonParams{Dose: "u"}}))
+	checkAssessment(t, gapAssessment(t, "2026-02-20", single("r1", "2026-01-05"), single("r2", "2026-01-10"), single("r3", "2026-02-09"), u), singleUnknown(
+		invalidDose("r1", 1, engine.CheckMinAge), invalidDose("r2", 1, engine.CheckMinAge), invalidDose("r3", 1, engine.CheckMinAge),
+		invalidDose("u", 2, engine.CheckMinInterval)))
+}
+
+// TestGapSearchLinear: the gap search scans the uncounted dated doses
+// before the trailing run once per walk, so many of them stay linear,
+// with the rescue and floating fit walks on top. illustrative-max-age,
+// today 07-10: n rota records from 05-01 (past 15w@b, uncounted), u #3
+// undated and two floating doses.
+func TestGapSearchLinear(t *testing.T) {
+	if testing.Short() || runtime.GOOS == "js" {
+		t.Skip("timing test")
+	}
+	today, first := mustDate(t, "2026-07-10"), mustDate(t, "2026-05-01")
+	e := loadEngine(t, "illustrative-max-age")
+	assertLinear(t, 2000, func(n int) time.Duration {
+		doses := make([]engine.DoseRecord, n, n+3)
+		for i := range doses {
+			doses[i] = rota(fmt.Sprintf("r%05d", i), dayDate(first.AddDays(i%60).String()), "")
+		}
+		doses = append(doses, numbered(rota("u", unknownDate, ""), 3), rota("f0", unknownDate, ""), rota("f1", unknownDate, ""))
+		in := engine.Input{Today: today, Profile: engine.Profile{Birth: birthGap}, Doses: doses}
+		began := time.Now()
+		if _, err := e.Evaluate(in); err != nil {
+			t.Fatal(err)
+		}
+		return time.Since(began)
+	})
+}

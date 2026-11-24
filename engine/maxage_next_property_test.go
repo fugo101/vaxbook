@@ -484,58 +484,82 @@ func TestPropertyOutOfAgeNoCompleteCandidate(t *testing.T) {
 // today is past b + maxAgeComplete − 1 day (EQ11).
 //
 // F_c^lo (owner 2026-11-24) is max(today, the smallest over c's plans of
-// max(b + minAge, R.Lo of the latest dated record + minInterval, R.Lo of
-// dose 1 + minIntervalFromFirst)) for dose k: from the earliest possible
+// max(b + minAge, the largest R.Lo of the dated records + minInterval, R.Lo
+// of dose 1 + minIntervalFromFirst)) for dose k: from the earliest possible
 // dose dates, and with no dose-1 term when position 1 holds no dated record
 // (the EQ20c stand-in is no lower bound for the real dose 1).
+//
+// The fixtures' near-limit inputs seldom have an imprecise dose near the
+// limit, so the property also runs on impreciseNearLimitInputs, which must
+// reach ⚪ OUT_OF_AGE_UNCERTAIN at least once: those are the inputs that
+// certainty judged from R.Hi called outOfAge, on which this check fails.
 func TestPropertyOutOfAgeFromCountedView(t *testing.T) {
 	t.Parallel()
-	checked := 0
+	checked, uncertain := 0, 0
 	for _, fx := range fixtures(t) {
 		s4bInputs(t, fx, 101, func(in engine.Input) {
-			_, b, ok := testPeriod(in.Profile.Birth, in.Today)
-			if !ok {
-				return
-			}
-			out, _ := evaluate(t, fx.engine, in)
-			views, err := engine.ResultViews(fx.engine, in)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, a := range out.Assessments {
-				if a.Block != engine.BlockOutOfAge || a.SeriesUsed == nil {
-					continue
-				}
-				checked++
-				latest, first := doseRangeEnds(in, a.Disease)
-				for _, cv := range views[a.Disease].Counted {
-					sr := seriesByID(fx.snap, cv.Series)
-					limit := spanLimit(b, sr.MaxAgeComplete)
-					certain := false
-					switch {
-					case cv.Complete:
-					case cv.StoppedOnUnknown:
-						certain = limit.exceededBy(in.Today)
-					case len(cv.Earliest) > 0:
-						if cv.K == 1 {
-							limit = limit.min(startLimitOf(fx.snap, sr, b, b))
-						}
-						var firstLo *engine.Date
-						if cv.FirstDated {
-							firstLo = first
-						}
-						certain = limit.exceededBy(maxOf(in.Today, earliestLo(sr, cv.K, b, latest, firstLo)))
-					}
-					if !certain {
-						t.Fatalf("%s %s: outOfAge, but in the counted view %+v is not certainly out at %s\nassessment %+v\ninput %+v", fx.name, a.Disease, cv, b, a, in)
-					}
-				}
-			}
+			checked += checkOutOfAgeFromCountedView(t, fx, in)
 		})
 	}
-	if checked == 0 {
-		t.Fatal("no near-limit input gave outOfAge with doses given: the property is vacuous")
+	impreciseNearLimitInputs(t, 103, 2*propertyRuns, func(fx fixture, in engine.Input) {
+		checked += checkOutOfAgeFromCountedView(t, fx, in)
+		out, _ := evaluate(t, fx.engine, in)
+		for _, a := range out.Assessments {
+			if hasCode(a, engine.ReasonOutOfAgeUncertain) {
+				uncertain++
+			}
+		}
+	})
+	t.Logf("%d outOfAge with doses checked, %d OUT_OF_AGE_UNCERTAIN", checked, uncertain)
+	if checked == 0 || uncertain == 0 {
+		t.Fatalf("%d outOfAge with doses given and %d OUT_OF_AGE_UNCERTAIN; want both: the property is vacuous", checked, uncertain)
 	}
+}
+
+// checkOutOfAgeFromCountedView checks TestPropertyOutOfAgeFromCountedView
+// on in and returns how many outOfAge assessments with doses it checked.
+func checkOutOfAgeFromCountedView(t *testing.T, fx fixture, in engine.Input) int {
+	t.Helper()
+	_, b, ok := testPeriod(in.Profile.Birth, in.Today)
+	if !ok {
+		return 0
+	}
+	out, _ := evaluate(t, fx.engine, in)
+	views, err := engine.ResultViews(fx.engine, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, a := range out.Assessments {
+		if a.Block != engine.BlockOutOfAge || a.SeriesUsed == nil {
+			continue
+		}
+		checked++
+		latest, first := doseRangeEnds(in, a.Disease)
+		for _, cv := range views[a.Disease].Counted {
+			sr := seriesByID(fx.snap, cv.Series)
+			limit := spanLimit(b, sr.MaxAgeComplete)
+			certain := false
+			switch {
+			case cv.Complete:
+			case cv.StoppedOnUnknown:
+				certain = limit.exceededBy(in.Today)
+			case len(cv.Earliest) > 0:
+				if cv.K == 1 {
+					limit = limit.min(startLimitOf(fx.snap, sr, b, b))
+				}
+				var firstLo *engine.Date
+				if cv.FirstDated {
+					firstLo = first
+				}
+				certain = limit.exceededBy(maxOf(in.Today, earliestLo(sr, cv.K, b, latest, firstLo)))
+			}
+			if !certain {
+				t.Fatalf("%s %s: outOfAge, but in the counted view %+v is not certainly out at %s\nassessment %+v\ninput %+v", fx.name, a.Disease, cv, b, a, in)
+			}
+		}
+	}
+	return checked
 }
 
 // doseRangeEnds returns R.Lo of the latest and of the earliest dated record

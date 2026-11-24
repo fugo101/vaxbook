@@ -3,9 +3,11 @@ package engine_test
 import (
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/fugo101/vaxbook/engine"
+	"github.com/fugo101/vaxbook/ruleset"
 )
 
 // Properties of "certainly out of age" from the earliest possible dose
@@ -139,5 +141,48 @@ func TestPropertyOutOfAgeUncertainNeedsImpreciseDose(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("no assessment with exact dose dates: the property is vacuous")
+	}
+}
+
+// impreciseNearLimitInputs feeds each n inputs on two in-test fixtures
+// whose next dose falls near maxAgeComplete from an imprecise latest dose,
+// where certainty from R.Hi and from R.Lo differ: twoDoseQ with 4w and
+// threeDoseQ with minIntervalFromFirst 5m (maxAgeComplete 15y, so L =
+// birth + 15y − 1 day). The fixtures' near-limit inputs seldom reach that
+// zone. The latest dose is in the 70 days up to L, at month precision or
+// sometimes year; in threeDoseQ the earlier dose is 4w to about 9 months
+// before it, at day or month precision; today is up to 45 days after it.
+func impreciseNearLimitInputs(t *testing.T, seed uint64, n int, each func(fx fixture, in engine.Input)) {
+	t.Helper()
+	var fxs []fixture
+	for name, sr := range map[string]ruleset.Series{"twoDoseQ": twoDoseQ(t, "q-1", "", "P4W"), "threeDoseQ": threeDoseQ(t, "P5M")} {
+		s := oneDiseaseSnapshot(nil, sr)
+		fxs = append(fxs, fixture{name: "in-test " + name, snap: s, engine: newEngine(t, s)})
+	}
+	slices.SortFunc(fxs, func(a, b fixture) int { return strings.Compare(a.name, b.name) })
+	rng := rand.New(rand.NewPCG(seed, 149))
+	recalled := func(d engine.Date, coarse bool) engine.RecalledDate {
+		switch {
+		case !coarse:
+			return dayDate(d.String())
+		case rng.IntN(5) == 0:
+			return engine.RecalledDate{Value: d.String()[:4], Precision: engine.Year}
+		}
+		return monthDate(d.String()[:7])
+	}
+	for i := range n {
+		fx := fxs[i%len(fxs)]
+		birth := mustDate(t, "2010-01-01").AddDays(rng.IntN(366))
+		last := birth.AddMonths(180).AddDays(-1).AddDays(-rng.IntN(70))
+		in := engine.Input{
+			Today:   last.AddDays(rng.IntN(45)),
+			Profile: engine.Profile{Birth: dayDate(birth.String())},
+			Doses:   []engine.DoseRecord{doseOf("q", "r2", recalled(last, true), "")},
+		}
+		if fx.name == "in-test threeDoseQ" {
+			first := last.AddDays(-28 - rng.IntN(240))
+			in.Doses = append([]engine.DoseRecord{doseOf("q", "r1", recalled(first, rng.IntN(2) == 0), "")}, in.Doses...)
+		}
+		each(fx, in)
 	}
 }

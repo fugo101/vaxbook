@@ -760,9 +760,17 @@ func noDoseImprecise(rng *rand.Rand, in engine.Input, maxes []ruleset.Span, wind
 // Since the owner decision of 2026-11-24 (PR #31), a certain outOfAge is
 // judged from the earliest possible dose dates, so a third clause holds: a
 // wide outOfAge with doses given stays outOfAge when narrowed, with the
-// same seriesUsed and its doses placed.
+// same seriesUsed and its doses placed. A random day seldom undoes it, and
+// the fixtures' near-limit inputs seldom have an imprecise dose near the
+// limit, so those inputs and impreciseNearLimitInputs also narrow every
+// imprecise dose of the disease to its earliest day at once
+// (checkNarrowingToEarliest). A wide ⚪ OUT_OF_AGE_UNCERTAIN that this
+// leaves without outOfAge is an input that certainty judged from R.Hi
+// called outOfAge, so the clause would fail on it: at least one must be
+// reached, or the clause does not guard the rule.
 func TestPropertyNarrowingDoseDate(t *testing.T) {
 	t.Parallel()
+	guarded := 0
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(31, uint64(len(fx.name))))
 		for range propertyRuns {
@@ -770,9 +778,63 @@ func TestPropertyNarrowingDoseDate(t *testing.T) {
 		}
 		limits := ageLimits(fx.snap)
 		for range len(limits) * propertyRuns / 2 {
-			checkNarrowingDoseDate(t, fx, rng, nearLimitInput(t, rng, fx.snap, limits))
+			in := nearLimitInput(t, rng, fx.snap, limits)
+			checkNarrowingDoseDate(t, fx, rng, in)
+			guarded += checkNarrowingToEarliest(t, fx, in)
 		}
 	}
+	impreciseNearLimitInputs(t, 37, 2*propertyRuns, func(fx fixture, in engine.Input) {
+		guarded += checkNarrowingToEarliest(t, fx, in)
+	})
+	t.Logf("%d wide OUT_OF_AGE_UNCERTAIN results in age at the earliest dates", guarded)
+	if guarded == 0 {
+		t.Fatal("no wide OUT_OF_AGE_UNCERTAIN was in age at the earliest dates: the outOfAge clause does not guard certainty from R.Lo")
+	}
+}
+
+// checkNarrowingToEarliest narrows, for each disease with doses that is
+// outOfAge or ⚪ OUT_OF_AGE_UNCERTAIN, every imprecise dose of that disease
+// to its earliest day (R.Lo, not before birth) at once. An outOfAge must
+// stay outOfAge when the narrowed result has the same seriesUsed and no
+// step-1 or step-2 reason. It returns how many OUT_OF_AGE_UNCERTAIN results
+// the narrowing left without outOfAge under the same conditions.
+func checkNarrowingToEarliest(t *testing.T, fx fixture, in engine.Input) int {
+	t.Helper()
+	if in.Profile.Birth.Precision != engine.Day {
+		return 0
+	}
+	birth := mustDate(t, in.Profile.Birth.Value)
+	wide, _ := evaluate(t, fx.engine, in)
+	guarded := 0
+	for j, a := range wide.Assessments {
+		uncertain := hasCode(a, engine.ReasonOutOfAgeUncertain)
+		if a.SeriesUsed == nil || a.Block != engine.BlockOutOfAge && !uncertain || hasRecordProblem(a) {
+			continue
+		}
+		narrow, moved := cloneInput(in), false
+		for i, r := range in.Doses {
+			lo, hi, ok := testPeriod(r.Date, in.Today)
+			if !ok || lo == hi || !slices.Contains(r.Diseases, a.Disease) {
+				continue
+			}
+			if lo = maxOf(lo, birth); !lo.After(hi) {
+				narrow.Doses[i].Date, moved = engine.RecalledDate{Value: lo.String(), Precision: engine.Day}, true
+			}
+		}
+		if !moved {
+			continue
+		}
+		got, _ := evaluate(t, fx.engine, narrow)
+		b := got.Assessments[j]
+		if !slices.Equal(a.SeriesUsed, b.SeriesUsed) || hasRecordProblem(b) || b.Block == engine.BlockOutOfAge {
+			continue
+		}
+		if !uncertain {
+			t.Fatalf("%s %s: narrowing every dose to its earliest day undid outOfAge\nwide   %+v\nnarrow %+v\ninput  %+v", fx.name, a.Disease, a, b, in)
+		}
+		guarded++
+	}
+	return guarded
 }
 
 // checkNarrowingDoseDate narrows one imprecise dose date of in to a random

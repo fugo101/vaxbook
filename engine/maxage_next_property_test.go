@@ -241,7 +241,8 @@ func remainingFit(sr ruleset.Series, k int, d, late, first, last engine.Date) bo
 // limits from the older end of the birth range (S's bracket term from the
 // older end of the later end's sub-range with no dose given), C_c,k by a
 // day-by-day scan of the forward chain from L_c down —
-//   - F ≤ L_k ⇒ due and overdue ≤ L_k;
+//   - F ≤ L_k ⇒ due and overdue ≤ L_k, and DUE_CAPPED_BY_MAX_AGE, when
+//     given, has lastDay L_k;
 //   - L_k < F ≤ Lim ⇒ SERIES_MAY_NOT_COMPLETE{lastDay: Lim};
 //   - F > Lim never comes with an emitted next dose.
 //
@@ -347,6 +348,11 @@ func TestPropertyCapP1(t *testing.T) {
 				case lkOK && lk.ok && !lk.exceededBy(f):
 					if nd.Due.After(lk.day) || nd.Overdue.After(lk.day) {
 						fail("due or overdue after L_k")
+					}
+					for _, r := range reasonsWith(a, engine.ReasonDueCappedByMaxAge) {
+						if r.Params.LastDay != lk.day {
+							fail("DUE_CAPPED_BY_MAX_AGE's lastDay is not L_k")
+						}
 					}
 				default:
 					want := engine.Reason{Code: engine.ReasonSeriesMayNotComplete, Params: engine.ReasonParams{LastDay: lim.day}}

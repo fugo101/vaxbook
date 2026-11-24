@@ -115,6 +115,30 @@ func TestFromFirstOvershootsLastDay(t *testing.T) {
 	})
 }
 
+// TestCappedAtForwardChainDay (Q70): the cap day of case 1 is L_k from the
+// forward chain, not Lim, when a later dose still needs room. A generic
+// 3-dose series (dose 1 minAge 6w; doses 2 and 3 minInterval 4w; dose 2 due
+// previous + 10m; maxAgeComplete 1y), birth 2026-01-01, so L = 2026-12-31.
+// r1 on 03-01, today 07-01. Dose 2: E = 03-29, Du = 2027-01-01, O =
+// 2027-01-08. C_2 = L − 4w = 12-03, the last day from which dose 3 still
+// fits by L, so L_2 = 12-03 < Lim = L. F = 07-01 ≤ L_2 → Du = O = 12-03,
+// lowered, with DUE_CAPPED_BY_MAX_AGE{12-03}; due within 6 months → 🟡.
+// Capping at Lim would show 12-31, from which dose 3 cannot be completed.
+func TestCappedAtForwardChainDay(t *testing.T) {
+	t.Parallel()
+	s := oneDiseaseSnapshot(nil, qSeries(t, "q-1", "", "", "P1Y", []ruleset.DoseRule{
+		rule(t, "P6W", "", "", ruleset.FromBirth, "P2M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P10M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+	}))
+	e := newEngine(t, s)
+	got := assessmentOf(t, e, "q", "2026-07-01", birthRota, doseOf("q", "r1", dayDate("2026-03-01"), ""))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUpcoming, NextDose: nextDose(t, 2, "2026-03-29", "2026-12-03", "2026-12-03"),
+		SeriesUsed: []string{"q-1"}, Reasons: []engine.Reason{capped("2026-12-03")},
+	})
+}
+
 // TestCappedEndsDisagree (Q68): a generic 2-dose series whose dose 2 counts
 // from birth (offset 179m, minInterval 4w; maxAgeComplete 15y), birth
 // 2010-01 (month), so L = 2024-12-31 from b_old at both ends. r1 on

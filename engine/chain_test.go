@@ -253,3 +253,51 @@ func TestGapSearchLinear(t *testing.T) {
 		return time.Since(began)
 	})
 }
+
+// TestGapSearchKeepsMaxAgeDefinite (issue #35 In scope 1, Q103): the gap
+// search lowers only the minInterval term of the last slot, so a slot that
+// it does not make counted, because a maximum age (0a, 0c) still fails
+// definitely, keeps that DOSE_AFTER_MAX_AGE through S4b 0b's rescue. In-test
+// series q-1 (maxAgeStart 15w = 04-16, maxAgeComplete 18w = 05-07, so
+// Validate warns SERIES_CANNOT_COMPLETE): dose 1 minAge 6w, dose 2
+// minInterval 4w, dose 3 minAge 19w (05-14) and minInterval 4w. Today
+// 05-25: d1 01-18, dd 04-20, u3 05-20, u0 undated with no number
+// (floating), s #3 undated. Step 2: d1 1, dd 2, u3 4 (3 is s's).
+//   - Walk: d1 < 6w → DOSE_INVALID{minAge, d1, 1}; dd and u3 are past
+//     15w at 1, uncounted. s trails u3 at 3: u3 + 4w = 06-17 > today. Gap 2
+//     (after dd, q_2 = 2): s ≥ max(dd + 4w, 19w) = 05-18 ≤ u3.Hi → fits, so
+//     its minInterval is at most possible. But 19w is past 18w, so s fails
+//     maxAgeComplete on every day: DOSE_AFTER_MAX_AGE, not counted.
+//   - Rescue: u0 in front of dd counts dd at 2, so dd is forced counted
+//     with DOSE_POSSIBLY_INVALID{maxAgeStart, dd, 1}. The redone walk counts
+//     u3 at 2 (dd + 4w = 05-18 ≤ u3), so s trails a counted dose: no gap,
+//     u3 + 4w > today → DOSE_INVALID{minInterval, s, 3}, and
+//     DOSE_AFTER_MAX_AGE{maxAgeComplete, s, 3}, which the rescuing walk
+//     gives s too, so s is not forced.
+//   - u0 fits beyond the series: k = 2 + 1 + 1 = 4 > 3 → COMPLETE.
+//
+// This is main's result. Adding s to the slots the gap search demoted
+// would force it, and its certain DOSE_AFTER_MAX_AGE would become
+// DOSE_POSSIBLY_INVALID{minInterval, maxAgeComplete, s, 3}.
+func TestGapSearchKeepsMaxAgeDefinite(t *testing.T) {
+	t.Parallel()
+	e := newEngine(t, oneDiseaseSnapshot(nil, qSeries(t, "q-1", "", "P15W", "P18W", []ruleset.DoseRule{
+		rule(t, "P6W", "", "", ruleset.FromBirth, "P2M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+		rule(t, "P19W", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+	})), ruleset.SeriesCannotComplete)
+	got := assessmentOf(t, e, "q", "2026-05-25", birthGap,
+		doseOf("q", "d1", dayDate("2026-01-18"), ""), doseOf("q", "dd", dayDate("2026-04-20"), ""),
+		doseOf("q", "u3", dayDate("2026-05-20"), ""), doseOf("q", "u0", unknownDate, ""),
+		numbered(doseOf("q", "s", unknownDate, ""), 3))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"q-1"}, Estimated: true,
+		Reasons: []engine.Reason{
+			invalidDose("d1", 1, engine.CheckMinAge),
+			possiblyInvalid("dd", 1, engine.CheckMaxAgeStart),
+			invalidDose("s", 3, engine.CheckMinInterval),
+			afterMaxAge("s", 3, engine.CheckMaxAgeComplete),
+			complete,
+		},
+	})
+}

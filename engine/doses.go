@@ -183,9 +183,10 @@ type walkResult struct {
 	floating []givenDose
 	k        int // next dose number: highest counted position + floating doses + 1
 	// lowered are the records whose definite minimum-interval failure as
-	// the last trailing undated slot the gap search made possible (issue
-	// #35): the slot's ID, or the record beyond the series that carries an
-	// implied slot's verdict.
+	// the last trailing undated slot the gap search made possible, so that
+	// they count (issue #35): the slot's ID, or the record beyond the series
+	// that carries an implied slot's verdict. A slot that a maximum age
+	// still fails definitely is not in it.
 	lowered map[string]bool
 }
 
@@ -1141,10 +1142,15 @@ func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first 
 			if gb := w.gapBound(s, b, first, *lastSlot); gb.set {
 				if v, checks := s.check(lastSlot.pos, b, u, from, run[:len(run)-1], first, gb); v != verdictDefinite {
 					carry.minV, carry.minChecks = v, checks
-					if w.lowered == nil {
-						w.lowered = map[string]bool{}
+					// Only a slot that now counts is demoted for 0b (Q103):
+					// one that a maximum age still fails definitely keeps
+					// that verdict, in the rescue too.
+					if carry.counted() {
+						if w.lowered == nil {
+							w.lowered = map[string]bool{}
+						}
+						w.lowered[carrier] = true
 					}
-					w.lowered[carrier] = true
 				}
 			}
 		}

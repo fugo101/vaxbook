@@ -602,6 +602,36 @@ func TestManyRecordsPastMaxAgeWithFloatingDoses(t *testing.T) {
 	})
 }
 
+// TestManyFloatingDosesBehindDosePastMaxAge: the rescue (issue #28 In
+// scope 0b) must stay linear in the number of floating doses. One rota
+// record with no product on 2026-05-01, for a child born 2026-01-01, is
+// past every start limit, uncounted and unnumbered: a rescue point. Placing
+// more floating doses in front of it than the positions left before the
+// series ends only pushes it past the series, so those walks must not run.
+func TestManyFloatingDosesBehindDosePastMaxAge(t *testing.T) {
+	if testing.Short() || runtime.GOOS == "js" {
+		t.Skip("timing test")
+	}
+	today, err := engine.ParseDate("2026-07-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := loadEngine(t, "illustrative-max-age")
+	assertLinear(t, 3000, func(n int) time.Duration {
+		doses := make([]engine.DoseRecord, 0, n+1)
+		doses = append(doses, engine.DoseRecord{ID: "a0", Diseases: []string{"rota"}, Date: engine.RecalledDate{Value: "2026-05-01", Precision: engine.Day}})
+		for i := range n {
+			doses = append(doses, engine.DoseRecord{ID: fmt.Sprintf("f%05d", i), Diseases: []string{"rota"}, Date: engine.RecalledDate{Precision: engine.Unknown}})
+		}
+		in := engine.Input{Today: today, Profile: engine.Profile{Birth: engine.RecalledDate{Value: "2026-01-01", Precision: engine.Day}}, Doses: doses}
+		began := time.Now()
+		if _, err := e.Evaluate(in); err != nil {
+			t.Fatal(err)
+		}
+		return time.Since(began)
+	})
+}
+
 // assertLinear fails when evaluating 4n items takes more than 8× as long as
 // n items (linear ≈ 4×, quadratic ≈ 16×). It compares the best of three runs
 // at each size, so it does not depend on how fast the machine is (a fixed

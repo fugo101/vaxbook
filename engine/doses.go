@@ -637,7 +637,10 @@ func definiteIDs(reasons []Reason) map[string]bool {
 // rescue finds the dated doses that a placement of floating doses in front
 // of them counts (issue #28 In scope 0b, Q83). For each uncounted point D
 // (uncountedPoints) it tries the last c floating doses by ID in front of
-// D, for c from all of them down to 1. A placement is skipped when its
+// D, for c from as many as fit before the series ends down to 1: D lands
+// at least c positions after its position in w, so with more of them it
+// is beyond the series and cannot count, and trying them would make the
+// rescue quadratic in the floating doses. A placement is skipped when its
 // guard fails, or when it gives DOSE_INVALID or DOSE_AFTER_MAX_AGE to a
 // record that has neither in w; D's own reasons do not count, since D is
 // already bad in w. When D counts at its new position it is rescued; a
@@ -654,9 +657,15 @@ func (s seriesModel) rescue(w walkResult, b birthEnd, today Date, pl placement) 
 	}
 	bad := definiteIDs(w.reasons)
 	n := len(pl.dated)
+	pos := make(map[string]int, len(points))
+	for _, it := range w.seq {
+		if it.dose.dated {
+			pos[it.dose.id] = it.pos
+		}
+	}
 	for _, i := range points {
 		id := pl.dated[i].id
-		for c := len(pl.floating); c >= 1; c-- {
+		for c := min(len(pl.floating), s.length-pos[id]); c >= 1; c-- {
 			ins := make([][]givenDose, n+1)
 			ins[i] = pl.floating[len(pl.floating)-c:]
 			r := s.walkWith(b, today, pl, ins)

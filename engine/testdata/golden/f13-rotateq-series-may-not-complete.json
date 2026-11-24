@@ -1,0 +1,55 @@
+{
+  "ruleset": "illustrative-max-age",
+  "input": {
+    "today": "2026-07-23",
+    "profile": {
+      "birth": {
+        "value": "2026-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "rota"
+        ],
+        "product": "rotateq",
+        "date": {
+          "value": "2026-04-09",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-max-age-s4a",
+    "today": "2026-07-23",
+    "assessments": [
+      {
+        "disease": "rota",
+        "bucket": "due",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-05-07",
+          "due": "2026-05-07",
+          "overdue": "2026-05-14"
+        },
+        "seriesUsed": [
+          "rota-rotateq"
+        ],
+        "products": [
+          "rotateq"
+        ],
+        "reasons": [
+          {
+            "code": "SERIES_MAY_NOT_COMPLETE",
+            "params": {
+              "lastDay": "2026-08-12"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

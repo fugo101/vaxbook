@@ -1,0 +1,35 @@
+{
+  "ruleset": "illustrative-max-age",
+  "input": {
+    "today": "2026-06-20",
+    "profile": {
+      "birth": {
+        "value": "2026",
+        "precision": "year"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-max-age-s4a",
+    "today": "2026-06-20",
+    "assessments": [
+      {
+        "disease": "rota",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "BIRTH_DATE_IMPRECISE",
+            "params": {
+              "hint": "fullBirthDate"
+            }
+          },
+          {
+            "code": "OUT_OF_AGE"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "ruleset": "minimal-max-age-complete",
+  "input": {
+    "today": "2026-06-10",
+    "profile": {
+      "birth": {
+        "value": "2006-06",
+        "precision": "month"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "z"
+        ],
+        "product": "za",
+        "date": {
+          "value": "2026-01-01",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-max-age-complete-s4a",
+    "today": "2026-06-10",
+    "assessments": [
+      {
+        "disease": "z",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "z-a"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "BIRTH_DATE_IMPRECISE",
+            "params": {
+              "hint": "fullBirthDate"
+            }
+          },
+          {
+            "code": "OUT_OF_AGE"
+          }
+        ]
+      }
+    ]
+  }
+}

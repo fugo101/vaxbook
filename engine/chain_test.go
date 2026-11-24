@@ -206,8 +206,9 @@ func TestGapImpliedPositions(t *testing.T) {
 //   - Counted predecessor, today 02-22: r1 02-12 counts at 1, so there is no
 //     gap; r1 + 4w = 03-12 > today → DOSE_INVALID.
 //   - Floating dose, today 02-22: r1 01-09, r2 02-10 and u with no number.
-//     The gap search covers fixed slots only; S4b 0b's search is unchanged
-//     → PREVIOUS_DOSE_DATE_UNKNOWN{u}.
+//     The gap search covers fixed slots only (pinned by
+//     TestGapSearchFixedSlotsOnly); S4b 0b's search is unchanged →
+//     PREVIOUS_DOSE_DATE_UNKNOWN{u}.
 //   - q_k ≥ n, today 02-20: r1 01-05, r2 01-10, r3 02-09 (all < 6w@b), so
 //     step 2 gives 1, 3 and 4. Gap 0: u ≥ 03-12 > r1. Gap 1 (q_1 = 1):
 //     u ≥ r1 + 4w = 02-02 > r2.Hi. Gap 2 is not tried: q_2 = 3 ≥ 2, and u #2

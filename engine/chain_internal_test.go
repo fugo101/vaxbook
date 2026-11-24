@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -265,5 +266,54 @@ func TestGapSearchAddsNoDefinite(t *testing.T) {
 	}
 	if lowered == 0 {
 		t.Fatal("the gap search demotes no slot; the check is vacuous")
+	}
+}
+
+// TestGapSearchFixedSlotsOnly (issue #35 In scope 1, SAD §5.3 step 5): the
+// gap search covers the fixed trailing slots, not a floating dose that the
+// walks of S4b 0b's floating fit and rescue insert after the last dated
+// dose; 0b's own placements in front of the uncounted doses cover those.
+// illustrative-max-age rota-rotateq (maxAgeComplete 32w@b = 08-13),
+// birth 2026-01-01, today 09-01: p 03-01 counts at 1; u1 08-20 at 2 is
+// past 32w → DOSE_AFTER_MAX_AGE{maxAgeComplete, u1, 2}, uncounted.
+//   - Floating f inserted after u1: it takes position 2 behind u1, u1 + 4w
+//     = 09-17 > today → DOSE_INVALID{minInterval, f, 2}, and nothing is
+//     lowered, although f after p (p + 4w = 03-29 ≤ u1) would fit there.
+//   - Control: the same record numbered #3 is a fixed slot behind u1 (step
+//     2: p 1, u1 2). Gap 0 (after p, q_0 = 1 < 3): dose 2 ≥ 03-29, f ≥ 04-26
+//     ≤ u1.Hi → fits, so f is lowered.
+func TestGapSearchFixedSlotsOnly(t *testing.T) {
+	t.Parallel()
+	dz := gapFixture{name: "illustrative-max-age", disease: "rota"}.diseaseOf(t)
+	i := slices.IndexFunc(dz.series, func(s seriesModel) bool { return s.id == "rota-rotateq" })
+	if i < 0 {
+		t.Fatal("no rota-rotateq series")
+	}
+	s := dz.series[i]
+	b := birthEnd{date: d(t, "2026-01-01"), known: true}
+	today := d(t, "2026-09-01")
+	dated := []givenDose{
+		{id: "p", date: Exact(d(t, "2026-03-01")), dated: true},
+		{id: "u1", date: Exact(d(t, "2026-08-20")), dated: true},
+	}
+
+	pl := arrange(append(slices.Clone(dated), givenDose{id: "f"})).forLength(s.length)
+	if len(pl.floating) != 1 {
+		t.Fatalf("floating %+v, want f", pl.floating)
+	}
+	ins := make([][]givenDose, len(pl.dated)+1)
+	ins[len(pl.dated)] = pl.floating
+	w := s.walkWith(b, today, pl, ins)
+	want := []Reason{
+		{Code: ReasonDoseAfterMaxAge, Params: ReasonParams{Checks: []Check{CheckMaxAgeComplete}, Dose: "u1", Number: 2}},
+		{Code: ReasonDoseInvalid, Params: ReasonParams{Checks: []Check{CheckMinInterval}, Dose: "f", Number: 2}},
+	}
+	if !reflect.DeepEqual(w.reasons, want) || len(w.lowered) > 0 {
+		t.Errorf("floating f: reasons %+v, lowered %v; want %+v and nothing lowered", w.reasons, w.lowered, want)
+	}
+
+	pl = arrange(append(slices.Clone(dated), givenDose{id: "f", number: 3})).forLength(s.length)
+	if w := s.walkWith(b, today, pl, nil); !w.lowered["f"] {
+		t.Errorf("fixed f #3: reasons %+v, lowered %v; want f lowered", w.reasons, w.lowered)
 	}
 }

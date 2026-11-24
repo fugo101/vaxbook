@@ -33,8 +33,8 @@ type nextResult struct {
 	// EQ20c stand-in): C_c,k measures minIntervalFromFirst from it.
 	first *Range
 	// lows are each plan's earliest date of dose k from the earliest
-	// possible anchors, parallel to plans: R.Lo of the latest dose and of
-	// dose 1, with no dose-1 term when dose 1 is the EQ20c stand-in (the
+	// possible anchors, parallel to plans: the largest R.Lo of the dated
+	// doses (at most the latest dose's R.Hi) and R.Lo of dose 1, with no dose-1 term when dose 1 is the EQ20c stand-in (the
 	// real dose 1 is earlier by an unknown amount). They decide only
 	// whether an out-of-age conclusion is certain (owner 2026-11-24).
 	lows []Date
@@ -134,9 +134,19 @@ func (s seriesModel) next(b birthEnd, w walkResult) nextResult {
 		}
 	}
 
-	// The earliest possible anchors: R.Lo of the latest dose and of dose 1,
-	// and no dose-1 anchor when it is the stand-in.
+	// The earliest possible anchors: the largest R.Lo of the dated doses
+	// for the latest dose (it is on or after each of them, and a numbered
+	// overlap can walk a wider range last), at most its R.Hi; R.Lo of dose
+	// 1; and no dose-1 anchor when it is the stand-in.
 	lowLatest, lowFirst := an.latest.lower(), (*Range)(nil)
+	if lowLatest != nil {
+		for i := range w.seq {
+			if d := w.seq[i].dose; d.dated && d.date.Lo.After(lowLatest.Lo) {
+				lowLatest.Lo = minDate(d.date.Lo, an.latest.Hi)
+			}
+		}
+		lowLatest.Hi = lowLatest.Lo
+	}
 	if an.first != nil && firstSlot.dose.dated {
 		lowFirst = an.first.lower()
 	}

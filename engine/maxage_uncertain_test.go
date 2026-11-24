@@ -290,3 +290,52 @@ func TestRotaTeqMonthDoseCounterparts(t *testing.T) {
 		Disease: "rota", Block: engine.BlockOutOfAge, SeriesUsed: []string{"rota-rotateq"}, Reasons: []engine.Reason{outOfAgeReason},
 	})
 }
+
+// TestNumberedOverlapCertainFromLargestLo: the earliest possible date of
+// the latest dose in time is the largest R.Lo of the dated doses, not R.Lo
+// of the last record in walk order. In-test series q-1: dose 1 minAge 9y,
+// due birth + 9y; dose 2 minAge 9y only (or minInterval 4w), due previous
+// + 1m; dose 3 minInterval 8w, due previous + 1m; maxAgeComplete 15y.
+// Birth 2010-01-15, so L = 2025-01-14; today 2025-01-01. r1 #1 in 2024-12
+// (R = [12-01, 12-31]), r2 #2 in 2024 (R = [2024-01-01, 12-31]): the ranges
+// overlap and the numbers order them, so r2 is walked last.
+//   - Dose 2 minAge only: r1 counted (≥ 9y, < 15y), r2 counted. k = 3: F =
+//     12-31 + 8w = 2025-02-25 > L → out. r2 is given on or after r1, so the
+//     latest dose is on or after 12-01: F^lo = max(01-01, 12-01 + 8w =
+//     2025-01-26) > L → certain → outOfAge [OUT_OF_AGE], est. (R.Lo of r2
+//     alone gave F^lo = max(01-01, 2024-02-26) = 01-01 ≤ L → ⚪
+//     OUT_OF_AGE_UNCERTAIN.)
+//   - Dose 2 minInterval 4w: r2 is possibly before r1 + 4w →
+//     DOSE_POSSIBLY_INVALID{[minInterval], r2, 2}, counted. Counted view as
+//     above, certain → layer 5: outOfAge [DOSE_POSSIBLY_INVALID{…},
+//     OUT_OF_AGE], est.
+func TestNumberedOverlapCertainFromLargestLo(t *testing.T) {
+	t.Parallel()
+	year2024 := engine.RecalledDate{Value: "2024", Precision: engine.Year}
+	series := func(interval string) ruleset.Series {
+		return qSeries(t, "q-1", "", "", "P15Y", []ruleset.DoseRule{
+			rule(t, "P9Y", "", "", ruleset.FromBirth, "P9Y"),
+			rule(t, "P9Y", interval, "", ruleset.FromPreviousDose, "P1M"),
+			rule(t, "", "P8W", "", ruleset.FromPreviousDose, "P1M"),
+		})
+	}
+	doses := []engine.DoseRecord{numbered(doseOf("q", "r1", monthDate("2024-12"), ""), 1), numbered(doseOf("q", "r2", year2024, ""), 2)}
+	t.Run("minimum age only", func(t *testing.T) {
+		t.Parallel()
+		e := newEngine(t, oneDiseaseSnapshot(nil, series("")))
+		got := assessmentOf(t, e, "q", "2025-01-01", dayDate("2010-01-15"), doses...)
+		checkAssessment(t, got, engine.Assessment{
+			Disease: "q", Block: engine.BlockOutOfAge, SeriesUsed: []string{"q-1"}, Estimated: true,
+			Reasons: []engine.Reason{outOfAgeReason},
+		})
+	})
+	t.Run("possibly too early", func(t *testing.T) {
+		t.Parallel()
+		e := newEngine(t, oneDiseaseSnapshot(nil, series("P4W")))
+		got := assessmentOf(t, e, "q", "2025-01-01", dayDate("2010-01-15"), doses...)
+		checkAssessment(t, got, engine.Assessment{
+			Disease: "q", Block: engine.BlockOutOfAge, SeriesUsed: []string{"q-1"}, Estimated: true,
+			Reasons: []engine.Reason{possiblyInvalid("r2", 2, engine.CheckMinInterval), outOfAgeReason},
+		})
+	})
+}

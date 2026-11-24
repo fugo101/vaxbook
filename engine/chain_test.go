@@ -230,6 +230,44 @@ func TestGapSearchKeepsTrueDefinites(t *testing.T) {
 		invalidDose("u", 2, engine.CheckMinInterval)))
 }
 
+// TestGapSearchStopsAtNumberedDose (issue #35 In scope 1, guard that passes
+// on main): P is the latest dated dose that is counted or numbered, so an
+// uncounted numbered dated dose ends the scan for the U's. Its number fixes
+// its position, and S numbered above it cannot lie before it. In-test series
+// q-1 (maxAgeComplete 10w = 03-12, so Validate warns
+// SERIES_CANNOT_COMPLETE): dose 1 minAge 6w, doses 2 and 3 minInterval 4w.
+// Today 04-10: u1 01-09 (before 6w → DOSE_INVALID{minAge, u1, 1},
+// uncounted), n #2 03-20 (past 10w → DOSE_AFTER_MAX_AGE{maxAgeComplete, n,
+// 2}, uncounted), s #3 undated.
+//   - n is P, so there are no U's and no gap: s trails n, n + 4w = 04-17 >
+//     today → DOSE_INVALID{minInterval, s, 3}, and s's earliest date is past
+//     10w → DOSE_AFTER_MAX_AGE{maxAgeComplete, s, 3}. s #3 dated before n #2
+//     is a NUMBERING_CONFLICT, so no day clears it.
+//
+// Scanning past n would take u1 as U1 and n as U2: gap 1 (after u1) gives
+// s ≥ u1 + 4w + 4w = 03-06 ≤ n.Hi, fits, and would drop the certain
+// DOSE_INVALID on s.
+func TestGapSearchStopsAtNumberedDose(t *testing.T) {
+	t.Parallel()
+	e := newEngine(t, oneDiseaseSnapshot(nil, qSeries(t, "q-1", "", "", "P10W", []ruleset.DoseRule{
+		rule(t, "P6W", "", "", ruleset.FromBirth, "P2M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+	})), ruleset.SeriesCannotComplete)
+	got := assessmentOf(t, e, "q", "2026-04-10", birthGap,
+		doseOf("q", "u1", dayDate("2026-01-09"), ""), numbered(doseOf("q", "n", dayDate("2026-03-20"), ""), 2),
+		numbered(doseOf("q", "s", unknownDate, ""), 3))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"q-1"}, Estimated: true,
+		Reasons: []engine.Reason{
+			invalidDose("u1", 1, engine.CheckMinAge),
+			afterMaxAge("n", 2, engine.CheckMaxAgeComplete),
+			invalidDose("s", 3, engine.CheckMinInterval),
+			afterMaxAge("s", 3, engine.CheckMaxAgeComplete),
+		},
+	})
+}
+
 // TestGapSearchLinear: the gap search scans the uncounted dated doses
 // before the trailing run once per walk, so many of them stay linear,
 // with the rescue and floating fit walks on top. illustrative-max-age,

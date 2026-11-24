@@ -176,6 +176,10 @@ _Avoid_: Due date, Max age
 The engine's second look at a disease's dose records with every record counted, used only to decide whether a disease is out of age, so that a dose the engine questions never makes a person out of age by not being counted.
 _Avoid_: Corrected history, Assumed history
 
+**Certainly out of age** — *Chắc chắn quá tuổi*:
+Out of age at the young end of the birth-date range and from the earliest possible dose dates (an imprecise date's earliest day; an undated or implied dose 1 never stands in for a known date). Only then is a disease shown as no longer within vaccination age; when a more exact dose date could still allow the next dose, the engine asks for that date instead.
+_Avoid_: Probably out of age, Past the last allowed day
+
 **Periodic booster** — *Nhắc lại định kỳ*:
 A dose repeated after a series is complete, either every fixed period or once per season; its dose numbers continue those of the series.
 _Avoid_: Revaccination, Annual dose

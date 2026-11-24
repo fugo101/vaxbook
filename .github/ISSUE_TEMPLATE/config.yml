@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/fugo101/vaxbook/security/advisories/new
+    about: Report it privately here. Do not open a public issue for a security problem.
+  - name: Ask a question or get help
+    url: https://github.com/fugo101/vaxbook/blob/main/SUPPORT.md
+    about: Read SUPPORT.md for where to ask. If it does not answer your question, use the Question form.
+  - name: Medical advice
+    url: https://github.com/fugo101/vaxbook/blob/main/SUPPORT.md#medical-advice
+    about: VaxBook is not medical advice and the maintainers do not give advice on individual vaccination. Ask a doctor or a local health facility.

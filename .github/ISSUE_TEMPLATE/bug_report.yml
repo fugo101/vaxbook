@@ -1,0 +1,66 @@
+name: Bug report
+description: Something in VaxBook does not work as documented.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Do not paste real vaccination records, birth dates of real people, emails or any other personal data. Use made-up values.
+
+        For a security problem, do not open an issue. Use the private form linked on the issue chooser page instead (see `SECURITY.md`).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Where does the problem show up?
+      options:
+        - Engine
+        - Rule set or catalog
+        - API or backend
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the behavior you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: If the expectation comes from the spec, the SAD or an ADR, link or name the section.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest input or sequence that triggers it, using made-up data.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Only the `main` branch is supported. Give the commit hash you ran.
+      placeholder: "e.g. 85e45ce"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: Remove anything personal before pasting.
+      render: shell
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you submit
+      options:
+        - label: This issue contains no personal health data or other personal data.
+          required: true

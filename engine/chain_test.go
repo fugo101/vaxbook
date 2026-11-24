@@ -422,3 +422,34 @@ func TestGapSearchKeepsFloatingFit(t *testing.T) {
 		},
 	})
 }
+
+// TestGapBoundRange (issue #35, Q99 (a)): the gap fits up to U(k+1).Hi, so
+// an uncounted dose with a month-precise date bounds the gap at its last
+// day. In-test series q-1: dose 1 minAge 20w (05-21), dose 2 minInterval 8w.
+// Today 04-20: r1 01-20 and r2 2026-03 (both before 20w → DOSE_INVALID{minAge}
+// at 1, uncounted), u #2 undated. Step 2: r1 1, r2 3 (2 is u's).
+//   - Gap 0 needs dose 1 ≥ 05-21 > r1. Gap 1 (after r1, q_1 = 1): u ≥ r1 +
+//     8w = 03-17, after r2.Lo 03-01 but ≤ r2.Hi 03-31 → fits (r2 on 03-31
+//     with u on 03-17 is valid).
+//   - As walked: definite r2.Lo + 8w = 04-26 > today, possible r2.Hi + 8w =
+//     05-26. The definite threshold is lowered to 03-17 ≤ today →
+//     DOSE_POSSIBLY_INVALID{minInterval, u, 2}, counted, k = 3 > 2 →
+//     COMPLETE.
+func TestGapBoundRange(t *testing.T) {
+	t.Parallel()
+	e := newEngine(t, oneDiseaseSnapshot(nil, qSeries(t, "q-1", "", "", "", []ruleset.DoseRule{
+		rule(t, "P20W", "", "", ruleset.FromBirth, "P6M"),
+		rule(t, "", "P8W", "", ruleset.FromPreviousDose, "P2M"),
+	})))
+	got := assessmentOf(t, e, "q", "2026-04-20", birthGap,
+		doseOf("q", "r1", dayDate("2026-01-20"), ""), doseOf("q", "r2", monthDate("2026-03"), ""),
+		numbered(doseOf("q", "u", unknownDate, ""), 2))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"q-1"}, Estimated: true,
+		Reasons: []engine.Reason{
+			invalidDose("r1", 1, engine.CheckMinAge), invalidDose("r2", 1, engine.CheckMinAge),
+			possiblyInvalid("u", 2, engine.CheckMinInterval),
+			complete,
+		},
+	})
+}

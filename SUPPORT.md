@@ -12,6 +12,10 @@ VaxBook is maintained on a best-effort basis. There is no response-time commitme
 
 Use the issue forms under [New issue](https://github.com/fugo101/vaxbook/issues/new/choose). Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before sending a pull request.
 
+## Accessibility barriers
+
+Use the Bug report form with the Area "Accessibility". [`ACCESSIBILITY.md`](ACCESSIBILITY.md) describes the target and what to include.
+
 ## Wrong catalog or rule data
 
 If a product, a series or a rule looks wrong, open an issue with the "Catalog or rule data error" form. Name the Source document (the official text the data should follow) and give a Citation, meaning the exact location in that document. A report without a source cannot be acted on.

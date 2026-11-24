@@ -766,16 +766,18 @@ func (w walkResult) recordsAfter(id string) map[string]bool {
 // fits, from walk r, all of them placed after the last dated dose. As in S2,
 // the last floating dose by ID is named, with the numbers and checks it fails
 // there (issue #15 In scope 4: DOSE_INVALID, or DOSE_AFTER_MAX_AGE when a
-// maximum age fails), so it alone is not counted. Since S4a another dose of
-// fl can be the one that fails while the last does not: the dose at position
-// 1 past the start limit. The first such reason is then given to the last
-// floating dose, with its checks and number. The DOSE_POSSIBLY_INVALID
-// reasons r gives the other doses of fl are kept on them, as they stay
-// counted; the named dose drops its own (Q62). When no dose of fl fails, it
-// is the first bad reason of r. Since S4b's rescue (issue #28 In scope 0b)
-// the branch where another dose of fl fails may be unreachable: a placement
-// in front of the uncounted dated dose before them fits instead. It is kept
-// as a defensive fallback.
+// maximum age fails), so it alone is not counted. Another dose of fl can be
+// the one that fails while the last does not, because the last is placed
+// beyond the series, where it is not checked: for example a dose that
+// cannot lie by today behind a numbered dose 1 (DOSE_INVALID{minInterval},
+// TestNoFloatingPlacementNamesLastByID). The first such reason is then given
+// to the last floating dose, with its checks and number. The
+// DOSE_POSSIBLY_INVALID reasons r gives the other doses of fl are kept on
+// them, as they stay counted; the named dose drops its own (Q62). When no
+// dose of fl fails, it is the first bad reason of r. Since S4b's rescue
+// (issue #28 In scope 0b) a dose at position 1 past the start limit behind
+// an uncounted unnumbered dated dose no longer reaches this branch: the
+// placement in front of that dose rescues it.
 func failedIn(r walkResult, fl []givenDose, isBad func(Reason) bool) []Reason {
 	last := fl[len(fl)-1].id
 	var own, other, possible, firstBad []Reason

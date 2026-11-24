@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// The engine contract (SAD §5.1), S4a subset. It grows additively: each slice
+// The engine contract (SAD §5.1), S4b subset. It grows additively: each slice
 // adds only the members it uses. Struct field order is the JSON member order
 // of the encoded output.
 
@@ -219,7 +219,7 @@ const (
 // Block is a collapsed group outside the buckets.
 type Block string
 
-// Blocks (S4a subset).
+// Blocks (S4b subset).
 const (
 	// BlockNotYetScheduled is "Chưa tới lịch tiêm" ("Not yet scheduled"): no dose
 	// given and dose 1 due more than 6 months after today (EQ2, EQ18).
@@ -248,7 +248,7 @@ type Reason struct {
 
 // ReasonParams holds every reason parameter; each code uses exactly the
 // members its doc lists (SAD §5.4). Members are typed: IDs and enums are
-// strings, counts are integers, lists are arrays. They are in alphabetical
+// strings, counts are integers, dates are Dates, lists are arrays. They are in alphabetical
 // JSON-name order, every field is omitzero, and there are no booleans
 // (omitzero would drop false). It grows additively.
 type ReasonParams struct {
@@ -339,7 +339,7 @@ const (
 // never does so on its own.
 type ReasonCode string
 
-// Reason codes (S4a subset). Blocking unless the doc says informational.
+// Reason codes (S4b subset). Blocking unless the doc says informational.
 const (
 	// ReasonInvalidDate: a dose record of the disease has an unparseable
 	// date (A9). Params: dose.

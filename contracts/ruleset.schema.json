@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "VaxBook rule set snapshot and engine contract",
-  "description": "Go structs in ruleset/ and engine/ are the source (SAD §3). This schema checks shape. null is never valid; an optional member is omitted; members added after S1 are optional. Content checks live in ruleset.Validate and engine.Validate. They include the keywords the Go decoders do not enforce (enums, minLength, minItems, uniqueItems, the Id pattern). The Input schema accepts every Input that Evaluate assesses, so ⚪ INVALID_DATE (A9) stays reachable for a client that validates against it. Documents are I-JSON texts (RFC 7493): unique member names and well-formed Unicode (no unpaired surrogate escapes, no invalid UTF-8). A schema cannot express this, so the Go decoders reject such a text as a decode error. The root is a rule set snapshot; $defs Input and Output are the engine's input and output (engine slice S4a subset).",
+  "description": "Go structs in ruleset/ and engine/ are the source (SAD §3). This schema checks shape. null is never valid; an optional member is omitted; members added after S1 are optional. Content checks live in ruleset.Validate and engine.Validate. They include the keywords the Go decoders do not enforce (enums, minLength, minItems, uniqueItems, the Id pattern). The Input schema accepts every Input that Evaluate assesses, so ⚪ INVALID_DATE (A9) stays reachable for a client that validates against it. Documents are I-JSON texts (RFC 7493): unique member names and well-formed Unicode (no unpaired surrogate escapes, no invalid UTF-8). A schema cannot express this, so the Go decoders reject such a text as a decode error. The root is a rule set snapshot; $defs Input and Output are the engine's input and output (engine slice S4b subset).",
   "$ref": "#/$defs/Snapshot",
   "$defs": {
     "Id": {
@@ -218,7 +218,7 @@
       }
     },
     "ReasonParams": {
-      "description": "Every reason parameter; each code uses the members SAD §5.4 lists for it. Typed: IDs and enums are strings, counts are integers, lists are arrays; no booleans. Members are added additively.",
+      "description": "Every reason parameter; each code uses the members SAD §5.4 lists for it. Typed: IDs and enums are strings, counts are integers, dates are Date strings, lists are arrays; no booleans. Members are added additively.",
       "type": "object",
       "additionalProperties": false,
       "minProperties": 1,

@@ -231,7 +231,7 @@ func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
 	if !pl.forceAll {
 		if rescued, rw, first := s.rescue(w, b, today, pl); len(rescued) > 0 {
 			pl.force = maps.Clone(rescued)
-			w = s.forceLater(b, today, pl, rw, first)
+			w = s.forceLater(b, today, pl, rw, first, w.lowered)
 			pl.force = w.pinned(pl.force, rescued)
 		}
 		s.checkFloating(&w, b, today, pl)
@@ -459,6 +459,9 @@ const coverBudget = 512
 //
 // A forced record's reasons at the position it has in w are its verdict
 // from the rescue (forceLater), so they never count against a placement.
+// Nor does a definite reason on a record that w's gap search demoted
+// (walkResult.lowered, issue #35 Q103): it is treated like a record w has
+// DOSE_INVALID on.
 // A rescued dose is judged like any other record at any other position, so
 // a placement that moves it where it fails does not fit (placement.forced).
 //
@@ -495,6 +498,9 @@ func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placem
 		case ReasonDosePossiblyInvalid:
 			flagged[r.Params.Dose] = true
 		}
+	}
+	for id := range w.lowered {
+		invalid[id], flagged[id] = true, true
 	}
 	isBad := func(x Reason) bool {
 		return (x.Code == ReasonDoseInvalid || x.Code == ReasonDoseAfterMaxAge) && !invalid[x.Params.Dose]
@@ -678,7 +684,9 @@ func definiteIDs(reasons []Reason) map[string]bool {
 // rescue quadratic in the floating doses. A placement is skipped when its
 // guard fails, or when it gives DOSE_INVALID or DOSE_AFTER_MAX_AGE to a
 // record that has neither in w; D's own reasons do not count, since D is
-// already bad in w. When D counts at its new position it is rescued; a
+// already bad in w, and neither do those of a slot that w's gap search
+// demoted (walkResult.lowered, issue #35 Q103), which some placement in
+// time fits. When D counts at its new position it is rescued; a
 // placement that fits at one end only also rescues. It returns the rescued
 // doses, the first walk that rescues one (rw, for the earliest rescued
 // dose in walk order) and that dose's ID.
@@ -691,6 +699,9 @@ func (s seriesModel) rescue(w walkResult, b birthEnd, today Date, pl placement) 
 		return nil, walkResult{}, ""
 	}
 	bad := definiteIDs(w.reasons)
+	for id := range w.lowered {
+		bad[id] = true
+	}
 	n := len(pl.dated)
 	pos := make(map[string]int, len(points))
 	for _, it := range w.seq {
@@ -727,13 +738,18 @@ func (s seriesModel) rescue(w walkResult, b birthEnd, today Date, pl placement) 
 // record keeps a DOSE_INVALID or DOSE_AFTER_MAX_AGE only if rw, the walk of
 // the rescuing placement, gives it one too. Otherwise it is forced counted
 // with the DOSE_POSSIBLY_INVALID of the redone walk, or with no reason when
-// rw puts it beyond the series. Forcing a record can only move the records
+// rw puts it beyond the series. A slot that the gap search of the walk
+// before the rescue demoted (lowered, issue #35 Q103) is not kept definite
+// by rw either. Forcing a record can only move the records
 // after it up, so this repeats until nothing more is forced, at most length
 // rounds.
-func (s seriesModel) forceLater(b birthEnd, today Date, pl placement, rw walkResult, first string) walkResult {
+func (s seriesModel) forceLater(b birthEnd, today Date, pl placement, rw walkResult, first string, lowered map[string]bool) walkResult {
 	w := s.walkWith(b, today, pl, nil)
 	w.floating = pl.floating
 	keep := definiteIDs(rw.reasons)
+	for id := range lowered {
+		delete(keep, id)
+	}
 	beyond := map[string]bool{}
 	for _, it := range rw.seq {
 		if it.dose.dated && it.pos > s.length {

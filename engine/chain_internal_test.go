@@ -190,3 +190,80 @@ func behindUncounted(seq []item) bool {
 	}
 	return j > 0 && j < len(seq) && !seq[j-1].counted && seq[j-1].dose.number == 0
 }
+
+// TestGapSearchAddsNoDefinite (issue #35, Q103 (a)) is a differential
+// check of the gap search: counting a demoted slot changes the walks of
+// S4b 0b's floating fit and rescue, which judge placements against the
+// walk, and must not trade the false definite for another. On the three
+// fixtures above and minimal-max-age-complete, with an exact birth, zero
+// to three exact dated doses (a quarter numbered 1–3), one floating record
+// u0 and one record u1 numbered 1–3, both undated: for every series, the
+// walk with the gap search gives no record a DOSE_INVALID or
+// DOSE_AFTER_MAX_AGE that the walk without it (placement.noGapSearch) does
+// not. It fails when the search demotes no slot in the draws.
+func TestGapSearchAddsNoDefinite(t *testing.T) {
+	t.Parallel()
+	walks, lowered, bad := 0, 0, 0
+	definites := func(w walkResult) map[string]bool {
+		out := map[string]bool{}
+		for _, x := range w.reasons {
+			if x.Code == ReasonDoseInvalid || x.Code == ReasonDoseAfterMaxAge {
+				out[string(x.Code)+" "+x.Params.Dose] = true
+			}
+		}
+		return out
+	}
+	for _, fx := range []gapFixture{
+		{"minimal-single", "single", "2026-01-01", "2026-01-01", nil, 200},
+		{"illustrative-vn", "pertussis", "2026-01-01", "2026-01-01", nil, 300},
+		{"illustrative-max-age", "rota", "2026-01-01", "2026-01-01", nil, 330},
+		{"minimal-max-age-complete", "z", "2006-06-01", "2024-05-01", nil, 2*365 + 200},
+	} {
+		dz := fx.diseaseOf(t)
+		base := d(t, fx.base)
+		b := birthEnd{date: d(t, fx.birth), known: true}
+		rng := rand.New(rand.NewPCG(103, uint64(len(fx.name))))
+		for range 40000 {
+			today := base.AddDays(30 + rng.IntN(fx.span))
+			var doses []givenDose
+			for i := range rng.IntN(4) {
+				day := base.AddDays(rng.IntN(int(today.days-base.days) + 1))
+				g := givenDose{id: fmt.Sprintf("d%d", i), date: Exact(day), dated: true}
+				if rng.IntN(4) == 0 {
+					g.number = 1 + rng.IntN(3)
+				}
+				doses = append(doses, g)
+			}
+			doses = append(doses, givenDose{id: "u0"}, givenDose{id: "u1", number: 1 + rng.IntN(3)})
+			arr := arrange(doses)
+			if arr.blocked() {
+				continue
+			}
+			for _, s := range dz.series {
+				pl := arr.forLength(s.length)
+				on := s.walk(b, today, pl)
+				if len(s.walkWith(b, today, pl, nil).lowered) > 0 {
+					lowered++
+				}
+				pl.noGapSearch = true
+				off := definites(s.walk(b, today, pl))
+				walks++
+				for k := range definites(on) {
+					if !off[k] {
+						if bad++; bad <= 3 {
+							t.Errorf("%s %s: the gap search adds %s\ntoday %v doses %+v\nwith %+v",
+								fx.name, s.id, k, today, doses, on.reasons)
+						}
+					}
+				}
+			}
+		}
+	}
+	t.Logf("%d walks, %d with a demoted slot, %d added definites", walks, lowered, bad)
+	if bad > 0 {
+		t.Errorf("the gap search adds %d definite reasons", bad)
+	}
+	if lowered == 0 {
+		t.Fatal("the gap search demotes no slot; the check is vacuous")
+	}
+}

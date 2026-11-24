@@ -1,0 +1,60 @@
+name: Catalog or rule data error
+description: A product, series, dose rule or rule in VaxBook disagrees with its source.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when catalog or rule data looks wrong, for example an age bracket, an interval or a dose count. Catalog and rule data must cite a Source document, so a citation is required here.
+
+        VaxBook is not medical advice and the maintainers cannot answer questions about your own or anyone's vaccination. Ask a doctor or a local health facility for that. Do not paste personal health data.
+  - type: input
+    id: affected
+    attributes:
+      label: Disease, product, series or rule affected
+      description: Name it as it appears in VaxBook or in the spec (docs/feature-spec-mvp.md).
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What is wrong?
+      description: Say what VaxBook currently says or does.
+    validations:
+      required: true
+  - type: textarea
+    id: should-be
+    attributes:
+      label: What should it be?
+      description: The value or behavior you expect, as the source states it.
+    validations:
+      required: true
+  - type: input
+    id: source-document
+    attributes:
+      label: Source document
+      description: Title, issuing body and date or version (for example a Ministry of Health decision or a WHO position paper).
+    validations:
+      required: true
+  - type: input
+    id: citation-location
+    attributes:
+      label: Article, clause or page
+      description: The exact place in the Source document that supports your claim.
+    validations:
+      required: true
+  - type: input
+    id: source-url
+    attributes:
+      label: URL
+      description: A link to the Source document, if it is public.
+      placeholder: https://
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you submit
+      options:
+        - label: This is about the catalog or rule data, not a request for personal medical advice.
+          required: true
+        - label: This issue contains no personal health data or other personal data.
+          required: true

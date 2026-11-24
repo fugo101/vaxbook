@@ -1,0 +1,26 @@
+name: Question
+description: Ask how to use, build or understand VaxBook.
+labels: ["question", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read the README, `GLOSSARY.md`, the docs in `docs/` and the existing issues first (see `SUPPORT.md`).
+
+        VaxBook is not medical advice and the maintainers cannot answer questions about your own or anyone's vaccination. Ask a doctor or a local health facility for that. Do not paste real vaccination records, birth dates of real people, emails or any other personal data. Use made-up values.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What are you trying to do, and what have you already tried or read?
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you submit
+      options:
+        - label: This is not a request for personal medical advice.
+          required: true
+        - label: This issue contains no personal health data or other personal data.
+          required: true

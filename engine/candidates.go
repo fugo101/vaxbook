@@ -440,11 +440,12 @@ func (ev evaluation) conclude(b birthEnd, rs []candidateResult, res endResult, s
 // (owner 2026-11-24): BIRTH_DATE_IMPRECISE{fullBirthDate} when the birth
 // date would decide for some candidate, then OUT_OF_AGE_UNCERTAIN{numbers}
 // when its dose dates would, with numbers the union of those candidates'
-// positions whose exact date could decide (nextResult.loose). A dose
-// cause means F_c^lo < F_c, so some date involved is not one day or is the
-// stand-in, and numbers is never empty (the property tests check every
-// reason's params). The view is clean, so the positions are the as-walked
-// ones the per-dose reasons name.
+// positions whose exact date could decide (candidateResult.deciding). A
+// dose cause means F_c past Limit^b_c,k or F_c^lo within Limit_c,k while
+// F_c is past it, so the plan with the smallest F^lo has a term past that
+// limit and above its F^lo: numbers is never empty (the property tests
+// check every reason's params). The view is clean, so the positions are
+// the as-walked ones the per-dose reasons name.
 func (ev evaluation) uncertain(cv []candidateResult) []Reason {
 	birth, dose := false, false
 	var numbers []int
@@ -459,7 +460,7 @@ func (ev evaluation) uncertain(cv []candidateResult) []Reason {
 		birth = birth || b
 		if d {
 			dose = true
-			numbers = append(numbers, r.next.loose...)
+			numbers = append(numbers, r.deciding(ev.today)...)
 		}
 	}
 	var out []Reason

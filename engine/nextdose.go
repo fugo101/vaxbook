@@ -38,12 +38,21 @@ type nextResult struct {
 	// real dose 1 is earlier by an unknown amount). They decide only
 	// whether an out-of-age conclusion is certain (owner 2026-11-24).
 	lows []Date
-	// loose are the positions, ascending, whose exact date could move a
-	// plan's earliest date earlier: the latest dated dose when some plan
-	// has a minInterval and its range is not one day, and 1 when some plan
-	// has a minIntervalFromFirst and dose 1 is the stand-in or its range is
-	// not one day (OUT_OF_AGE_UNCERTAIN's numbers).
-	loose []int
+	// terms are each plan's dose-date terms of its earliest date from the
+	// latest possible anchors, parallel to plans; with latestPos they give
+	// OUT_OF_AGE_UNCERTAIN's numbers (candidateResult.deciding).
+	terms []planTerms
+	// latestPos is the position of the latest dated dose.
+	latestPos int
+}
+
+// planTerms are a plan's dose-date terms of the earliest date of dose k,
+// from R.Hi (dose 1's may be the EQ20c stand-in's): latest dose +
+// minInterval and dose 1 + minIntervalFromFirst, each when the plan has it
+// and the anchor is there.
+type planTerms struct {
+	latest, first       Date
+	hasLatest, hasFirst bool
 }
 
 // next computes next dose k for every plan and merges the plans (SAD §5.3
@@ -150,7 +159,6 @@ func (s seriesModel) next(b birthEnd, w walkResult) nextResult {
 	if an.first != nil && firstSlot.dose.dated {
 		lowFirst = an.first.lower()
 	}
-	looseLatest, looseFirst := false, false
 	for _, p := range s.plans {
 		d := p.doses[k-1]
 		pd, ok := d.dates(b, an)
@@ -168,17 +176,16 @@ func (s seriesModel) next(b birthEnd, w walkResult) nextResult {
 		r.plans = append(r.plans, pd)
 		low, _ := d.earliest(b, lowLatest, lowFirst)
 		r.lows = append(r.lows, low)
-		looseLatest = looseLatest || d.minInterval.ok && an.latest != nil && an.latest.Lo != an.latest.Hi
-		looseFirst = looseFirst || d.minFromFirst.ok && an.first != nil && (lowFirst == nil || an.first.Lo != an.first.Hi)
+		var pt planTerms
+		if d.minInterval.ok && an.latest != nil {
+			pt.latest, pt.hasLatest = an.latest.Hi.AddSpan(d.minInterval.span), true
+		}
+		if d.minFromFirst.ok && an.first != nil {
+			pt.first, pt.hasFirst = an.first.Hi.AddSpan(d.minFromFirst.span), true
+		}
+		r.terms = append(r.terms, pt)
 	}
-	if looseFirst {
-		r.loose = append(r.loose, 1)
-	}
-	if looseLatest {
-		r.loose = append(r.loose, latestPos)
-	}
-	slices.Sort(r.loose)
-	r.loose = slices.Compact(r.loose)
+	r.latestPos = latestPos
 	r.first = an.first
 	r.next, _ = choosePlans(k, r.plans, func(planDates) bool { return true })
 	return r

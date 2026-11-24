@@ -1,5 +1,7 @@
 package engine
 
+import "slices"
+
 // The maximum-age limits of the next dose (SAD §5.3 steps 3, 4 and 7,
 // F05.4a, F05.4b, EQ15; issue #28). Every limit is a last allowed day: one
 // day before the exclusive limit date of S4a's checks.
@@ -232,6 +234,38 @@ func (r candidateResult) uncertainCauses(today Date) (birth, dose bool) {
 	x := r.limits.limOwn.exceededBy(r.ownF(today))
 	y := r.limits.lim.exceededBy(r.ownFLo(today))
 	return !x || y, x || !y
+}
+
+// deciding are the positions, ascending, whose exact date could decide
+// whether a candidate that is out but not certainly out can still have its
+// next dose (OUT_OF_AGE_UNCERTAIN's numbers, owner 2026-11-24). A position
+// decides through a plan whose earliest date from the earliest possible
+// anchors (F^lo = max(today, nextResult.lows)) is not past Limit^b_c,k, so
+// that the plan could still be in age, and whose term from that position's
+// latest possible date (planTerms) is above F^lo and past Limit_c,k, so
+// that the term alone could put it out: with the other dates at their
+// earliest, that position's date then moves the plan across a limit the
+// birth range allows. A term that never exceeds the limit, or that the
+// other terms dominate, cannot decide, and an exact date never does (its
+// term is at most F^lo). Every position that can decide is listed: some
+// plan must be in age at one of its dates and out at another.
+func (r candidateResult) deciding(today Date) []int {
+	var out []int
+	for i, lo := range r.next.lows {
+		lo = maxDate(today, lo)
+		if r.limits.limOwn.exceededBy(lo) {
+			continue
+		}
+		t := r.next.terms[i]
+		if t.hasFirst && t.first.After(lo) && r.limits.lim.exceededBy(t.first) {
+			out = append(out, 1)
+		}
+		if t.hasLatest && t.latest.After(lo) && r.limits.lim.exceededBy(t.latest) {
+			out = append(out, r.next.latestPos)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // hasReason reports whether reasons hold one with code c.

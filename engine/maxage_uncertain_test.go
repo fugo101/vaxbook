@@ -339,3 +339,44 @@ func TestNumberedOverlapCertainFromLargestLo(t *testing.T) {
 		})
 	})
 }
+
+// TestOutOfAgeUncertainOnlyDecidingPositions: numbers lists a position
+// only when its exact date could decide: its term, from its latest
+// possible date, is past the limit and above the plan's earliest date
+// from the earliest possible anchors. threeDoseQ, birth 2010-01-15, so L =
+// 2025-01-14; today 2025-01-01.
+//   - minIntervalFromFirst 7m, r1 in 2024-06, r2 in 2024-08: F =
+//     max(08-31 + 4w = 09-28, 06-30 + 7m = 2025-01-30) = 01-30 > L; F^lo =
+//     max(01-01,
+//     08-01 + 4w = 08-29, 06-01 + 7m = 2025-01-01) = 01-01 ≤ L → not
+//     certain. r2's term is at most 09-28 ≤ L, so its date never decides →
+//     numbers [1].
+//   - minIntervalFromFirst 7m, r1 in 2024-06, r2 in 2024-09: r2's term is
+//     at most 09-30 + 4w = 10-28 ≤ L → numbers [1].
+//   - minIntervalFromFirst 5m, r1 in 2024-01, r2 in 2024-12: F =
+//     max(12-31 + 4w = 2025-01-28, 01-31 + 5m = 06-30) = 01-28 > L; F^lo =
+//     max(01-01,
+//     12-01 + 4w = 12-29, 01-01 + 5m = 06-01) = 01-01. r1's term is at most
+//     06-30 ≤ L → numbers [2].
+func TestOutOfAgeUncertainOnlyDecidingPositions(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, fromFirst, r1, r2 string
+		numbers                 []int
+	}{
+		{"dose 2 below the limit", "P7M", "2024-06", "2024-08", []int{1}},
+		{"dose 2 in september", "P7M", "2024-06", "2024-09", []int{1}},
+		{"dose 1 below the limit", "P5M", "2024-01", "2024-12", []int{2}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			e := newEngine(t, oneDiseaseSnapshot(nil, threeDoseQ(t, c.fromFirst)))
+			got := assessmentOf(t, e, "q", "2025-01-01", dayDate("2010-01-15"), doseOf("q", "r1", monthDate(c.r1), ""), doseOf("q", "r2", monthDate(c.r2), ""))
+			checkAssessment(t, got, engine.Assessment{
+				Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"q-1"}, Estimated: true,
+				Reasons: []engine.Reason{outOfAgeUncertain(c.numbers...)},
+			})
+		})
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/fugo101/vaxbook/ruleset"
@@ -196,15 +197,18 @@ func behindUncounted(seq []item) bool {
 // check of the gap search: counting a demoted slot changes the walks of
 // S4b 0b's floating fit and rescue, which judge placements against the
 // walk, and must not trade the false definite for another. On the three
-// fixtures above and minimal-max-age-complete, with an exact birth, zero
-// to three exact dated doses (a quarter numbered 1–3), one floating record
-// u0 and one record u1 numbered 1–3, both undated: for every series, the
-// walk with the gap search gives no record a DOSE_INVALID or
+// fixtures above, minimal-max-age-complete and the in-test series of
+// TestGapSearchKeepsFloatingFit (whose draws reach the floating fit with a
+// demoted slot, which the fixtures' draws do not), with an exact birth,
+// zero to three exact dated doses (a quarter numbered 1–3), one floating
+// record u0 and one record u1 numbered 1–3, both undated: for every
+// series, the walk with the gap search gives no record a DOSE_INVALID or
 // DOSE_AFTER_MAX_AGE that the walk without it (placement.noGapSearch) does
-// not. It fails when the search demotes no slot in the draws.
+// not. It fails when the search demotes no slot in the draws, or when no
+// floating fit runs on a walk with a demoted slot (no rescue first).
 func TestGapSearchAddsNoDefinite(t *testing.T) {
 	t.Parallel()
-	walks, lowered, bad := 0, 0, 0
+	walks, lowered, floatFits, bad := 0, 0, 0, 0
 	definites := func(w walkResult) map[string]bool {
 		out := map[string]bool{}
 		for _, x := range w.reasons {
@@ -214,13 +218,21 @@ func TestGapSearchAddsNoDefinite(t *testing.T) {
 		}
 		return out
 	}
+	type source struct {
+		gapFixture
+		series []seriesModel
+	}
+	var sources []source
 	for _, fx := range []gapFixture{
 		{"minimal-single", "single", "2026-01-01", "2026-01-01", nil, 200},
 		{"illustrative-vn", "pertussis", "2026-01-01", "2026-01-01", nil, 300},
 		{"illustrative-max-age", "rota", "2026-01-01", "2026-01-01", nil, 330},
 		{"minimal-max-age-complete", "z", "2006-06-01", "2024-05-01", nil, 2*365 + 200},
 	} {
-		dz := fx.diseaseOf(t)
+		sources = append(sources, source{fx, fx.diseaseOf(t).series})
+	}
+	sources = append(sources, source{gapFixture{"in-test q-1", "q", "2026-01-01", "2026-01-01", nil, 130}, floatingFitSeries(t)})
+	for _, fx := range sources {
 		base := d(t, fx.base)
 		b := birthEnd{date: d(t, fx.birth), known: true}
 		rng := rand.New(rand.NewPCG(103, uint64(len(fx.name))))
@@ -240,11 +252,14 @@ func TestGapSearchAddsNoDefinite(t *testing.T) {
 			if arr.blocked() {
 				continue
 			}
-			for _, s := range dz.series {
+			for _, s := range fx.series {
 				pl := arr.forLength(s.length)
 				on := s.walk(b, today, pl)
-				if len(s.walkWith(b, today, pl, nil).lowered) > 0 {
+				if w := s.walkWith(b, today, pl, nil); len(w.lowered) > 0 {
 					lowered++
+					if rescued, _, _ := s.rescue(w, b, today, pl); len(pl.floating) > 0 && len(rescued) == 0 {
+						floatFits++
+					}
 				}
 				pl.noGapSearch = true
 				off := definites(s.walk(b, today, pl))
@@ -260,13 +275,38 @@ func TestGapSearchAddsNoDefinite(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("%d walks, %d with a demoted slot, %d added definites", walks, lowered, bad)
+	t.Logf("%d walks, %d with a demoted slot, %d of them into the floating fit, %d added definites", walks, lowered, floatFits, bad)
 	if bad > 0 {
 		t.Errorf("the gap search adds %d definite reasons", bad)
 	}
 	if lowered == 0 {
 		t.Fatal("the gap search demotes no slot; the check is vacuous")
 	}
+	if floatFits == 0 {
+		t.Fatal("no floating fit runs on a walk with a demoted slot; its half of the check is vacuous")
+	}
+}
+
+// floatingFitSeries is the in-test series of TestGapSearchKeepsFloatingFit
+// (q-1, maxAgeStart 8w: dose 1 minAge 6w, dose 2 minInterval 4w, doses 3
+// and 4 minInterval 1w), whose draws reach S4b 0b's floating fit with a
+// slot that the gap search demoted.
+func floatingFitSeries(t *testing.T) []seriesModel {
+	t.Helper()
+	dose := func(fields string) string {
+		return `{` + fields + `"recommended": {"from": "birth", "offset": "P2M"}}`
+	}
+	doses := strings.Join([]string{dose(`"minAge": "P6W", `), dose(`"minInterval": "P4W", `), dose(`"minInterval": "P1W", `), dose(`"minInterval": "P1W", `)}, ", ")
+	s, err := ruleset.Decode([]byte(`{"version": "v", "illustrative": true, "diseases": [{"id": "q", "name": "Q"}], "products": [], ` +
+		`"series": [{"id": "q-1", "disease": "q", "stage": "childhood", "maxAgeStart": "P8W", "plans": [{"id": "a", "doses": [` + doses + `]}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := New(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e.diseases[0].series
 }
 
 // TestGapSearchFixedSlotsOnly (issue #35 In scope 1, SAD §5.3 step 5): the

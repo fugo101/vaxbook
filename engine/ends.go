@@ -201,9 +201,11 @@ func capKey(reasons []Reason) string {
 
 // reasonRank is a code's place in the reason order of one evaluated date
 // (SAD §5.4). The per-dose codes share one rank, so a stable sort keeps
-// their walk order. OUT_OF_AGE_UNCERTAIN takes OUT_OF_AGE's place; the two
-// never share a list. Only two agreeing outOfAge results are sorted: their
-// reasons are otherwise merged by appending.
+// their walk order. OUT_OF_AGE_UNCERTAIN takes OUT_OF_AGE's place: one
+// evaluated date never has both, but step 4's ⚪ for disagreeing dates can
+// list both, unsorted (an older end certainly out, a later one not). Only
+// two agreeing outOfAge results are sorted, and neither can hold
+// OUT_OF_AGE_UNCERTAIN; reasons are otherwise merged by appending.
 func reasonRank(c ReasonCode) int {
 	switch c {
 	case ReasonBirthDateImprecise:

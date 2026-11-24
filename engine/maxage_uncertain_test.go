@@ -420,3 +420,35 @@ func TestOutOfAgeUncertainTwoPlans(t *testing.T) {
 		})
 	})
 }
+
+// TestOutOfAgeUncertainJointCause: the row of uncertainCauses where X
+// (F_c past Limit^b_c,k) and Y (F_c^lo past Limit_c,k) both hold, so the
+// birth date and the dose date are each needed. twoDoseQ with 8w, birth in
+// 2010-01 (b_old = 01-01, so L = 2024-12-31 at both ends), r1 in 2024-12,
+// today 2025-01-01.
+//   - Older end (01-01): F = 12-31 + 8w = 2025-02-25 > L → out; F^lo =
+//     max(01-01, 12-01 + 8w = 2025-01-26) > Limit^b = L → certain →
+//     outOfAge [OUT_OF_AGE].
+//   - Later end (01-31): Limit^b = 2025-01-30. X: 02-25 > 01-30; Y: 01-26 >
+//     12-31. Born on 01-01 the next dose is certainly out, so the birth date
+//     decides; born on 01-31, r1 on 12-01 gives F = 01-26 ≤ 01-30 (in age)
+//     and r1 on 12-31 gives 02-25 (out), so the dose date decides too →
+//     ⚪ [BIRTH_DATE_IMPRECISE{fullBirthDate}, OUT_OF_AGE_UNCERTAIN{numbers:
+//     [1]}] (r1's term from R.Hi, 02-25, is after F^lo = 01-26 ≤ 01-30 and
+//     past L).
+//   - The ends disagree → ⚪ [BIRTH_DATE_IMPRECISE{fullBirthDate},
+//     OUT_OF_AGE_UNCERTAIN{numbers: [1]}, OUT_OF_AGE], est: the later end's
+//     reasons, then the older end's.
+//
+// The row where neither holds needs no test of its own here: with doses
+// given both ends share Limit_c,k and the dose-date terms, so the older end
+// is then out too, with X true, and lists the same positions.
+func TestOutOfAgeUncertainJointCause(t *testing.T) {
+	t.Parallel()
+	e := newEngine(t, oneDiseaseSnapshot(nil, twoDoseQ(t, "q-1", "", "P8W")))
+	got := assessmentOf(t, e, "q", "2025-01-01", monthDate("2010-01"), doseOf("q", "r1", monthDate("2024-12"), ""))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"q-1"}, Estimated: true,
+		Reasons: []engine.Reason{fullBirthDate, outOfAgeUncertain(1), outOfAgeReason},
+	})
+}

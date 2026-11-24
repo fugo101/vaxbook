@@ -500,8 +500,10 @@ func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placem
 			flagged[r.Params.Dose] = true
 		}
 	}
+	// A demoted slot counts with its DOSE_POSSIBLY_INVALID in w, so it is
+	// flagged already.
 	for id := range w.lowered {
-		invalid[id], flagged[id] = true, true
+		invalid[id] = true
 	}
 	isBad := func(x Reason) bool {
 		return (x.Code == ReasonDoseInvalid || x.Code == ReasonDoseAfterMaxAge) && !invalid[x.Params.Dose]

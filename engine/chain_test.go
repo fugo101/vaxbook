@@ -379,3 +379,46 @@ func TestGapZeroChecksFromFirst(t *testing.T) {
 		},
 	})
 }
+
+// TestGapSearchKeepsFloatingFit (issue #35 Q103 (a)): a definite reason
+// that a placement's walk gives a slot that the gap search made counted
+// does not count against the placement in S4b 0b's floating fit either.
+// In-test series q-1 (maxAgeStart 8w = 02-26): dose 1 minAge 6w (02-12),
+// dose 2 minInterval 4w, doses 3 and 4 minInterval 1w. Today 04-10: u1
+// 03-01 and u2 04-06 (both past 8w at 1: DOSE_AFTER_MAX_AGE{maxAgeStart}),
+// s #3 undated, f undated with no number (floating). Step 2: u1 1, u2 2.
+//   - Walk: s trails u2 at 3, u2 + 1w = 04-13 > today. Gap 0 needs dose 1 ≥
+//     02-12, dose 2 ≥ 03-12, s ≥ 03-19 > u1. Gap 1 (after u1, q_1 = 1):
+//     dose 2 ≥ u1 + 4w = 03-29, s ≥ 04-05 < u2.Hi → fits, threshold 04-05
+//     ≤ today → DOSE_POSSIBLY_INVALID{minInterval, s, 3}, counted.
+//   - Floating fit: f after everything is at 4 behind s, u2 + 1w + 1w =
+//     04-20 > today → DOSE_INVALID on f: does not fit. f in front of u1
+//     (0b point; its chain, 02-12, lies on or before u1): f at 1, u1 at 2
+//     fails 02-12 + 4w = 03-12 (its own reason, and no rescue), u2 counts
+//     at 2 (u1 + 4w = 03-29). s then trails a counted dose and gets
+//     DOSE_INVALID{minInterval} there (u2 + 1w > today), which does not
+//     count against the placement, so f fits.
+//   - k = 3 + 1 + 1 = 5 > 4 → COMPLETE.
+//
+// Without the exemption, f would fit nowhere and get DOSE_INVALID.
+func TestGapSearchKeepsFloatingFit(t *testing.T) {
+	t.Parallel()
+	e := newEngine(t, oneDiseaseSnapshot(nil, qSeries(t, "q-1", "", "P8W", "", []ruleset.DoseRule{
+		rule(t, "P6W", "", "", ruleset.FromBirth, "P2M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+		rule(t, "", "P1W", "", ruleset.FromPreviousDose, "P1M"),
+		rule(t, "", "P1W", "", ruleset.FromPreviousDose, "P1M"),
+	})))
+	got := assessmentOf(t, e, "q", "2026-04-10", birthGap,
+		doseOf("q", "u1", dayDate("2026-03-01"), ""), doseOf("q", "u2", dayDate("2026-04-06"), ""),
+		numbered(doseOf("q", "s", unknownDate, ""), 3), doseOf("q", "f", unknownDate, ""))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"q-1"}, Estimated: true,
+		Reasons: []engine.Reason{
+			afterMaxAge("u1", 1, engine.CheckMaxAgeStart),
+			afterMaxAge("u2", 1, engine.CheckMaxAgeStart),
+			possiblyInvalid("s", 3, engine.CheckMinInterval),
+			complete,
+		},
+	})
+}

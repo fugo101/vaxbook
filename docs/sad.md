@@ -29,7 +29,7 @@
 | 3 | **Privacy** | Minimal collection; admin and MCP never see user data | Separation by host, no user-data screens, logs contain no PII |
 | 4 | **Cheap, low-effort operation** | One binary, one database, no separate queue or worker | ADR-0001, ADR-0009, in-process scheduler |
 | 5 | **Extensible (P6)** | Add prices, push, profile sharing without a large migration | `ProfileMembership`, notification content separated from delivery channel, replaceable price source layer |
-| – | **Accessibility** (not ranked yet) | The web app, the admin area and, as far as applicable, the emails target WCAG 2.2 level AA (owner decision 2026-11-24); color is never the only signal, so every bucket keeps its text label. A target, not a conformance claim | [`ACCESSIBILITY.md`](../ACCESSIBILITY.md); semantic HTML and accessible component primitives (shadcn/ui, §12); automated axe-core checks through Playwright in CI once `apps/web` exists; manual keyboard, zoom and screen reader checks before each release |
+| – | **Accessibility** | The web app, the admin area and, as far as applicable, the emails target WCAG 2.2 level AA (owner decision 2026-11-24); color is never the only signal, so every bucket keeps its text label. A target, not a conformance claim | [`ACCESSIBILITY.md`](../ACCESSIBILITY.md); semantic HTML and accessible component primitives (shadcn/ui, §12); automated axe-core checks through Playwright in CI once `apps/web` exists; manual keyboard, zoom and screen reader checks before each release |
 
 ---
 

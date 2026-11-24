@@ -25,7 +25,7 @@ Closes #
 - [ ] A contract migration is its own commit, with no decision logic (`CODING_STANDARDS.md`; a migration that adds an output member may add the code that emits it)
 - [ ] Test fixtures based on real rules name their Source document (Citation)
 - [ ] Spec, SAD, ADRs or `GLOSSARY.md` updated where this change alters them
-- [ ] Web UI or email template changes meet WCAG 2.2 level AA per `ACCESSIBILITY.md` (keyboard, visible focus, contrast, color not the only signal)
+- [ ] Web UI changes meet WCAG 2.2 level AA, and email template changes follow it as far as it applies, per `ACCESSIBILITY.md` (keyboard, visible focus, contrast, color not the only signal)
 - [ ] No personal identifiers (domains, IPs, host paths, usernames, emails, other project names) and no real health data
 
 ## Merge Danger

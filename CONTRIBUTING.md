@@ -85,7 +85,7 @@ Do not commit or post operator domains, server IPs, host paths, usernames, email
 
 The maintainer reviews every PR, on a best-effort basis. A PR is merged only when the required checks are green (`Conventional PR title`, `Go (gen check, lint, test, WASM test)` and `Container image builds`) and review comments are resolved. Review follows [`CODING_STANDARDS.md`](CODING_STANDARDS.md).
 
-A change to web UI or email templates is built and reviewed against WCAG 2.2 level AA as described in [`ACCESSIBILITY.md`](ACCESSIBILITY.md).
+A change to web UI is built and reviewed against WCAG 2.2 level AA, and a change to email templates follows it as far as it applies, as described in [`ACCESSIBILITY.md`](ACCESSIBILITY.md).
 
 ## License
 

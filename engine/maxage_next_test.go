@@ -115,6 +115,57 @@ func TestFromFirstOvershootsLastDay(t *testing.T) {
 	})
 }
 
+// TestLastAllowedDayImpreciseInputs (issue #28 Definitions, Q70): C_c,k
+// takes the imprecise inputs at the end that can only move it earlier.
+//   - Dose 1 is step 7's first-dose anchor at its R.Hi. A generic 3-dose
+//     series (dose 1 minAge 9y; dose 2 minInterval 4w, due previous + 1m;
+//     dose 3 minInterval 12w and minIntervalFromFirst 29w; maxAgeComplete
+//     15y), birth 2010-01-01, so L = 2024-12-31. r1 in 2024-06 (R = [06-01,
+//     06-30]), today 07-15. Dose 3 is at least R.Hi + 29w = 2025-01-19 > L,
+//     so C_2 is impossible (from R.Lo, 12-21, it would be L − 12w = 10-08).
+//     Dose 2 from R.Hi: E = 07-28, Du = 07-30, O = 08-06; F = 07-28 ≤ Lim
+//     = L → SERIES_MAY_NOT_COMPLETE{2024-12-31}, nothing lowered; 🟡.
+//   - A later dose's minimum age is counted from b_late. A generic 3-dose
+//     series (dose 1 minAge 6w; dose 2 minInterval 4w, due previous + 1m;
+//     dose 3 minInterval 4w and minAge 20w; maxAgeComplete 24w), birth
+//     2026-01 (month), so L = b_old + 24w − 1 day = 06-17 at both ends. r1
+//     on 03-20, today 04-01. Dose 3 is at least b_late + 20w = 01-31 + 20w
+//     = 06-20 > L, so C_2 is impossible (from b_old, 05-21, it would be
+//     05-20). Dose 2: E = 04-17, Du = 04-20, O = 04-27 at both ends; F =
+//     04-17 ≤ Lim → SERIES_MAY_NOT_COMPLETE{2026-06-17}; 🟡, and the ends
+//     agree.
+func TestLastAllowedDayImpreciseInputs(t *testing.T) {
+	t.Parallel()
+	t.Run("first-dose anchor at R.Hi", func(t *testing.T) {
+		t.Parallel()
+		s := oneDiseaseSnapshot(nil, qSeries(t, "q-1", "", "", "P15Y", []ruleset.DoseRule{
+			rule(t, "P9Y", "", "", ruleset.FromBirth, "P9Y"),
+			rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+			rule(t, "", "P12W", "P29W", ruleset.FromPreviousDose, "P5M"),
+		}))
+		e := newEngine(t, s)
+		got := assessmentOf(t, e, "q", "2024-07-15", dayDate("2010-01-01"), doseOf("q", "r1", monthDate("2024-06"), ""))
+		checkAssessment(t, got, engine.Assessment{
+			Disease: "q", Bucket: engine.BucketUpcoming, NextDose: nextDose(t, 2, "2024-07-28", "2024-07-30", "2024-08-06"),
+			SeriesUsed: []string{"q-1"}, Estimated: true, Reasons: []engine.Reason{mayNotComplete("2024-12-31")},
+		})
+	})
+	t.Run("later minimum age from b_late", func(t *testing.T) {
+		t.Parallel()
+		s := oneDiseaseSnapshot(nil, qSeries(t, "q-1", "", "", "P24W", []ruleset.DoseRule{
+			rule(t, "P6W", "", "", ruleset.FromBirth, "P2M"),
+			rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+			rule(t, "P20W", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+		}))
+		e := newEngine(t, s)
+		got := assessmentOf(t, e, "q", "2026-04-01", monthDate("2026-01"), doseOf("q", "r1", dayDate("2026-03-20"), ""))
+		checkAssessment(t, got, engine.Assessment{
+			Disease: "q", Bucket: engine.BucketUpcoming, NextDose: nextDose(t, 2, "2026-04-17", "2026-04-20", "2026-04-27"),
+			SeriesUsed: []string{"q-1"}, Estimated: true, Reasons: []engine.Reason{mayNotComplete("2026-06-17")},
+		})
+	})
+}
+
 // TestCappedAtForwardChainDay (Q70): the cap day of case 1 is L_k from the
 // forward chain, not Lim, when a later dose still needs room. A generic
 // 3-dose series (dose 1 minAge 6w; doses 2 and 3 minInterval 4w; dose 2 due

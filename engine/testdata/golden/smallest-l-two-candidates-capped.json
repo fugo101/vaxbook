@@ -1,0 +1,71 @@
+{
+  "ruleset": "minimal-max-age-complete",
+  "input": {
+    "today": "2026-03-01",
+    "profile": {
+      "birth": {
+        "value": "2006-06-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "z"
+        ],
+        "date": {
+          "value": "2026-01-01",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-max-age-complete-s4a",
+    "today": "2026-03-01",
+    "assessments": [
+      {
+        "disease": "z",
+        "bucket": "upcoming",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2026-01-29",
+          "due": "2026-05-31",
+          "overdue": "2026-05-31"
+        },
+        "seriesUsed": [
+          "z-a",
+          "z-b"
+        ],
+        "products": [
+          "za",
+          "zb"
+        ],
+        "reasons": [
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "product": "za",
+                  "series": "z-a"
+                },
+                {
+                  "product": "zb",
+                  "series": "z-b"
+                }
+              ]
+            }
+          },
+          {
+            "code": "DUE_CAPPED_BY_MAX_AGE",
+            "params": {
+              "lastDay": "2026-05-31"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

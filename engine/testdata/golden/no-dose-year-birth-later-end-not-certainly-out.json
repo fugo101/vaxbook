@@ -1,0 +1,47 @@
+{
+  "ruleset": "illustrative-max-age",
+  "input": {
+    "today": "2026-04-10",
+    "profile": {
+      "birth": {
+        "value": "2026",
+        "precision": "year"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "illustrative-max-age-s4a",
+    "today": "2026-04-10",
+    "assessments": [
+      {
+        "disease": "rota",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "BIRTH_DATE_IMPRECISE",
+            "params": {
+              "hint": "fullBirthDate"
+            }
+          },
+          {
+            "code": "SAFEST_SERIES",
+            "params": {
+              "candidates": [
+                {
+                  "product": "rotarix",
+                  "series": "rota-rotarix"
+                },
+                {
+                  "product": "rotateq",
+                  "series": "rota-rotateq"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

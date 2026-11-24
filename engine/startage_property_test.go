@@ -47,11 +47,13 @@ func TestPropertyStartAgeCertainWithExactDates(t *testing.T) {
 //     max after today), and every bracket of its product group before it
 //     (by min) cannot: it is the first open bracket of its group;
 //   - outOfAge means that at the later end no series of the disease,
-//     retired ones included, can be started (so retiring a product never
-//     causes it, Q50 (b));
+//     retired ones included, can be started or is left after A3's removal,
+//     certainly (so retiring a product never causes it, Q50 (b), Q72;
+//     issue #28 In scope 1, noDoseOracle);
 //   - OUT_OF_AGE inside a ⚪ comes from the oldest sub-range of the birth
 //     range (SAD §5.3 step 4), which contains the older end, where the same
-//     holds, while the later end has some series left.
+//     holds, while the later end has some series left or is not certainly
+//     out.
 //
 // Every no-dose assessment also goes through checkCandidates, which checks
 // each sub-range's SAFEST_SERIES against noDoseChoice on its days.
@@ -112,8 +114,10 @@ func TestPropertyNoDoseBrackets(t *testing.T) {
 						series = append(series, sr)
 					}
 				}
+				o := noDoseOracle{s: fx.snap, disease: a.Disease, lo: lo, today: in.Today}
 				noneOpen := func(b engine.Date) bool {
-					return !slices.ContainsFunc(series, func(sr ruleset.Series) bool { return bracketOpen(sr, b, in.Today) })
+					kept, certain := o.choice(b)
+					return len(kept) == 0 && certain
 				}
 				for _, sr := range seriesUsed(t, fx.snap, a) {
 					if !bracketOpen(sr, hi, in.Today) {
@@ -300,6 +304,14 @@ func distanceOnlyClass(c string) bool {
 //     iff the birth date is month-precise or some day is outOfAge while
 //     another is not (an end hits an age limit), else birthMonth.
 //
+// With a maximum age (maxAgeStart or maxAgeComplete) the range computes the
+// limits from its older end at every date (issue #28, Q65), which no exact
+// day does, so only three weaker clauses hold there: a range outOfAge means
+// every day is outOfAge; a range next dose has due and overdue on or before
+// the latest day's when both have the same number; and the range's
+// seriesUsed is a subset of the latest day's. No fixture has both start-age
+// brackets and maximum ages yet, so this is a guard.
+//
 // Half the inputs move today to 0–199 days after a bracket's max is reached
 // at the older birth end (noDoseImprecise), where the start-age choice
 // changes inside the range. Every fixture with a bracketed disease must
@@ -333,6 +345,22 @@ func TestPropertyNoDoseBirthRangeOracle(t *testing.T) {
 					t.Fatalf("%s %s: "+format+"\nwide  %+v\ninput %+v", append(append([]any{fx.name, a.Disease}, args...), a, in)...)
 				}
 				latest := days[len(days)-1].Assessments[i]
+				if slices.ContainsFunc(fx.snap.Series, func(sr ruleset.Series) bool {
+					return sr.Disease == a.Disease && (sr.MaxAgeStart != nil || sr.MaxAgeComplete != nil)
+				}) {
+					for _, out := range days {
+						if a.Block == engine.BlockOutOfAge && out.Assessments[i].Block != engine.BlockOutOfAge {
+							fail("outOfAge, but a day in the range is not: %+v", out.Assessments[i])
+						}
+					}
+					if nd, ld := a.NextDose, latest.NextDose; nd != nil && ld != nil && nd.Number == ld.Number && (nd.Due.After(ld.Due) || nd.Overdue.After(ld.Overdue)) {
+						fail("next dose %+v after the latest day's %+v", *nd, *ld)
+					}
+					if slices.ContainsFunc(a.SeriesUsed, func(id string) bool { return !slices.Contains(latest.SeriesUsed, id) }) {
+						fail("seriesUsed %v is not within the latest day's %v", a.SeriesUsed, latest.SeriesUsed)
+					}
+					continue
+				}
 				lc, lk := shownClass(latest)
 				agree, outOfAge, startable, differ := true, false, false, false
 				for _, out := range days {

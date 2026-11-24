@@ -117,6 +117,9 @@ type candidateResult struct {
 	walk     walkResult
 	complete bool       // every dose of the series counted (step 6)
 	next     nextResult // step 7, when not complete
+	// limits are the maximum-age limits of next dose k, when not complete
+	// (issue #28; zero without a maximum age or a birth date).
+	limits limits
 }
 
 // run runs steps 5–7 of series s at one birth end.
@@ -125,14 +128,14 @@ func (s seriesModel) run(b birthEnd, today Date, pl placement) candidateResult {
 	r := candidateResult{walk: w, complete: w.k > s.length}
 	if !r.complete {
 		r.next = s.next(b, w)
+		r.limits = s.limitsAt(w.k, b, r.next.first, r.next.stop)
 	}
 	return r
 }
 
 // at runs steps 5–9 at one birth end, per candidate series, and merges the
-// candidates (SAD §5.3 steps 5–7, EQ6 item 2, F05.3, A1). Step 10 has one
-// layer in S3b: any blocking reason makes the result ⚪ (layer 7, data ⚪),
-// and the masked bucket's reasons and dates stay.
+// candidates (SAD §5.3 steps 5–7, EQ6 item 2, F05.3, A1), then draws the
+// maximum-age conclusions of the next dose (issue #28, conclude).
 //
 //   - Dose validity is per candidate, and every candidate's DOSE_INVALID,
 //     DOSE_POSSIBLY_INVALID and INTERVAL_UNVERIFIABLE are kept (Q31), and
@@ -158,8 +161,9 @@ func (s seriesModel) run(b birthEnd, today Date, pl placement) candidateResult {
 // reasons by dose in walk order, then by candidate; CHECK_PRODUCT_NAME or
 // MIXED_PRODUCTS; COMPLETE and
 // PRODUCT_NOT_IN_CATALOG; or OUT_OF_AGE; or PREVIOUS_DOSE_DATE_UNKNOWN,
-// NO_BIRTH_DATE, FIRST_DOSE_DATE_ASSUMED, ALTERNATIVE_PLANS and ON_TRACK.
-// For a single candidate this is the S2 result.
+// NO_BIRTH_DATE, FIRST_DOSE_DATE_ASSUMED, ALTERNATIVE_PLANS,
+// DUE_CAPPED_BY_MAX_AGE or SERIES_MAY_NOT_COMPLETE, and ON_TRACK. For a
+// single candidate this is the S2 result.
 func (ev evaluation) at(b birthEnd) endResult {
 	if len(ev.cands) == 0 {
 		return endResult{block: BlockOutOfAge, reasons: []Reason{{Code: ReasonOutOfAge}}}
@@ -168,7 +172,19 @@ func (ev evaluation) at(b birthEnd) endResult {
 	for i, c := range ev.cands {
 		rs[i] = ev.dz.series[c].run(b, ev.today, ev.pls[i])
 	}
-	res := endResult{cands: rs, series: ev.cands}
+	res, step7At, atK := ev.asWalked(rs)
+	if res.complete {
+		return res
+	}
+	return ev.conclude(b, rs, res, step7At, atK)
+}
+
+// asWalked is the S3a/S4a result of the walks (the as-walked view, issue
+// #28): the reasons, and the merged and masked dates. step7At is where the
+// step-7 reasons start in res.reasons, and atK the indexes into rs of the
+// candidates at k (nil when every candidate is complete).
+func (ev evaluation) asWalked(rs []candidateResult) (res endResult, step7At int, atK []int) {
+	res = endResult{cands: rs, series: ev.cands}
 	if ev.safest != nil {
 		res.reasons = append(res.reasons, *ev.safest)
 	}
@@ -179,15 +195,11 @@ func (ev evaluation) at(b birthEnd) endResult {
 			res.disagreeing = append(res.disagreeing, d)
 		}
 		slices.Sort(res.disagreeing)
-		code := ReasonMixedProducts
-		if ev.unknownProduct {
-			code = ReasonCheckProductName
-		}
-		res.reasons = append(res.reasons, Reason{Code: code})
+		res.reasons = append(res.reasons, Reason{Code: ev.productCode()})
 	}
+	step7At = len(res.reasons)
 
 	// Step 6: complete when every candidate is.
-	var atK []int // indexes into rs of the candidates at k
 	for i, r := range rs {
 		switch {
 		case r.complete:
@@ -207,10 +219,9 @@ func (ev evaluation) at(b birthEnd) endResult {
 		if blocking(res.reasons) {
 			res.bucket = BucketUnknown
 		}
-		return res
+		return res, step7At, nil
 	}
-	k := rs[atK[0]].walk.k
-	res.k = k
+	res.k = rs[atK[0]].walk.k
 
 	// Step 7: next dose k. A candidate at k that cannot date it stops the
 	// merge: a ⚪ assessment does not emit dates (SAD §5.1), and the other
@@ -241,36 +252,86 @@ func (ev evaluation) at(b birthEnd) endResult {
 			res.reasons = append(res.reasons, Reason{Code: ReasonNoBirthDate})
 		}
 		res.bucket = BucketUnknown
-		return res
+		return res, step7At, atK
 	}
+	ev.merge(&res, rs, atK, false)
+	return res, step7At, atK
+}
+
+// merge merges next dose k over the candidates at k into res (SAD §5.3 step
+// 7, EQ6 merge 2): earliest, due and overdue each take their latest value,
+// with FIRST_DOSE_DATE_ASSUMED and ALTERNATIVE_PLANS for each candidate
+// with two or more plans; then step 9 classifies the merged dates and step
+// 10's blocking mask applies.
+//
+// With capped set (issue #28 In scope 3, the EQ15 cap) each candidate's
+// dates come from its plans not past Limit_c,k (Q88), ALTERNATIVE_PLANS is
+// given only for two or more such plans, and the merged dates are capped:
+// with F = max(today, merged earliest), L_k the smallest L_c,k and Lim the
+// smallest Limit_c,k over the candidates at k,
+//   - F ≤ L_k: due and overdue are lowered to L_k where later, with
+//     DUE_CAPPED_BY_MAX_AGE{lastDay: L_k} when either is lowered;
+//   - L_k < F ≤ Lim: due and overdue are lowered to Lim where later, with
+//     SERIES_MAY_NOT_COMPLETE{lastDay: Lim} (Q66).
+//
+// A capped dose is never 🔴 (step 9, neverRed); the earliest date is never
+// changed, and since F is on or before the cap day due stays on or after
+// it. The cap reason goes after ALTERNATIVE_PLANS and before ON_TRACK.
+func (ev evaluation) merge(res *endResult, rs []candidateResult, atK []int, capped bool) {
 	listed := map[string]bool{}
 	var merged NextDose
 	var series []int
+	var alternatives []Reason
+	var lk, lim bound
 	for j, i := range atK {
-		n := rs[i].next
-		for _, r := range n.reasons { // FIRST_DOSE_DATE_ASSUMED
-			if key := reasonKey(r); !listed[key] {
+		r := rs[i]
+		for _, x := range r.next.reasons { // FIRST_DOSE_DATE_ASSUMED
+			if key := reasonKey(x); !listed[key] {
 				listed[key] = true
-				res.reasons = append(res.reasons, r)
+				res.reasons = append(res.reasons, x)
 			}
 		}
+		nd, plans := r.next.next, len(ev.dz.series[ev.cands[i]].plans)
+		if capped {
+			nd, plans = r.kept(ev.today)
+			lk, lim = lk.min(r.limits.lk), lim.min(r.limits.lim)
+		}
 		if j == 0 {
-			merged = n.next
+			merged = nd
 		} else {
-			merged.Earliest = maxDate(merged.Earliest, n.next.Earliest)
-			merged.Due = maxDate(merged.Due, n.next.Due)
-			merged.Overdue = maxDate(merged.Overdue, n.next.Overdue)
+			merged.Earliest = maxDate(merged.Earliest, nd.Earliest)
+			merged.Due = maxDate(merged.Due, nd.Due)
+			merged.Overdue = maxDate(merged.Overdue, nd.Overdue)
 		}
 		series = append(series, ev.cands[i])
+		if plans > 1 {
+			alternatives = append(alternatives, Reason{Code: ReasonAlternativePlans, Params: ReasonParams{Series: ev.dz.series[ev.cands[i]].id}})
+		}
 	}
-	for _, c := range series {
-		if s := ev.dz.series[c]; len(s.plans) > 1 {
-			res.reasons = append(res.reasons, Reason{Code: ReasonAlternativePlans, Params: ReasonParams{Series: s.id}})
+	res.reasons = append(res.reasons, alternatives...)
+	neverRed := false
+	if capped {
+		f := maxDate(ev.today, merged.Earliest)
+		var code ReasonCode
+		day := lk
+		switch {
+		case !lk.present():
+		case !lk.exceededBy(f):
+			code = ReasonDueCappedByMaxAge
+		case !lim.exceededBy(f):
+			code, day = ReasonSeriesMayNotComplete, lim
+		}
+		if code != "" {
+			due, overdue := minDate(merged.Due, day.day), minDate(merged.Overdue, day.day)
+			if code == ReasonSeriesMayNotComplete || due != merged.Due || overdue != merged.Overdue {
+				merged.Due, merged.Overdue, neverRed = due, overdue, true
+				res.reasons = append(res.reasons, Reason{Code: code, Params: ReasonParams{LastDay: day.day}})
+			}
 		}
 	}
 
 	// Step 9: bucket; step 10: a blocking reason masks it.
-	bucket, block, reason := classify(ev.today, merged, k > 1)
+	bucket, block, reason := classify(ev.today, merged, res.k > 1, neverRed)
 	if reason != "" {
 		res.reasons = append(res.reasons, Reason{Code: reason})
 	}
@@ -278,10 +339,177 @@ func (ev evaluation) at(b birthEnd) endResult {
 	res.products = ev.dz.productsFor(series)
 	if blocking(res.reasons) {
 		res.bucket = BucketUnknown
-		return res
+		return
 	}
 	res.bucket, res.block = bucket, block
+}
+
+// productCode is the reason for candidates that disagree on a maximum age:
+// CHECK_PRODUCT_NAME when some dose has an unknown product, else
+// MIXED_PRODUCTS (F05.3; issue #15 In scope 6).
+func (ev evaluation) productCode() ReasonCode {
+	if ev.unknownProduct {
+		return ReasonCheckProductName
+	}
+	return ReasonMixedProducts
+}
+
+// conclude draws the maximum-age conclusions of the next dose from res, the
+// as-walked result, which is not complete (SAD §5.3 step 7 "Maximum age, no
+// next dose possible", step 10 layer 5, F05.10 "Precedence", F05.11, A1,
+// EQ11, EQ16, P1; issue #28 In scope 2, Q63, Q64, Q69, Q75, Q85, Q86).
+//
+// The conclusions come from the counted view: each candidate walked again
+// with every record counted (countedView), the same walks as rs when no
+// record is questioned. Each incomplete candidate is out or certainly out
+// (candidateResult.outOf), at its own k.
+//
+//   - Layer 5: no candidate complete and every incomplete one certainly out
+//     → outOfAge with OUT_OF_AGE, and every as-walked reason kept as a
+//     masked reason: the reasons from steps 5–6 before OUT_OF_AGE, and when
+//     the as-walked result is blocking its step-7 reasons after it.
+//   - Data ⚪: otherwise a blocking as-walked result stays unchanged, with
+//     its masked dates uncapped (a complete candidate in the counted view
+//     keeps it too, F05.10).
+//   - Clean result (the two views are the same): every incomplete
+//     candidate out, none complete, not all certain → ⚪ with
+//     BIRTH_DATE_IMPRECISE{fullBirthDate} and OUT_OF_AGE_UNCERTAIN{numbers}
+//     as the birth date or the dose dates would decide (uncertain); some
+//     out, or merged-out (its step 7 runs and the merged F is past
+//     Limit_c,k) → ⚪ CHECK_PRODUCT_NAME or MIXED_PRODUCTS; otherwise the
+//     EQ15 cap (merge). These conclusions emit no step-7 reason. Out,
+//     merged-out and the cap use F from the latest possible dose dates, so
+//     a next dose is never drawn from the earliest ones (P1).
+//
+// S5 (issue #16) adds the other layers around this; its layer 6 compares
+// the capped due date with historyStatusAt.
+func (ev evaluation) conclude(b birthEnd, rs []candidateResult, res endResult, step7At int, atK []int) endResult {
+	cv := rs
+	if ev.questioned(rs) {
+		cv = ev.countedView(b)
+		res.counted = cv
+	}
+	anyComplete, allOut, allCertain, someOut := false, true, true, false
+	for _, r := range cv {
+		if r.complete {
+			anyComplete = true
+			continue
+		}
+		out, certain := r.outOf(ev.today)
+		allOut, allCertain, someOut = allOut && out, allCertain && certain, someOut || out
+	}
+	head := slices.Clip(res.reasons[:step7At])
+	conclusion := func(r endResult, reasons ...Reason) endResult {
+		r.reasons = append(head, reasons...)
+		r.next, r.hasNext, r.products = NextDose{}, false, nil
+		return r
+	}
+	if !anyComplete && allOut && allCertain {
+		out := conclusion(res, Reason{Code: ReasonOutOfAge})
+		out.bucket, out.block, out.k = "", BlockOutOfAge, 0
+		if blocking(res.reasons) {
+			out.reasons = append(out.reasons, res.reasons[step7At:]...)
+		}
+		return out
+	}
+	if blocking(res.reasons) {
+		return res
+	}
+	limited := someOut
+	for _, i := range atK {
+		limited = limited || rs[i].limits.lim.present()
+	}
+	if !limited {
+		return res
+	}
+	unknown := res
+	unknown.bucket, unknown.block = BucketUnknown, ""
+	switch {
+	case !anyComplete && allOut:
+		return conclusion(unknown, ev.uncertain(cv)...)
+	case someOut || ev.mergedOut(rs, atK):
+		return conclusion(unknown, Reason{Code: ev.productCode()})
+	}
+	res.reasons = head
+	ev.merge(&res, rs, atK, true)
 	return res
+}
+
+// uncertain returns the reasons of a clean result whose incomplete
+// candidates are all out of age in the counted view cv, some not certainly
+// (owner 2026-11-24): BIRTH_DATE_IMPRECISE{fullBirthDate} when the birth
+// date would decide for some candidate, then OUT_OF_AGE_UNCERTAIN{numbers}
+// when its dose dates would, with numbers the union of those candidates'
+// positions whose exact date could decide (candidateResult.deciding). A
+// dose cause means F_c past Limit^b_c,k or F_c^lo within Limit_c,k while
+// F_c is past it, so the plan with the smallest F^lo has a term past that
+// limit and above its F^lo: numbers is never empty (the property tests
+// check every reason's params). The view is clean, so the positions are
+// the as-walked ones the per-dose reasons name.
+func (ev evaluation) uncertain(cv []candidateResult) []Reason {
+	birth, dose := false, false
+	var numbers []int
+	for _, r := range cv {
+		if r.complete {
+			continue
+		}
+		if _, certain := r.outOf(ev.today); certain {
+			continue
+		}
+		b, d := r.uncertainCauses(ev.today)
+		birth = birth || b
+		if d {
+			dose = true
+			numbers = append(numbers, r.deciding(ev.today)...)
+		}
+	}
+	var out []Reason
+	if birth {
+		out = append(out, Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: HintFullBirthDate}})
+	}
+	if dose {
+		slices.Sort(numbers)
+		out = append(out, Reason{Code: ReasonOutOfAgeUncertain, Params: ReasonParams{Numbers: slices.Compact(numbers)}})
+	}
+	return out
+}
+
+// mergedOut reports whether a candidate at k is past its Limit_c,k at the
+// merged F = max(today, the latest earliest date of the candidates at k,
+// each from its plans not past its limit): it could be given only before
+// the date the other candidates need (issue #28 In scope 2, Q86).
+func (ev evaluation) mergedOut(rs []candidateResult, atK []int) bool {
+	f := ev.today
+	for _, i := range atK {
+		nd, _ := rs[i].kept(ev.today)
+		f = maxDate(f, nd.Earliest)
+	}
+	return slices.ContainsFunc(atK, func(i int) bool { return rs[i].limits.lim.exceededBy(f) })
+}
+
+// questioned reports whether some candidate does not count a record: it
+// gives it DOSE_INVALID or DOSE_AFTER_MAX_AGE (issue #28, Q64).
+func (ev evaluation) questioned(rs []candidateResult) bool {
+	return slices.ContainsFunc(rs, func(r candidateResult) bool {
+		return slices.ContainsFunc(r.walk.reasons, func(x Reason) bool {
+			return x.Code == ReasonDoseInvalid || x.Code == ReasonDoseAfterMaxAge
+		})
+	})
+}
+
+// countedView runs steps 5–7 of each candidate with every record counted,
+// at the position it reaches when all records count, and every floating
+// dose counted, with no placement search (issue #28, Q85; walk with
+// forceAll). It never derives n = 0 or out of age from a dose being not
+// counted (SAD §5.3 step 5).
+func (ev evaluation) countedView(b birthEnd) []candidateResult {
+	cv := make([]candidateResult, len(ev.cands))
+	for i, c := range ev.cands {
+		pl := ev.pls[i]
+		pl.forceAll = true
+		cv[i] = ev.dz.series[c].run(b, ev.today, pl)
+	}
+	return cv
 }
 
 // walkReasons merges the step-5 reasons of the candidates: by dose in walk

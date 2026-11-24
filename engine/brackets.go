@@ -52,7 +52,19 @@ func (dz diseaseModel) noDoseAt(b, today Date) []int {
 // noDosePoints returns the birth dates at which step 4 evaluates the
 // birth-date range r when no dose is given (SAD §5.3 step 4, EQ10; PR #27,
 // issue #23), ascending and without repeats: r.Lo, r.Hi and, for each date
-// c in (r.Lo, r.Hi] where noDoseAt changes, c − 1 and c.
+// c in (r.Lo, r.Hi] where noDoseAt changes, c − 1 and c: the ends of the
+// sub-ranges of noDoseSubRanges.
+func (dz diseaseModel) noDosePoints(r Range, today Date) []Date {
+	var pts []Date
+	for _, sub := range dz.noDoseSubRanges(r, today) {
+		pts = append(pts, sub.Lo, sub.Hi)
+	}
+	return slices.Compact(pts)
+}
+
+// noDoseSubRanges returns the sub-ranges of r on which the no-dose choice
+// is fixed, ascending: [r.Lo, c₁ − 1], [c₁, c₂ − 1], …, [c_k, r.Hi] for
+// the dates c in (r.Lo, r.Hi] where noDoseAt changes.
 //
 // The choice at b depends only on which brackets are open at b, and a
 // bracket with a max is open from the first b with b + max after today on
@@ -64,8 +76,10 @@ func (dz diseaseModel) noDoseAt(b, today Date) []int {
 // is no split. The choice is then fixed on each sub-range [r.Lo, c₁ − 1],
 // [c₁, c₂ − 1], …, [c_k, r.Hi], and for fixed candidates the dates move one
 // way with the birth date, so the ends of a sub-range bound every day in
-// it.
-func (dz diseaseModel) noDosePoints(r Range, today Date) []Date {
+// it. Since S4b the maximum ages remove candidates as the birth date grows
+// inside a sub-range (A3, issue #28 Q65); a day inside then keeps a
+// superset of the later end's candidates, which only adds product options.
+func (dz diseaseModel) noDoseSubRanges(r Range, today Date) []Range {
 	var cs []Date
 	for _, s := range dz.series {
 		br := s.start
@@ -84,13 +98,90 @@ func (dz diseaseModel) noDosePoints(r Range, today Date) []Date {
 		cs = append(cs, open)
 	}
 	slices.SortFunc(cs, Date.Compare)
-	pts := []Date{r.Lo}
+	var subs []Range
+	lo := r.Lo
 	for _, c := range slices.Compact(cs) {
 		if !slices.Equal(dz.noDoseAt(c.AddDays(-1), today), dz.noDoseAt(c, today)) {
-			pts = append(pts, c.AddDays(-1), c)
+			subs = append(subs, Range{Lo: lo, Hi: c.AddDays(-1)})
+			lo = c
 		}
 	}
-	return slices.Compact(append(pts, r.Hi))
+	return append(subs, Range{Lo: lo, Hi: r.Hi})
+}
+
+// noDoseResult is steps 3 and 5–9 at birth date b when no dose is given:
+// S3b's bracket choice (noDoseAt), then A3's removal of the candidates
+// already out of age (filterOutOfAge, SAD §5.3 step 3, F05.3, EQ10; issue
+// #28 In scope 1, Q65, Q72), before evaluate, so that SAFEST_SERIES and
+// products list only the candidates left.
+//
+// When every candidate of the non-retired choice is removed and the
+// choice over every group differs, that choice is filtered instead (Q72,
+// Q50 (b) extended; products are then omitted). When none is left, the
+// result is outOfAge with OUT_OF_AGE if every removed candidate is
+// certainly out at b, otherwise ⚪ BIRTH_DATE_IMPRECISE{fullBirthDate}; both
+// with no candidates. S3b's outOfAge (no bracket open at b) is unchanged.
+func (dz diseaseModel) noDoseResult(arr placement, b birthEnd, today Date) endResult {
+	primary, all := dz.openAt(dz.noDose, b.date, today), dz.openAt(dz.all, b.date, today)
+	cands := primary
+	if len(cands) == 0 {
+		cands = all
+	}
+	if len(cands) == 0 {
+		return dz.evaluate(arr, nil, today, nil, true).at(b)
+	}
+	kept, certain := dz.filterOutOfAge(arr, cands, b, today)
+	if len(kept) == 0 && len(primary) > 0 && !slices.Equal(primary, all) {
+		kept, certain = dz.filterOutOfAge(arr, all, b, today)
+	}
+	switch {
+	case len(kept) > 0:
+		return dz.evaluate(arr, kept, today, nil, true).at(b)
+	case certain:
+		return endResult{block: BlockOutOfAge, reasons: []Reason{{Code: ReasonOutOfAge}}}
+	}
+	return endResult{bucket: BucketUnknown, reasons: []Reason{{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: HintFullBirthDate}}}}
+}
+
+// filterOutOfAge returns the no-dose candidates (all at dose 1) that are not
+// out of age at b (issue #28 In scope 1): a candidate is removed when its
+// own F_c is past Limit_c,1; then, until nothing changes, when the merged
+// F of the candidates left (from each one's plans not past its limit) is
+// past a candidate's Limit_c,1, it is removed too, since it could be given
+// only before the date the others need. The candidate with the latest
+// earliest date is never removed that way, so the list empties only
+// through the first rule. certain reports whether every candidate removed
+// is past its limit at b itself (Limit^b).
+func (dz diseaseModel) filterOutOfAge(arr placement, cands []int, b birthEnd, today Date) (kept []int, certain bool) {
+	ev := dz.evaluate(arr, cands, today, nil, false)
+	rs := make([]candidateResult, len(cands))
+	certain = true
+	var left []int // indexes into cands
+	for i, c := range cands {
+		rs[i] = dz.series[c].run(b, today, ev.pls[i])
+		out, sure := rs[i].outOf(today)
+		if !out {
+			left = append(left, i)
+			continue
+		}
+		certain = certain && sure
+	}
+	for {
+		f := today
+		for _, i := range left {
+			nd, _ := rs[i].kept(today)
+			f = maxDate(f, nd.Earliest)
+		}
+		n := len(left)
+		left = slices.DeleteFunc(left, func(i int) bool { return rs[i].limits.lim.exceededBy(f) })
+		if len(left) == n {
+			break
+		}
+	}
+	for _, i := range left {
+		kept = append(kept, cands[i])
+	}
+	return kept, certain
 }
 
 func (dz diseaseModel) openAt(cands []int, b, today Date) []int {

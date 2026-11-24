@@ -672,7 +672,7 @@ func TestMergeMaskedByDoseInvalid(t *testing.T) {
 	if !reflect.DeepEqual(res.reasons, wantReasons) {
 		t.Errorf("reasons %v, want %v", res.reasons, wantReasons)
 	}
-	if bucket, _, _ := classify(ev.today, res.next, true); bucket != BucketUpcoming {
+	if bucket, _, _ := classify(ev.today, res.next, true, false); bucket != BucketUpcoming {
 		t.Errorf("masked bucket %s, want upcoming", bucket)
 	}
 }
@@ -686,6 +686,11 @@ func TestMergeMaskedByDoseInvalid(t *testing.T) {
 //     p-2-4-6 Du = b + 6m = 07-01, O = 07-08.
 //   - pertussis-pertu2 rejects r2 (DOSE_INVALID), k = 2, E = r2 + 8w =
 //     05-27, Du = max(E, b + 4m) = 05-27, O = 06-03.
+//
+// Since S4b (issue #28) r2 is questioned, so the counted view is kept as
+// well: there pertussis-pertu2 counts r2 and is complete, and
+// pertussis-primary is as walked. Neither series has a maximum age, so no
+// limit is set.
 func TestCandidateResultsKeptWhole(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile(filepath.Join("testdata", "rulesets", "illustrative-products.json"))
@@ -729,6 +734,12 @@ func TestCandidateResultsKeptWhole(t *testing.T) {
 			t.Errorf("candidate %d: complete %v, k %d, plans %v, DOSE_INVALID %v; want not complete, k %d, plans %v, DOSE_INVALID %v",
 				i, r.complete, r.walk.k, r.next.plans, invalid, w.k, w.plans, w.invalid)
 		}
+		if r.limits != (limits{}) {
+			t.Errorf("candidate %d: limits %+v, want none", i, r.limits)
+		}
+	}
+	if len(res.counted) != 2 || res.counted[0].complete || res.counted[0].walk.k != 3 || !res.counted[1].complete {
+		t.Errorf("counted view %+v; want pertussis-primary at k 3 and pertussis-pertu2 complete", res.counted)
 	}
 }
 
@@ -760,11 +771,12 @@ func TestNewCopiesSnapshot(t *testing.T) {
 func TestReasonCodesClassified(t *testing.T) {
 	t.Parallel()
 	informational := []ReasonCode{ReasonImpliedEarlierDoses, ReasonSafestSeries, ReasonIntervalUnverifiable, ReasonFirstDoseDateAssumed,
-		ReasonAlternativePlans, ReasonComplete, ReasonProductNotInCatalog, ReasonOnTrack, ReasonAgeAtStartUncertain, ReasonOutOfAge}
+		ReasonAlternativePlans, ReasonComplete, ReasonProductNotInCatalog, ReasonOnTrack, ReasonAgeAtStartUncertain, ReasonOutOfAge,
+		ReasonDueCappedByMaxAge, ReasonSeriesMayNotComplete}
 	blockingCodes := []ReasonCode{ReasonInvalidDate, ReasonOutOfRange, ReasonDateInFuture, ReasonDateBeforeBirth,
 		ReasonUnexpectedValue, ReasonUnknownProduct, ReasonOverlappingEstimatedDates, ReasonNumberingConflict, ReasonBirthDateImprecise,
 		ReasonDoseInvalid, ReasonDosePossiblyInvalid, ReasonPreviousDoseDateUnknown, ReasonNoBirthDate,
-		ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts}
+		ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts, ReasonOutOfAgeUncertain}
 	for _, c := range informational {
 		if c.blocks() {
 			t.Errorf("%s blocks, want informational", c)

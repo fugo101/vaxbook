@@ -6,13 +6,15 @@ import (
 	"strings"
 )
 
-// The engine contract (SAD §5.1), S4a subset. It grows additively: each slice
+// The engine contract (SAD §5.1), S4b subset. It grows additively: each slice
 // adds only the members it uses. Struct field order is the JSON member order
 // of the encoded output.
 
 // OverdueGraceDays is the minimum time between the due date and the overdue
-// date: overdue = due + max(buffer, OverdueGraceDays days) (EQ1). It is a
-// display constant of the contract, not a rule field.
+// date: overdue = due + max(buffer, OverdueGraceDays days) (EQ1), before
+// the maximum-age cap; a capped overdue date may equal the due date (F05.4b,
+// DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE). It is a display constant
+// of the contract, not a rule field.
 const OverdueGraceDays = 7
 
 // Display thresholds of the bucket assignment (SAD §5.3 step 9; EQ27). They
@@ -160,8 +162,9 @@ type Output struct {
 //
 // Bucket BucketUnknown always comes with a blocking reason, and a blocking
 // reason makes Bucket BucketUnknown unless a block of a higher precedence
-// layer wins over it (SAD §5.3 step 10, layers 1–5, none in S4a); the
-// reasons it masks then stay in Reasons. Informational reasons never make
+// layer wins over it (SAD §5.3 step 10, layers 1–5; since S4b layer 5's
+// BlockOutOfAge from a maximum age); the reasons it masks then stay in
+// Reasons. Informational reasons never make
 // it ⚪ on their own.
 type Assessment struct {
 	Disease  string    `json:"disease"`
@@ -171,9 +174,11 @@ type Assessment struct {
 	// SeriesUsed holds the candidate series after SAD §5.3 step 3, in
 	// rule-set order, complete candidates included (issue #14, Q26). It is
 	// omitted after a step-1 or step-2 ⚪ and for ⚪ NO_BIRTH_DATE with no
-	// dose given, where step 3 does not run, and for BlockOutOfAge. With no
-	// dose given and different candidates across the birth-date range, it
-	// is the later end's list, in a ⚪ too (issue #23, Q40). Added in S3a.
+	// dose given, where step 3 does not run, and for a BlockOutOfAge with no
+	// dose given (issue #28, Q74). With no dose given and different
+	// candidates across the birth-date range, it is the later end's list,
+	// in a ⚪ too (issue #23, Q40), and omitted when the later end has no
+	// candidate left (issue #28 In scope 6). Added in S3a.
 	SeriesUsed []string `json:"seriesUsed,omitzero"`
 	// Products are the non-retired catalog products for the next dose, in
 	// snapshot order: the product of each candidate product series at the
@@ -214,16 +219,23 @@ const (
 // Block is a collapsed group outside the buckets.
 type Block string
 
-// Blocks (S4a subset).
+// Blocks (S4b subset).
 const (
 	// BlockNotYetScheduled is "Chưa tới lịch tiêm" ("Not yet scheduled"): no dose
 	// given and dose 1 due more than 6 months after today (EQ2, EQ18).
 	BlockNotYetScheduled Block = "notYetScheduled"
 	// BlockOutOfAge is "Không còn trong độ tuổi tiêm" ("No longer within the
-	// vaccination age", F05.4a). In S3b: no dose given and the person is past
-	// every start-age bracket of the disease at the evaluated birth end
-	// (issue #23, Q24). It has no NextDose, SeriesUsed or Products, and the
-	// reason OUT_OF_AGE.
+	// vaccination age", F05.4a): no dose given and the person is past every
+	// start-age bracket of the disease at the evaluated birth end (issue #23,
+	// Q24), or certainly past a maximum age: with no dose given every
+	// candidate is past its start limit (A3), and with doses given every
+	// candidate is incomplete and certainly past its last allowed day for
+	// the next dose (issue #28, step 10 layer 5). It has the reason
+	// OUT_OF_AGE and no NextDose or Products. With no dose given it has no
+	// SeriesUsed; with doses given it keeps SeriesUsed and the reasons
+	// emitted before step 4 (IMPLIED_EARLIER_DOSES, AGE_AT_START_UNCERTAIN,
+	// SAFEST_SERIES), and may carry masked reasons, blocking ones included
+	// (Q74).
 	BlockOutOfAge Block = "outOfAge"
 )
 
@@ -236,7 +248,7 @@ type Reason struct {
 
 // ReasonParams holds every reason parameter; each code uses exactly the
 // members its doc lists (SAD §5.4). Members are typed: IDs and enums are
-// strings, counts are integers, lists are arrays. They are in alphabetical
+// strings, counts are integers, dates are Dates, lists are arrays. They are in alphabetical
 // JSON-name order, every field is omitzero, and there are no booleans
 // (omitzero would drop false). It grows additively.
 type ReasonParams struct {
@@ -262,6 +274,11 @@ type ReasonParams struct {
 	// Hint is what the user can enter to resolve the reason:
 	// BIRTH_DATE_IMPRECISE.
 	Hint Hint `json:"hint,omitzero"`
+	// LastDay is the last allowed day of the next dose:
+	// DUE_CAPPED_BY_MAX_AGE (L_k, the last day that leaves room to complete
+	// the series), SERIES_MAY_NOT_COMPLETE (Lim, the last day the dose can
+	// still be given). Never the zero Date. Added in S4b.
+	LastDay Date `json:"lastDay,omitzero"`
 	// Number is a series position, ≥ 1: the position a dose was checked for
 	// (DOSE_INVALID, DOSE_AFTER_MAX_AGE, DOSE_POSSIBLY_INVALID,
 	// INTERVAL_UNVERIFIABLE; for a dose beyond the series length, the
@@ -270,8 +287,10 @@ type ReasonParams struct {
 	// fails after the last dated dose (DOSE_INVALID, DOSE_AFTER_MAX_AGE), or
 	// the number the user entered (NUMBERING_CONFLICT).
 	Number int `json:"number,omitzero"`
-	// Numbers are the positions of implied doses, ascending:
-	// IMPLIED_EARLIER_DOSES.
+	// Numbers are series positions, ascending and without repeats: the
+	// implied doses (IMPLIED_EARLIER_DOSES), or since S4b the doses whose
+	// exact date would show whether the next dose can still be given
+	// (OUT_OF_AGE_UNCERTAIN).
 	Numbers []int `json:"numbers,omitzero"`
 	// Series is a series ID: ALTERNATIVE_PLANS.
 	Series string `json:"series,omitzero"`
@@ -322,7 +341,7 @@ const (
 // never does so on its own.
 type ReasonCode string
 
-// Reason codes (S4a subset). Blocking unless the doc says informational.
+// Reason codes (S4b subset). Blocking unless the doc says informational.
 const (
 	// ReasonInvalidDate: a dose record of the disease has an unparseable
 	// date (A9). Params: dose.
@@ -414,7 +433,9 @@ const (
 	ReasonAgeAtStartUncertain ReasonCode = "AGE_AT_START_UNCERTAIN"
 	// ReasonOutOfAge: informational. The reason of BlockOutOfAge: no dose
 	// given, and the person is past every start-age bracket at the
-	// evaluated birth end (issue #23, Q24). Added in S3b.
+	// evaluated birth end (issue #23, Q24), or certainly past a maximum age
+	// (issue #28). A ⚪ BIRTH_DATE_IMPRECISE can list it from one end of the
+	// birth-date range. Added in S3b.
 	ReasonOutOfAge ReasonCode = "OUT_OF_AGE"
 	// ReasonDoseAfterMaxAge: a dose is certainly on or after a maximum age
 	// under every candidate series that checks it, so it is not counted
@@ -434,14 +455,41 @@ const (
 	ReasonDoseAfterMaxAge ReasonCode = "DOSE_AFTER_MAX_AGE"
 	// ReasonCheckProductName: the candidate series disagree on a maximum age
 	// (one gives a dose DOSE_AFTER_MAX_AGE, another counts it or is complete
-	// without checking it), and some dose of the disease has an unknown
-	// product: none, an implied dose, or a catalog product that does not
-	// list the disease (F05.3, EQ16; issue #15 Q52, Q53). No params. Added
-	// in S4a.
+	// without checking it; or, since S4b, at the next dose: one is out of
+	// age while another is complete or can still be given, A1), and some
+	// dose of the disease has an unknown product: none, an implied dose, or
+	// a catalog product that does not list the disease (F05.3, EQ16; issue
+	// #15 Q52, Q53; issue #28 Q69). No params. Added in S4a.
 	ReasonCheckProductName ReasonCode = "CHECK_PRODUCT_NAME"
 	// ReasonMixedProducts: the candidate series disagree on a maximum age,
-	// and every dose of the disease has a named product: a catalog product
-	// that lists the disease (retired allowed) or an off-catalog product
-	// (F05.3, EQ16; issue #15 Q54). No params. Added in S4a.
+	// at a given dose or (since S4b) at the next dose, and every dose of the
+	// disease has a named product: a catalog product that lists the disease
+	// (retired allowed) or an off-catalog product (F05.3, EQ16; issue #15
+	// Q54). No params. Added in S4a.
 	ReasonMixedProducts ReasonCode = "MIXED_PRODUCTS"
+	// ReasonDueCappedByMaxAge: informational, a bucket reason. The due or
+	// overdue date of the next dose was lowered to L_k, the last day from
+	// which the series can still be completed before maxAgeComplete (and,
+	// for dose 1, before the start limit): "hạn chót" ("last day"). A capped
+	// next dose is never 🔴 (F05.4b, EQ15; issue #28). Params: lastDay.
+	// Added in S4b.
+	ReasonDueCappedByMaxAge ReasonCode = "DUE_CAPPED_BY_MAX_AGE"
+	// ReasonSeriesMayNotComplete: informational, a bucket reason. The next
+	// dose can still be given until lastDay (Lim), but no longer leaves room
+	// to complete the series before maxAgeComplete: due and overdue are
+	// capped at Lim and the next dose is never 🔴 (F05.4b case 2; issue #28
+	// Q66). Params: lastDay. Added in S4b.
+	ReasonSeriesMayNotComplete ReasonCode = "SERIES_MAY_NOT_COMPLETE"
+	// ReasonOutOfAgeUncertain: the next dose is past a maximum age when
+	// counted from the latest possible date of an earlier dose (the later
+	// end of an imprecise date, or the EQ20c stand-in for an undated or
+	// implied dose 1), but not from the earliest possible dates, so the
+	// person may still be in age: "có thể đã quá tuổi tiêm mũi tiếp theo —
+	// nhập ngày tiêm chính xác của mũi N để biết" ("the next dose may
+	// already be past the age limit — enter the exact date of dose N to
+	// find out"). No next dose is shown, since one counted from the
+	// earliest dates could be past the limit (P1; SAD §5.3 step 7, owner
+	// 2026-11-24). Params: numbers (the positions whose exact date would
+	// decide). Added in S4b.
+	ReasonOutOfAgeUncertain ReasonCode = "OUT_OF_AGE_UNCERTAIN"
 )

@@ -38,6 +38,13 @@ type placement struct {
 	// reasons are the blocking step-2 reasons: OVERLAPPING_ESTIMATED_DATES,
 	// then NUMBERING_CONFLICT. Any of them skips steps 5–9 (blocked).
 	reasons []Reason
+	// force and forceAll are the walk's per-record override (issue #28 In
+	// scope 0e): the dated doses and level-4 slots in force, or every
+	// record with forceAll (the counted view), count whatever their checks
+	// (placement.forced). force maps each record to the position it is
+	// forced at, or 0 for any position. Set only on walk's own copy.
+	force    map[string]int
+	forceAll bool
 
 	// Set by arrange, read by forLength: the numbered and the unnumbered
 	// level-4 doses, each by ID, and the positions the records take.

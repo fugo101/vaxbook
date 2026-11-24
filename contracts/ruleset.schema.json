@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "VaxBook rule set snapshot and engine contract",
-  "description": "Go structs in ruleset/ and engine/ are the source (SAD §3). This schema checks shape. null is never valid; an optional member is omitted; members added after S1 are optional. Content checks live in ruleset.Validate and engine.Validate. They include the keywords the Go decoders do not enforce (enums, minLength, minItems, uniqueItems, the Id pattern). The Input schema accepts every Input that Evaluate assesses, so ⚪ INVALID_DATE (A9) stays reachable for a client that validates against it. Documents are I-JSON texts (RFC 7493): unique member names and well-formed Unicode (no unpaired surrogate escapes, no invalid UTF-8). A schema cannot express this, so the Go decoders reject such a text as a decode error. The root is a rule set snapshot; $defs Input and Output are the engine's input and output (engine slice S4a subset).",
+  "description": "Go structs in ruleset/ and engine/ are the source (SAD §3). This schema checks shape. null is never valid; an optional member is omitted; members added after S1 are optional. Content checks live in ruleset.Validate and engine.Validate. They include the keywords the Go decoders do not enforce (enums, minLength, minItems, uniqueItems, the Id pattern). The Input schema accepts every Input that Evaluate assesses, so ⚪ INVALID_DATE (A9) stays reachable for a client that validates against it. Documents are I-JSON texts (RFC 7493): unique member names and well-formed Unicode (no unpaired surrogate escapes, no invalid UTF-8). A schema cannot express this, so the Go decoders reject such a text as a decode error. The root is a rule set snapshot; $defs Input and Output are the engine's input and output (engine slice S4b subset).",
   "$ref": "#/$defs/Snapshot",
   "$defs": {
     "Id": {
@@ -191,7 +191,7 @@
         "bucket": {"enum": ["overdue", "due", "upcoming", "unknown", "complete"]},
         "block": {"enum": ["notYetScheduled", "outOfAge"]},
         "nextDose": {"$ref": "#/$defs/NextDose"},
-        "seriesUsed": {"description": "The candidate series after step 3 (SAD §5.3), in rule-set order, complete ones included; omitted when step 3 did not run and for the outOfAge block. With no dose given and different candidates at the two birth ends, the later end's list. Added in engine slice S3a, extended in S3b.", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/Id"}},
+        "seriesUsed": {"description": "The candidate series after step 3 (SAD §5.3), in rule-set order, complete ones included; omitted when step 3 did not run and for an outOfAge block with no dose given. With no dose given and different candidates at the two birth ends, the later end's list (omitted when the later end has no candidate left). Added in engine slice S3a, extended in S3b and S4b.", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/Id"}},
         "products": {"description": "The non-retired catalog products for the next dose, in snapshot order; present only with nextDose and when not empty. Added in engine slice S3a.", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/Id"}},
         "estimated": {"description": "Present, and true, only when the result rests on an imprecise or missing date, a level-4 dose or an implied dose, or when PRODUCT_NOT_IN_CATALOG is given (EQ14); added in engine slice S2, extended in S3a.", "const": true},
         "reasons": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/Reason"}}
@@ -213,12 +213,12 @@
       "additionalProperties": false,
       "required": ["code"],
       "properties": {
-        "code": {"enum": ["INVALID_DATE", "OUT_OF_RANGE", "DATE_IN_FUTURE", "DATE_BEFORE_BIRTH", "UNEXPECTED_VALUE", "UNKNOWN_PRODUCT", "OVERLAPPING_ESTIMATED_DATES", "NUMBERING_CONFLICT", "IMPLIED_EARLIER_DOSES", "SAFEST_SERIES", "BIRTH_DATE_IMPRECISE", "DOSE_INVALID", "DOSE_POSSIBLY_INVALID", "INTERVAL_UNVERIFIABLE", "COMPLETE", "PRODUCT_NOT_IN_CATALOG", "PREVIOUS_DOSE_DATE_UNKNOWN", "NO_BIRTH_DATE", "FIRST_DOSE_DATE_ASSUMED", "ALTERNATIVE_PLANS", "ON_TRACK", "AGE_AT_START_UNCERTAIN", "OUT_OF_AGE", "DOSE_AFTER_MAX_AGE", "CHECK_PRODUCT_NAME", "MIXED_PRODUCTS"]},
+        "code": {"enum": ["INVALID_DATE", "OUT_OF_RANGE", "DATE_IN_FUTURE", "DATE_BEFORE_BIRTH", "UNEXPECTED_VALUE", "UNKNOWN_PRODUCT", "OVERLAPPING_ESTIMATED_DATES", "NUMBERING_CONFLICT", "IMPLIED_EARLIER_DOSES", "SAFEST_SERIES", "BIRTH_DATE_IMPRECISE", "DOSE_INVALID", "DOSE_POSSIBLY_INVALID", "INTERVAL_UNVERIFIABLE", "COMPLETE", "PRODUCT_NOT_IN_CATALOG", "PREVIOUS_DOSE_DATE_UNKNOWN", "NO_BIRTH_DATE", "FIRST_DOSE_DATE_ASSUMED", "ALTERNATIVE_PLANS", "ON_TRACK", "AGE_AT_START_UNCERTAIN", "OUT_OF_AGE", "DOSE_AFTER_MAX_AGE", "CHECK_PRODUCT_NAME", "MIXED_PRODUCTS", "DUE_CAPPED_BY_MAX_AGE", "SERIES_MAY_NOT_COMPLETE", "OUT_OF_AGE_UNCERTAIN"]},
         "params": {"$ref": "#/$defs/ReasonParams"}
       }
     },
     "ReasonParams": {
-      "description": "Every reason parameter; each code uses the members SAD §5.4 lists for it. Typed: IDs and enums are strings, counts are integers, lists are arrays; no booleans. Members are added additively.",
+      "description": "Every reason parameter; each code uses the members SAD §5.4 lists for it. Typed: IDs and enums are strings, counts are integers, dates are Date strings, lists are arrays; no booleans. Members are added additively.",
       "type": "object",
       "additionalProperties": false,
       "minProperties": 1,
@@ -228,8 +228,9 @@
         "dose": {"type": "string", "minLength": 1},
         "doses": {"description": "Dose record IDs: in time order, at least two, for OVERLAPPING_ESTIMATED_DATES; by ID, at least one, for PRODUCT_NOT_IN_CATALOG.", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "hint": {"enum": ["birthMonth", "fullBirthDate"]},
+        "lastDay": {"description": "The last allowed day of the next dose: L_k for DUE_CAPPED_BY_MAX_AGE, Lim for SERIES_MAY_NOT_COMPLETE; added in engine slice S4b.", "$ref": "#/$defs/Date"},
         "number": {"type": "integer", "minimum": 1},
-        "numbers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "numbers": {"description": "Series positions, ascending: the implied doses for IMPLIED_EARLIER_DOSES; the doses whose exact date would decide for OUT_OF_AGE_UNCERTAIN (added in engine slice S4b).", "type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
         "series": {"$ref": "#/$defs/Id"}
       }
     },

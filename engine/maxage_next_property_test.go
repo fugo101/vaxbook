@@ -430,7 +430,9 @@ func TestPropertyNoDoseNoProductDisagreement(t *testing.T) {
 // a complete candidate never yields outOfAge. For every outOfAge with doses
 // given, each series of seriesUsed evaluated alone (a snapshot that keeps
 // only that series for the disease, as TestPropertyMergeCoversCandidates
-// does) is never ✅ COMPLETE.
+// does) never gives COMPLETE: neither ✅ nor a ⚪ that masks a complete
+// series (F05.10: if counting the questioned dose would complete the
+// series, the ⚪ is kept).
 func TestPropertyOutOfAgeNoCompleteCandidate(t *testing.T) {
 	t.Parallel()
 	checked := 0
@@ -459,7 +461,7 @@ func TestPropertyOutOfAgeNoCompleteCandidate(t *testing.T) {
 				checked++
 				for _, id := range a.SeriesUsed {
 					o, _ := evaluate(t, single(id), in)
-					if b := o.Assessments[j]; b.Bucket == engine.BucketComplete && hasCode(b, engine.ReasonComplete) {
+					if b := o.Assessments[j]; hasCode(b, engine.ReasonComplete) {
 						t.Fatalf("%s %s: outOfAge, but %s alone is complete\noutOfAge %+v\nalone %+v\ninput %+v", fx.name, a.Disease, id, a, b, in)
 					}
 				}

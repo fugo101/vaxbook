@@ -430,9 +430,9 @@ const coverBudget = 512
 // positions, the slots fit before the dated dose after them, and the last
 // dose fits by today. It fits only at one end when its walk also has a
 // DOSE_POSSIBLY_INVALID on a record w has no DOSE_INVALID or
-// DOSE_POSSIBLY_INVALID on. An uncounted dated dose has no position, so no
-// placement is tried in front of one; trying fewer placements can only
-// report more DOSE_INVALID (P1).
+// DOSE_POSSIBLY_INVALID on. Placements in front of an uncounted dated dose
+// are tried as described below (since S4b); trying fewer placements can
+// only report more DOSE_INVALID (P1).
 //
 // A DOSE_AFTER_MAX_AGE is bad like a DOSE_INVALID (issue #15 In scope 4):
 // records w already has one on do not count against a placement, and a new

@@ -169,8 +169,12 @@ _Avoid_: Deadline
 The day from which a next dose is shown as overdue, normally at least 7 days after the due date. A dose held to its last allowed day, and a seasonal booster, are never shown as overdue.
 
 **Last allowed day** — *Hạn chót*:
-The last day a next dose can still be given so that the series can be completed before its maximum age.
+The last day a next dose can still be given so that the series can be completed before its maximum age (for dose 1, also before its maximum age to start). Past it, a dose that can still be given before the maximum age itself is shown as "có thể không kịp đủ phác đồ — hỏi bác sĩ" ("may not be able to complete the series — ask a doctor"), held to that later day; a dose that cannot is out of age.
 _Avoid_: Due date, Max age
+
+**Counted view**:
+The engine's second look at a disease's dose records with every record counted, used only to decide whether a disease is out of age, so that a dose the engine questions never makes a person out of age by not being counted.
+_Avoid_: Corrected history, Assumed history
 
 **Periodic booster** — *Nhắc lại định kỳ*:
 A dose repeated after a series is complete, either every fixed period or once per season; its dose numbers continue those of the series.

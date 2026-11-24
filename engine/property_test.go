@@ -1023,10 +1023,12 @@ func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (atMaxAg
 				t.Fatalf("%s %s: a dose on the earliest date %s may fail a minimum: %v", fx.name, a.Disease, a.NextDose.Earliest, b.Reasons)
 			}
 		}
-		// Without S4b's cap, E can be at or past a maximum age (issue
-		// #15): the new dose may then be after it, possibly after it,
-		// or questioned by the candidates, so the "no new candidate"
-		// and "counted" clauses skip those results.
+		// Before S4b's cap, E could be at or past a maximum age (issue
+		// #15): the new dose was then after it, possibly after it, or
+		// questioned by the candidates, so the "no new candidate" and
+		// "counted" clauses skip those results. Since S4b a next dose
+		// is emitted only when it can still be given (issue #28), so
+		// this is a guard.
 		if maxAgeQuestioned(b) {
 			atMaxAge++
 			continue

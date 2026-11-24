@@ -359,6 +359,8 @@ var reasonParams = map[engine.ReasonCode][]string{
 	engine.ReasonDoseAfterMaxAge:           {"checks", "dose", "number"},
 	engine.ReasonCheckProductName:          nil,
 	engine.ReasonMixedProducts:             nil,
+	engine.ReasonDueCappedByMaxAge:         {"lastDay"},
+	engine.ReasonSeriesMayNotComplete:      {"lastDay"},
 }
 
 // checkReasonParams fails when a reason of a carries params other than

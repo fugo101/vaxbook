@@ -193,8 +193,11 @@ func hasReason(rs []Reason, c ReasonCode) bool {
 // TestBirthHintForAgeLimitReasons (issue #15 Q58, SAD §5.3 step 4): when the
 // compared results differ, the hint is fullBirthDate whatever the birth
 // precision as soon as any of them has an age-limit reason: OUT_OF_AGE,
-// DOSE_AFTER_MAX_AGE, CHECK_PRODUCT_NAME, MIXED_PRODUCTS, or a
-// DOSE_POSSIBLY_INVALID listing a maximum age. A minimum-only reason keeps
+// DOSE_AFTER_MAX_AGE, CHECK_PRODUCT_NAME, MIXED_PRODUCTS, a
+// DOSE_POSSIBLY_INVALID listing a maximum age, and since S4b (issue #28 In
+// scope 6) DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE, and a compared
+// result that is itself ⚪ BIRTH_DATE_IMPRECISE{fullBirthDate}, whose
+// reason is then listed once. A minimum-only reason keeps
 // the precision's hint (birthMonth here). The reason is on the older end's
 // ⚪ result, and the later end is 🟠 with none; the same holds with the two
 // swapped.
@@ -216,6 +219,9 @@ func TestBirthHintForAgeLimitReasons(t *testing.T) {
 		{"possibly after max age to complete", checked(ReasonDosePossiblyInvalid, CheckMinAge, CheckMaxAgeComplete), HintFullBirthDate},
 		{"possibly before min age", checked(ReasonDosePossiblyInvalid, CheckMinAge), HintBirthMonth},
 		{"dose invalid", checked(ReasonDoseInvalid, CheckMinInterval), HintBirthMonth},
+		{"due capped by max age", Reason{Code: ReasonDueCappedByMaxAge, Params: ReasonParams{LastDay: d(t, "2026-05-31")}}, HintFullBirthDate},
+		{"series may not complete", Reason{Code: ReasonSeriesMayNotComplete, Params: ReasonParams{LastDay: d(t, "2026-08-12")}}, HintFullBirthDate},
+		{"age-limit ⚪ at one date", Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: HintFullBirthDate}}, HintFullBirthDate},
 	}
 	for _, tc := range cases {
 		withReason := endResult{bucket: BucketUnknown, k: 1, reasons: []Reason{tc.reason}}
@@ -226,7 +232,26 @@ func TestBirthHintForAgeLimitReasons(t *testing.T) {
 			if res.bucket != BucketUnknown || len(res.reasons) == 0 || !sameReason(res.reasons[0], want) {
 				t.Errorf("%s (reason at end %d): %s %v, want ⚪ led by %v", tc.name, end, res.bucket, res.reasons, want)
 			}
+			if n := len(slices.DeleteFunc(slices.Clone(res.reasons), func(r Reason) bool { return r.Code != ReasonBirthDateImprecise })); n != 1 {
+				t.Errorf("%s (reason at end %d): %d BIRTH_DATE_IMPRECISE reasons in %v, want 1", tc.name, end, n, res.reasons)
+			}
 		}
+	}
+}
+
+// TestReasonKeyHasLastDay (issue #28): two DUE_CAPPED_BY_MAX_AGE reasons with
+// different last days are different reasons, so step 4 never merges them
+// silently (possible across no-dose sub-ranges, through the start limit's
+// bracket term).
+func TestReasonKeyHasLastDay(t *testing.T) {
+	t.Parallel()
+	a := Reason{Code: ReasonDueCappedByMaxAge, Params: ReasonParams{LastDay: d(t, "2026-04-15")}}
+	b := Reason{Code: ReasonDueCappedByMaxAge, Params: ReasonParams{LastDay: d(t, "2026-04-16")}}
+	if sameReason(a, b) {
+		t.Errorf("reasonKey(%v) = reasonKey(%v)", a, b)
+	}
+	if !sameReason(a, a) {
+		t.Errorf("reasonKey is not stable")
 	}
 }
 

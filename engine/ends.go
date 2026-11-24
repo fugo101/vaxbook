@@ -128,12 +128,22 @@ func compareResults(rs []endResult, hint Hint) endResult {
 
 // ageLimit reports whether reasons hold an age-limit reason (issue #15
 // Q58): OUT_OF_AGE, DOSE_AFTER_MAX_AGE, CHECK_PRODUCT_NAME, MIXED_PRODUCTS,
-// or a DOSE_POSSIBLY_INVALID listing a maximum age.
+// a DOSE_POSSIBLY_INVALID listing a maximum age, and since S4b (issue #28
+// In scope 6) DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE and
+// BIRTH_DATE_IMPRECISE{fullBirthDate}. An end's own reasons hold
+// BIRTH_DATE_IMPRECISE only when it is an age-limit ⚪ (not certainly out
+// of age at that date), so that result's reason then has the same key as
+// the comparison's and is listed once.
 func ageLimit(reasons []Reason) bool {
 	for _, r := range reasons {
 		switch r.Code {
-		case ReasonOutOfAge, ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts:
+		case ReasonOutOfAge, ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts,
+			ReasonDueCappedByMaxAge, ReasonSeriesMayNotComplete:
 			return true
+		case ReasonBirthDateImprecise:
+			if r.Params.Hint == HintFullBirthDate {
+				return true
+			}
 		case ReasonDosePossiblyInvalid:
 			if slices.Contains(r.Params.Checks, CheckMaxAgeStart) || slices.Contains(r.Params.Checks, CheckMaxAgeComplete) {
 				return true
@@ -144,14 +154,15 @@ func ageLimit(reasons []Reason) bool {
 }
 
 // bucketReason reports whether a reason describes one end's bucket: COMPLETE,
-// ON_TRACK, ALTERNATIVE_PLANS, PRODUCT_NOT_IN_CATALOG, SAFEST_SERIES and
-// OUT_OF_AGE. With doses given, SAFEST_SERIES is emitted once before step 4
+// ON_TRACK, ALTERNATIVE_PLANS, PRODUCT_NOT_IN_CATALOG, SAFEST_SERIES,
+// OUT_OF_AGE, DUE_CAPPED_BY_MAX_AGE and SERIES_MAY_NOT_COMPLETE. With doses given, SAFEST_SERIES is emitted once before step 4
 // and is never in an end's reasons; with no dose given the sub-ranges of the
 // birth range can choose different brackets, so each one's SAFEST_SERIES and
 // OUT_OF_AGE can differ.
 func bucketReason(c ReasonCode) bool {
 	switch c {
-	case ReasonComplete, ReasonOnTrack, ReasonAlternativePlans, ReasonProductNotInCatalog, ReasonSafestSeries, ReasonOutOfAge:
+	case ReasonComplete, ReasonOnTrack, ReasonAlternativePlans, ReasonProductNotInCatalog, ReasonSafestSeries, ReasonOutOfAge,
+		ReasonDueCappedByMaxAge, ReasonSeriesMayNotComplete:
 		return true
 	}
 	return false
@@ -174,5 +185,5 @@ func sameReason(a, b Reason) bool { return reasonKey(a) == reasonKey(b) }
 // key iff they have the same code and params.
 func reasonKey(r Reason) string {
 	p := r.Params
-	return fmt.Sprintf("%q %q %q %d %q %q %q %v %q", r.Code, p.Dose, p.Hint, p.Number, p.Series, p.Checks, p.Doses, p.Numbers, candidateKey(p.Candidates))
+	return fmt.Sprintf("%q %q %q %d %q %q %q %v %q %d", r.Code, p.Dose, p.Hint, p.Number, p.Series, p.Checks, p.Doses, p.Numbers, candidateKey(p.Candidates), p.LastDay.days)
 }

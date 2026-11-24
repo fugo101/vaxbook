@@ -56,15 +56,19 @@ func distanceOnly(class string) bool {
 // choice is fixed (SAD §5.3 step 4, F05.5, EQ17, A8; noDosePoints).
 //
 // Two results agree when they have the same next dose number, the same
-// blocking reasons and the same cap reasons present (DUE_CAPPED_BY_MAX_AGE,
-// SERIES_MAY_NOT_COMPLETE, by code and not by lastDay; issue #28 Q68), and
+// blocking reasons and the same cap reason (DUE_CAPPED_BY_MAX_AGE or
+// SERIES_MAY_NOT_COMPLETE, with its lastDay; issue #28 Q68), and
 // either the same class or two classes in {notYetScheduled, 🟡, ✅
 // ON_TRACK}. Two outOfAge results agree on the block alone: their masked
 // reasons are not compared, and the merged reasons are put in the reason
 // order (reasonRank), which keeps the per-dose group latest-first. Dates
 // alone never make results differ: the dates driven by a minimum age or
 // interval come from the latest birth date, and the capped dates from the
-// older end of the whole range at every date.
+// older end of the whole range at every date. The last day itself is
+// compared, since with no dose given the sub-ranges can have different
+// candidates and start-limit terms (b_s): an agreeing later result would
+// otherwise show a last day past an earlier birth date's (P1). With doses
+// given the ends share their limits, so only the code can differ.
 // Agreement is an equivalence, so the results all agree when each agrees
 // with the latest one. Then the latest result is used, with its series
 // (seriesUsed) and products (issue #23 Q40, amended in PR #27). A ⚪ result
@@ -90,7 +94,7 @@ func compareResults(rs []endResult, hint Hint) endResult {
 		outOfAge = bothOut
 		agree = agree && (bothOut || r.k == later.k &&
 			slices.EqualFunc(blockingOnly(r.reasons), blockingOnly(later.reasons), sameReason) &&
-			capCodes(r.reasons) == capCodes(later.reasons) &&
+			capKey(r.reasons) == capKey(later.reasons) &&
 			(co == cl || distanceOnly(co) && distanceOnly(cl)))
 		limit = limit || ageLimit(r.reasons)
 	}
@@ -184,9 +188,15 @@ func bucketReason(c ReasonCode) bool {
 	return false
 }
 
-// capCodes encodes which cap reasons are present, for the agreement key.
-func capCodes(reasons []Reason) [2]bool {
-	return [2]bool{hasReason(reasons, ReasonDueCappedByMaxAge), hasReason(reasons, ReasonSeriesMayNotComplete)}
+// capKey encodes the cap reason of one evaluated date, with its lastDay
+// (at most one, Q66), for the agreement key; "" when there is none.
+func capKey(reasons []Reason) string {
+	for _, r := range reasons {
+		if r.Code == ReasonDueCappedByMaxAge || r.Code == ReasonSeriesMayNotComplete {
+			return reasonKey(r)
+		}
+	}
+	return ""
 }
 
 // reasonRank is a code's place in the reason order of one evaluated date

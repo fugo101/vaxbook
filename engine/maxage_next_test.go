@@ -212,6 +212,34 @@ func TestCappedEndsDisagree(t *testing.T) {
 	})
 }
 
+// TestCappedSubRangesDifferentLastDays (issue #28 In scope 3, F05.5, P1):
+// agreeing step-4 results must not show a later last day than an earlier
+// birth date has. One generic group, no dose: q-a (startAge [0, 12m), one
+// dose, minAge 6w, due birth + 13m, maxAgeComplete 105w) and q-b (startAge
+// [12m, 24m), one dose, minAge 12m, due birth + 24m, maxAgeComplete 24m).
+// Birth 2023 (year), today 2024-12-10: the range splits at 2023-12-11, q-b
+// before it and q-a from it. From b_old = 2023-01-01, q-b's L is 2024-12-31
+// and q-a's 2025-01-04. Every evaluated date is 🟠 with
+// DUE_CAPPED_BY_MAX_AGE, but the older sub-range's last day is 12-31 while
+// the later one shows 2025-01-04, past the last day of someone born
+// 2023-01-01 (only q-b is open to them). Different last days are a
+// difference involving a maximum-age cap → ⚪
+// BIRTH_DATE_IMPRECISE{fullBirthDate}, with both cap reasons, latest first.
+func TestCappedSubRangesDifferentLastDays(t *testing.T) {
+	t.Parallel()
+	qa := qSeries(t, "q-a", "", "", "P105W", []ruleset.DoseRule{rule(t, "P6W", "", "", ruleset.FromBirth, "P13M")})
+	qa.StartAge = &ruleset.StartAge{Min: *spanOf(t, "P0D"), Max: spanOf(t, "P12M")}
+	qb := qSeries(t, "q-b", "", "", "P24M", []ruleset.DoseRule{rule(t, "P12M", "", "", ruleset.FromBirth, "P24M")})
+	qb.StartAge = &ruleset.StartAge{Min: *spanOf(t, "P12M"), Max: spanOf(t, "P24M")}
+	s := oneDiseaseSnapshot(nil, qa, qb)
+	e := newEngine(t, s, ruleset.FirstDoseMinAgeAboveStartAge, ruleset.FirstDoseMinAgeDiffers)
+	got := assessmentOf(t, e, "q", "2024-12-10", engine.RecalledDate{Value: "2023", Precision: engine.Year})
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"q-a"}, Estimated: true,
+		Reasons: []engine.Reason{fullBirthDate, capped("2025-01-04"), capped("2024-12-31")},
+	})
+}
+
 // TestCappedOnTrack: minimal-max-age-complete, birth 2006-06-01 (L z-a =
 // 2026-05-31), r1 za on 2025-06-01, today 2025-07-01. Dose 2: E = 06-29,
 // Du = r1 + 12m = 2026-06-01, O = 06-08; F = 07-01 ≤ L → Du = O = 05-31,

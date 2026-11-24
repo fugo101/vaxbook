@@ -740,6 +740,26 @@ func TestFloatingDoseInFrontOfUncountedDose(t *testing.T) {
 		doses: []engine.DoseRecord{rota("d", dayDate("2026-04-20"), "rotarix"), rota("e", dayDate("2026-05-01"), "rotarix"), rota("f", dayDate("2026-03-01"), "rotarix")},
 		want: engine.Assessment{Disease: "rota", Bucket: engine.BucketComplete, SeriesUsed: []string{"rota-rotarix"},
 			Reasons: []engine.Reason{{Code: engine.ReasonComplete}}},
+	}, {
+		// An undated record after a rescued dose is settled like a dated
+		// one. rotateq d on 07-20 (past 15w@b = 04-16 at 1), u #2 undated
+		// and f undated, today 09-01. With f at 1 and u at 2 in front, d
+		// counts at 3 (chain 03-12 + 4w ≤ 07-20, before 32w@b = 08-13), so
+		// d is rescued, and that walk gives u no reason. In the redone walk
+		// d counts at 1 and u's chain is d + 4w = 08-17, past 08-13: u is
+		// forced counted with DOSE_POSSIBLY_INVALID, not DOSE_AFTER_MAX_AGE.
+		// f fits in front of d. k = 4 → masked COMPLETE.
+		name: "undated record after a rescued dose", today: "2026-09-01",
+		doses: []engine.DoseRecord{rota("d", dayDate("2026-07-20"), "rotateq"), numbered(rota("u", unknownDate, "rotateq"), 2), rota("f", unknownDate, "rotateq")},
+		want: engine.Assessment{Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotateq"}, Estimated: true,
+			Reasons: []engine.Reason{possiblyInvalid("d", 1, engine.CheckMaxAgeStart), possiblyInvalid("u", 2, engine.CheckMaxAgeComplete), {Code: engine.ReasonComplete}}},
+	}, {
+		// The same with f on 02-12 and u on 03-12: f at 1, u at 2 and d at
+		// 3 → ✅, so a definite failure on u would be false.
+		name: "undated record after a rescued dose, f and u dated", today: "2026-09-01",
+		doses: []engine.DoseRecord{rota("d", dayDate("2026-07-20"), "rotateq"), numbered(rota("u", dayDate("2026-03-12"), "rotateq"), 2), rota("f", dayDate("2026-02-12"), "rotateq")},
+		want: engine.Assessment{Disease: "rota", Bucket: engine.BucketComplete, SeriesUsed: []string{"rota-rotateq"},
+			Reasons: []engine.Reason{{Code: engine.ReasonComplete}}},
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

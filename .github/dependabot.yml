@@ -27,6 +27,13 @@ updates:
     # requirements of go.mod.
     allow:
       - dependency-type: all
+    # mvdan.cc/sh/x (indirect, via Task) has no tagged versions, only
+    # pseudo-versions. Dependabot resolves it to the parent module's
+    # mvdan.cc/sh v2.6.4+incompatible, which has no package x, and the whole
+    # gomod job fails (dependency_file_not_resolvable). It still moves when
+    # Task is bumped, because go resolves the module graph then.
+    ignore:
+      - dependency-name: mvdan.cc/sh/x
     groups:
       go:
         applies-to: version-updates

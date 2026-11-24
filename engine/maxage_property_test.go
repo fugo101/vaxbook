@@ -200,11 +200,13 @@ func TestPropertyProductDisagreement(t *testing.T) {
 // outcomes on the fixtures with maximum ages, so the properties that run them
 // (TestPropertyNarrowingDoseDate, TestPropertyNoBirthDateNoAgeCheck) cannot
 // become vacuous: DOSE_AFTER_MAX_AGE and DOSE_POSSIBLY_INVALID for each
-// maximum-age check, on a dated and on an undated record. The one exception
-// is a possible maxAgeStart on an undated record: a slot at position 1
-// follows only an uncounted dated dose (before its minimum age, or already
-// definitely past the start limit), so its chain dates never straddle the
-// limit.
+// maximum-age check, on a dated and on an undated record. The exceptions
+// are maxAgeStart on an undated record: a slot at position 1 follows only
+// uncounted dated doses (before their minimum age, or already definitely
+// past the start limit), so its chain dates never straddle the limit
+// (possible), and since S4b its best date comes from the chain that skips
+// those doses, from birth + the dose-1 minimum age (issue #28 In scope 0c),
+// so it is never definite either.
 func TestPropertyMaxAgeCoverage(t *testing.T) {
 	t.Parallel()
 	seen := map[string]int{}
@@ -238,7 +240,7 @@ func TestPropertyMaxAgeCoverage(t *testing.T) {
 	for _, code := range []engine.ReasonCode{engine.ReasonDoseAfterMaxAge, engine.ReasonDosePossiblyInvalid} {
 		for _, c := range []engine.Check{engine.CheckMaxAgeStart, engine.CheckMaxAgeComplete} {
 			for _, u := range []bool{false, true} {
-				if code == engine.ReasonDosePossiblyInvalid && c == engine.CheckMaxAgeStart && u {
+				if c == engine.CheckMaxAgeStart && u {
 					continue
 				}
 				if k := fmt.Sprintf("%s %s undated=%v", code, c, u); seen[k] == 0 {

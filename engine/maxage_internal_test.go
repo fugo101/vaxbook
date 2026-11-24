@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -227,4 +228,122 @@ func TestBirthHintForAgeLimitReasons(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestPropertyUndatedDefiniteMaxAge (issue #28 In scope 0, Q84, Q87): a
+// definite maximum-age verdict on an undated record holds for every exact
+// day the record could have. On both maximum-age fixtures, with an exact
+// birth, one to three exact dated doses (a quarter numbered) and one undated
+// record u (a third numbered), each with a random product or none: when u
+// gets DOSE_AFTER_MAX_AGE, no day d in [birth, today] for u gives u neither
+// DOSE_INVALID nor DOSE_AFTER_MAX_AGE while giving no other record a
+// definite reason it lacked. Days are skipped that give a step-2 reason,
+// CHECK_PRODUCT_NAME or MIXED_PRODUCTS, or that move a dated record some
+// candidate counts to another position: the verdict is about u's place in
+// time, not about a different arrangement of the other records.
+func TestPropertyUndatedDefiniteMaxAge(t *testing.T) {
+	t.Parallel()
+	type fixture struct {
+		name, birth, base string
+		products          []string
+		span              int
+	}
+	checked := 0
+	for _, fx := range []fixture{
+		{"illustrative-max-age", "2026-01-01", "2026-01-01", []string{"", "rotarix", "rotateq", "rotavin"}, 330},
+		{"minimal-max-age-complete", "2006-06-01", "2024-05-01", []string{"", "za", "zb"}, 2*365 + 200},
+	} {
+		b, err := os.ReadFile(filepath.Join("testdata", "rulesets", fx.name+".json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s, err := ruleset.Decode(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, err := New(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dz := e.diseases[0]
+		birthDay, base := d(t, fx.birth), d(t, fx.base)
+		birth := birthRange{r: Exact(birthDay), known: true, precision: Day}
+		dose := func(id string, date *Date, rng *rand.Rand, numberOdds int) givenDose {
+			g := givenDose{id: id, product: fx.products[rng.IntN(len(fx.products))]}
+			if date != nil {
+				g.date, g.dated = Exact(*date), true
+			}
+			if rng.IntN(numberOdds) == 0 {
+				g.number = 1 + rng.IntN(3)
+			}
+			return g
+		}
+		// positions returns the position of each dated record per candidate
+		// series, and whether that candidate counts it.
+		type place struct {
+			pos     int
+			counted bool
+		}
+		positions := func(res endResult) map[string]place {
+			out := map[string]place{}
+			for i, r := range res.cands {
+				for _, it := range r.walk.seq {
+					if it.dose.dated {
+						out[fmt.Sprintf("%d %s", res.series[i], it.dose.id)] = place{it.pos, it.counted}
+					}
+				}
+			}
+			return out
+		}
+		rng := rand.New(rand.NewPCG(71, uint64(len(fx.name))))
+		for range 12000 {
+			today := base.AddDays(30 + rng.IntN(fx.span))
+			var doses []givenDose
+			for i := range 1 + rng.IntN(3) {
+				day := base.AddDays(rng.IntN(int(today.days-base.days) + 1))
+				doses = append(doses, dose(fmt.Sprintf("d%d", i), &day, rng, 4))
+			}
+			u := dose("u", nil, rng, 3)
+			a, res := dz.assess(birth, today, append(slices.Clone(doses), u))
+			if res.cands == nil || !slices.ContainsFunc(a.Reasons, func(r Reason) bool { return r.Code == ReasonDoseAfterMaxAge && r.Params.Dose == "u" }) {
+				continue
+			}
+			checked++
+			had := definiteIDs(a.Reasons)
+			pos := positions(res)
+			for day := birthDay; !day.After(today); day = day.AddDays(1) {
+				ud := u
+				ud.date, ud.dated = Exact(day), true
+				a2, res2 := dz.assess(birth, today, append(slices.Clone(doses), ud))
+				if res2.cands == nil || hasReason(a2.Reasons, ReasonCheckProductName) || hasReason(a2.Reasons, ReasonMixedProducts) {
+					continue
+				}
+				moved := false
+				for k, p := range positions(res2) {
+					if q, ok := pos[k]; ok && q.pos != p.pos && (p.counted || q.counted) {
+						moved = true
+					}
+				}
+				if moved {
+					continue
+				}
+				now := definiteIDs(a2.Reasons)
+				if now["u"] {
+					continue
+				}
+				gained := false
+				for id := range now {
+					gained = gained || !had[id]
+				}
+				if !gained {
+					t.Fatalf("%s: u has DOSE_AFTER_MAX_AGE, but on %v it has no definite reason and no other record gains one\ntoday %v doses %+v u %+v\nundated %+v\ndated %+v",
+						fx.name, day, today, doses, u, a.Reasons, a2.Reasons)
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no undated record got DOSE_AFTER_MAX_AGE; the property is vacuous")
+	}
+	t.Logf("%d undated records with DOSE_AFTER_MAX_AGE checked", checked)
 }

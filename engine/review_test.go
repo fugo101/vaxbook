@@ -567,6 +567,41 @@ func TestManyRecordsPastMaxAge(t *testing.T) {
 	})
 }
 
+// TestManyRecordsPastMaxAgeWithFloatingDoses: the placements in front of
+// uncounted dated doses (issue #28 In scope 0b) must keep the search
+// bounded. TestManyRecordsPastMaxAge's records are all uncounted and form
+// one run, so the rescue tries one point; three floating doses are added.
+func TestManyRecordsPastMaxAgeWithFloatingDoses(t *testing.T) {
+	if testing.Short() || runtime.GOOS == "js" {
+		t.Skip("timing test")
+	}
+	first, err := engine.ParseDate("2026-05-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	today, err := engine.ParseDate("2026-07-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := loadEngine(t, "illustrative-max-age")
+	assertLinear(t, 2000, func(n int) time.Duration {
+		doses := make([]engine.DoseRecord, n, n+3)
+		for i := range doses {
+			doses[i] = engine.DoseRecord{ID: fmt.Sprintf("r%05d", i), Diseases: []string{"rota"},
+				Date: engine.RecalledDate{Value: first.AddDays(i % 60).String(), Precision: engine.Day}}
+		}
+		for i := range 3 {
+			doses = append(doses, engine.DoseRecord{ID: fmt.Sprintf("f%d", i), Diseases: []string{"rota"}, Date: engine.RecalledDate{Precision: engine.Unknown}})
+		}
+		in := engine.Input{Today: today, Profile: engine.Profile{Birth: engine.RecalledDate{Value: "2026-01-01", Precision: engine.Day}}, Doses: doses}
+		began := time.Now()
+		if _, err := e.Evaluate(in); err != nil {
+			t.Fatal(err)
+		}
+		return time.Since(began)
+	})
+}
+
 // assertLinear fails when evaluating 4n items takes more than 8× as long as
 // n items (linear ≈ 4×, quadratic ≈ 16×). It compares the best of three runs
 // at each size, so it does not depend on how fast the machine is (a fixed

@@ -191,24 +191,6 @@ func TestMaxAgeNoCandidateCounts(t *testing.T) {
 	})
 }
 
-// TestUndatedDoseOneBehindUncountedDatedDose (issue #15 In scope 4): r1
-// rotarix on 05-01 (no number; ≥ 04-16 → DOSE_AFTER_MAX_AGE, not counted)
-// and r2 rotarix with an unknown date and no number, today 06-01. r2 floats;
-// r1 is not counted, so no placement goes in front of it, and the only
-// placement puts r2 after r1 at position 1. Its chain starts at r1: best =
-// worst = 05-01 ≥ 04-16 → definite, so no placement fits and r2 gets
-// DOSE_AFTER_MAX_AGE{maxAgeStart, number 1}, not counted (k = 1, masked).
-func TestUndatedDoseOneBehindUncountedDatedDose(t *testing.T) {
-	t.Parallel()
-	e := loadEngine(t, "illustrative-max-age")
-	got := assessmentOf(t, e, "rota", "2026-06-01", birthRota,
-		rota("r1", dayDate("2026-05-01"), "rotarix"), rota("r2", unknownDate, "rotarix"))
-	checkAssessment(t, got, engine.Assessment{
-		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotarix"}, Estimated: true,
-		Reasons: []engine.Reason{afterMaxAge("r1", 1, engine.CheckMaxAgeStart), afterMaxAge("r2", 1, engine.CheckMaxAgeStart)},
-	})
-}
-
 // TestTrailingImpliedDoseBelowRecordBeyondSeries (issue #15 In scope 4):
 // minimal-max-age-complete, birth 2006-06-01 (20y@b = 2026-06-01), r1 za on
 // 2026-05-25 numbered 1, r2 za with an unknown date numbered 3, today
@@ -516,13 +498,19 @@ func TestImpliedDoseAboveEverySeriesIsUnknown(t *testing.T) {
 //     DOSE_AFTER_MAX_AGE{maxAgeComplete, r3, 3}. r2 stays a counted floating
 //     dose, so k = 0 + 1 + 1 = 2, and step 7 stops: r2 may be the latest dose
 //     (PREVIOUS_DOSE_DATE_UNKNOWN{r2}).
-//   - r1 rotarix on 05-01 with no number (≥ 15w@b → not counted), f2 and f3
-//     rotarix undated with no number, today 06-01. The all-after placement
-//     puts f2 at 1, chained from r1 (05-01 ≥ 04-16 → maxAgeStart definite),
-//     and f3 at 2 (05-29 < 24w@b = 06-18, by today). Only the dose at 1
-//     fails, but the last by ID, f3, is named, with what fails:
-//     DOSE_AFTER_MAX_AGE{maxAgeStart, f3, 1}. f2 stays counted: k = 2, and
-//     step 7 stops on f2.
+//   - Another floating dose than the last can be the one that fails
+//     (failedIn): r1 rotateq on 06-14 numbered 1 (≥ 15w@b → DOSE_AFTER_MAX_AGE
+//     {maxAgeStart}, not counted), u0, u1 and u2 rotateq undated with no
+//     number, today 08-02. Positions 2 and 3 are left, so the all-after
+//     placement puts u0 at 2 (r1 + 4w = 07-12) and u1 at 3 (08-09, after
+//     today → DOSE_INVALID{minInterval}), and u2 beyond the series, where it
+//     is not checked. r1's number leaves no other point. u2, the last by ID,
+//     is named with u1's failure and number: DOSE_INVALID{minInterval, u2,
+//     3}; u0 and u1 stay counted floating doses, and step 7 stops on them.
+//     Since S4b (issue #28 In scope 0b) a dose at position 1 past the start
+//     limit behind an uncounted dated dose no longer reaches this branch:
+//     the placement in front of that dose rescues it (golden
+//     level4-dose-may-precede-dose-after-max-age-start).
 func TestNoFloatingPlacementNamesLastByID(t *testing.T) {
 	t.Parallel()
 	e := loadEngine(t, "illustrative-max-age")
@@ -538,50 +526,58 @@ func TestNoFloatingPlacementNamesLastByID(t *testing.T) {
 		},
 	})
 
-	got = assessmentOf(t, e, "rota", "2026-06-01", birthRota,
-		rota("r1", dayDate("2026-05-01"), "rotarix"), rota("f2", unknownDate, "rotarix"), rota("f3", unknownDate, "rotarix"))
+	r1 = rota("r1", dayDate("2026-06-14"), "rotateq")
+	r1.DoseNumbers = map[string]engine.DoseNumber{"rota": 1}
+	got = assessmentOf(t, e, "rota", "2026-08-02", birthRota,
+		r1, rota("u0", unknownDate, "rotateq"), rota("u1", unknownDate, "rotateq"), rota("u2", unknownDate, "rotateq"))
 	checkAssessment(t, got, engine.Assessment{
-		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotarix"}, Estimated: true,
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotateq"}, Estimated: true,
 		Reasons: []engine.Reason{
 			afterMaxAge("r1", 1, engine.CheckMaxAgeStart),
-			afterMaxAge("f3", 1, engine.CheckMaxAgeStart),
-			{Code: engine.ReasonPreviousDoseDateUnknown, Params: engine.ReasonParams{Dose: "f2"}},
+			{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: []engine.Check{engine.CheckMinInterval}, Dose: "u2", Number: 3}},
+			{Code: engine.ReasonPreviousDoseDateUnknown, Params: engine.ReasonParams{Dose: "u0"}},
+			{Code: engine.ReasonPreviousDoseDateUnknown, Params: engine.ReasonParams{Dose: "u1"}},
 		},
 	})
 }
 
 // TestNarrowingNamedFloatingDoseShape pins the shape for which the narrowing
 // property keys an unnumbered level-4 record by its ID alone
-// (uncountedKeys). r0 with no product on 02-05 (before 6w@b = 02-12 →
-// DOSE_INVALID{minAge} under every candidate, not counted), r3 rotarix in
-// 2026-05 (at position 1, ≥ 04-16 → DOSE_AFTER_MAX_AGE{maxAgeStart}), r1
-// rotarix and r2 with no product undated with no number, today 06-20. r2
-// makes every series a candidate. In each, the only placement puts r1 at 1
-// (chained from r3: ≥ every start limit, definite) and r2 at 2 (05-29 to
-// 06-28: possibly past rota-rotarix's 06-18, possibly not by today). No
-// placement fits, and r2, the last by ID, is named with r1's failure
-// (number 1); its own possible checks are dropped (Q62). Narrowed to 05-25,
-// r2's own slot (06-22) is past 06-18 and after today, so r2 is named with
-// its own failures (number 2). The same records are not counted.
+// (uncountedKeys): narrowing a dated dose changes the number that the named
+// floating dose fails at. All rotateq, today 03-04: d0 on 01-18 (before
+// 6w@b = 02-12 → DOSE_INVALID{minAge}, not counted), d1 in 2026-02, u0 and
+// u1 undated with no number.
+//   - d1 in 2026-02 is possibly before 02-12, so it counts at 1. The
+//     all-after placement puts u0 at 2 and u1 at 3, whose chain (d1.Lo + 8w
+//     = 03-29) is after today: DOSE_INVALID{minInterval, u1, 3}. In front of
+//     d1 the doses push d1 past its interval (a new DOSE_INVALID), so no
+//     placement fits, and u1 is named at 3.
+//   - Narrowed to 02-01, d1 is DOSE_INVALID{minAge}, not counted, and the
+//     guard keeps both floating doses after it (02-12 > d1): u0 at 1
+//     (02-12) and u1 at 2 (03-12, after today) → DOSE_INVALID{minInterval,
+//     u1, 2}.
+//
+// (Before S4b this test used r3 past the start limit, which the rescue of
+// issue #28 In scope 0b now counts at both dates.)
 func TestNarrowingNamedFloatingDoseShape(t *testing.T) {
 	t.Parallel()
 	e := loadEngine(t, "illustrative-max-age")
-	doses := func(r3 engine.RecalledDate) []engine.DoseRecord {
-		return []engine.DoseRecord{rota("r0", dayDate("2026-02-05"), ""), rota("r1", unknownDate, "rotarix"), rota("r2", unknownDate, ""), rota("r3", r3, "rotarix")}
+	doses := func(d1 engine.RecalledDate) []engine.DoseRecord {
+		return []engine.DoseRecord{rota("d0", dayDate("2026-01-18"), "rotateq"), rota("d1", d1, "rotateq"), rota("u0", unknownDate, "rotateq"), rota("u1", unknownDate, "rotateq")}
 	}
 	invalid := func(dose string, number int, c engine.Check) engine.Reason {
 		return engine.Reason{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: []engine.Check{c}, Dose: dose, Number: number}}
 	}
-	unknownR1 := engine.Reason{Code: engine.ReasonPreviousDoseDateUnknown, Params: engine.ReasonParams{Dose: "r1"}}
-	checkAssessment(t, assessmentOf(t, e, "rota", "2026-06-20", birthRota, doses(monthDate("2026-05"))...), engine.Assessment{
-		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: rotaAll, Estimated: true,
-		Reasons: []engine.Reason{rotaRefs, invalid("r0", 1, engine.CheckMinAge), afterMaxAge("r3", 1, engine.CheckMaxAgeStart),
-			afterMaxAge("r2", 1, engine.CheckMaxAgeStart), unknownR1},
+	unknownU0 := engine.Reason{Code: engine.ReasonPreviousDoseDateUnknown, Params: engine.ReasonParams{Dose: "u0"}}
+	checkAssessment(t, assessmentOf(t, e, "rota", "2026-03-04", birthRota, doses(monthDate("2026-02"))...), engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotateq"}, Estimated: true,
+		Reasons: []engine.Reason{invalid("d0", 1, engine.CheckMinAge), possiblyInvalid("d1", 1, engine.CheckMinAge),
+			invalid("u1", 3, engine.CheckMinInterval), unknownU0},
 	})
-	checkAssessment(t, assessmentOf(t, e, "rota", "2026-06-20", birthRota, doses(dayDate("2026-05-25"))...), engine.Assessment{
-		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: rotaAll, Estimated: true,
-		Reasons: []engine.Reason{rotaRefs, invalid("r0", 1, engine.CheckMinAge), afterMaxAge("r3", 1, engine.CheckMaxAgeStart),
-			invalid("r2", 2, engine.CheckMinInterval), afterMaxAge("r2", 2, engine.CheckMaxAgeComplete), unknownR1},
+	checkAssessment(t, assessmentOf(t, e, "rota", "2026-03-04", birthRota, doses(dayDate("2026-02-01"))...), engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotateq"}, Estimated: true,
+		Reasons: []engine.Reason{invalid("d0", 1, engine.CheckMinAge), invalid("d1", 1, engine.CheckMinAge),
+			invalid("u1", 2, engine.CheckMinInterval), unknownU0},
 	})
 }
 
@@ -640,4 +636,127 @@ func TestNarrowingDisagreeingRecordShape(t *testing.T) {
 			t.Errorf("disagreeing records %v, want %v", q["rota"], want)
 		}
 	}
+}
+
+// numbered gives a dose record a user-entered number for disease rota.
+func numbered(r engine.DoseRecord, n int) engine.DoseRecord {
+	for _, dz := range r.Diseases {
+		r.DoseNumbers = map[string]engine.DoseNumber{dz: engine.DoseNumber(n)}
+	}
+	return r
+}
+
+func invalidDose(dose string, number int, checks ...engine.Check) engine.Reason {
+	return engine.Reason{Code: engine.ReasonDoseInvalid, Params: engine.ReasonParams{Checks: checks, Dose: dose, Number: number}}
+}
+
+// TestUndatedSlotUpperBound (issue #28 In scope 0a, Q84): an undated slot's
+// maximum-age range is clamped at the record that closes its run.
+//   - Closer beyond the series: rotateq r1 #1 on 04-01, r2 #2 on 07-25, r3 #3
+//     undated, r4 #4 on 08-10, today 09-01. r3's chain (r2 + 4w = 08-22) is
+//     after r4, so r3 lies in r4's range [08-10, 08-10], before 32w@b =
+//     08-13: no maximum-age failure. r4, beyond the series, carries the
+//     chain failure → ⚪ [DOSE_INVALID{minInterval, r4, 4}, COMPLETE] (main
+//     gave r3 DOSE_AFTER_MAX_AGE).
+//   - A chain that fits stays definite: r2 on 07-20, r4 in 2026-08, today
+//     09-15. r3's chain is 08-17 ≤ r4.Hi = 08-31 and past 08-13 →
+//     DOSE_AFTER_MAX_AGE{maxAgeComplete, r3, 3}; r4 is possibly before r3's
+//     chain + 4w → ⚪ [DOSE_POSSIBLY_INVALID{minInterval, r4, 4},
+//     DOSE_AFTER_MAX_AGE{maxAgeComplete, r3, 3}], as on main. The counted
+//     view is complete, so the data ⚪ stays (masked dose 3 is 🟡, no reason).
+func TestUndatedSlotUpperBound(t *testing.T) {
+	t.Parallel()
+	e := loadEngine(t, "illustrative-max-age")
+	doses := func(r2, r4 engine.RecalledDate) []engine.DoseRecord {
+		return []engine.DoseRecord{
+			numbered(rota("r1", dayDate("2026-04-01"), "rotateq"), 1), numbered(rota("r2", r2, "rotateq"), 2),
+			numbered(rota("r3", unknownDate, "rotateq"), 3), numbered(rota("r4", r4, "rotateq"), 4),
+		}
+	}
+	checkAssessment(t, assessmentOf(t, e, "rota", "2026-09-01", birthRota, doses(dayDate("2026-07-25"), dayDate("2026-08-10"))...), engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotateq"}, Estimated: true,
+		Reasons: []engine.Reason{invalidDose("r4", 4, engine.CheckMinInterval), {Code: engine.ReasonComplete}},
+	})
+	checkAssessment(t, assessmentOf(t, e, "rota", "2026-09-15", birthRota, doses(dayDate("2026-07-20"), monthDate("2026-08"))...), engine.Assessment{
+		Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotateq"}, Estimated: true,
+		Reasons: []engine.Reason{possiblyInvalid("r4", 4, engine.CheckMinInterval), afterMaxAge("r3", 3, engine.CheckMaxAgeComplete)},
+	})
+}
+
+// TestFloatingDoseInFrontOfUncountedDose (issue #28 In scope 0b, Q83): a
+// placement of the floating doses is also tried in front of an unnumbered
+// dated dose that is not counted, and the dose it counts there is rescued
+// (DOSE_POSSIBLY_INVALID).
+func TestFloatingDoseInFrontOfUncountedDose(t *testing.T) {
+	t.Parallel()
+	e := loadEngine(t, "illustrative-max-age")
+	f := rota("f", unknownDate, "rotarix")
+	for _, tc := range []struct {
+		name, today string
+		doses       []engine.DoseRecord
+		want        engine.Assessment
+	}{{
+		// d on 02-05 (before 6w@b = 02-12): f in front of d would lie on
+		// 02-12 or later, after d, so the guard keeps f after d, where it is
+		// before 6w by today. Without the guard f would count.
+		name: "time-order guard", today: "2026-02-06",
+		doses: []engine.DoseRecord{rota("d", dayDate("2026-02-05"), "rotarix"), f},
+		want: engine.Assessment{Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotarix"}, Estimated: true,
+			Reasons: []engine.Reason{invalidDose("d", 1, engine.CheckMinAge), invalidDose("f", 1, engine.CheckMinAge)}},
+	}, {
+		// d1 on 02-05 fails the guard; d2 on 04-20 (≥ 15w@b = 04-16), in the
+		// same run, gets the point: f at 1 and d2 at 2 → d2 is rescued.
+		// A point only before each run's first member would keep
+		// DOSE_AFTER_MAX_AGE on d2.
+		name: "first member that passes the guard", today: "2026-06-01",
+		doses: []engine.DoseRecord{rota("d1", dayDate("2026-02-05"), "rotarix"), rota("d2", dayDate("2026-04-20"), "rotarix"), f},
+		want: engine.Assessment{Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotarix"}, Estimated: true,
+			Reasons: []engine.Reason{invalidDose("d1", 1, engine.CheckMinAge), possiblyInvalid("d2", 1, engine.CheckMaxAgeStart), {Code: engine.ReasonComplete}}},
+	}, {
+		// rotateq r1 on 04-20 and r2 on 05-20: with f in front, r1 counts at
+		// 2 and r2 at 3. The redone walk counts r1 at 1 and r2 at 2, and f
+		// fits after them.
+		name: "rescue re-walks later doses", today: "2026-06-01",
+		doses: []engine.DoseRecord{rota("r1", dayDate("2026-04-20"), "rotateq"), rota("r2", dayDate("2026-05-20"), "rotateq"), rota("f", unknownDate, "rotateq")},
+		want: engine.Assessment{Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotateq"}, Estimated: true,
+			Reasons: []engine.Reason{possiblyInvalid("r1", 1, engine.CheckMaxAgeStart), {Code: engine.ReasonComplete}}},
+	}, {
+		// d on 04-20 and e on 05-01: with f in front, d counts at 2 and e is
+		// beyond the series. So e, at 1 in the redone walk (past the start
+		// limit), is forced counted with no reason.
+		name: "record after a rescued dose", today: "2026-06-01",
+		doses: []engine.DoseRecord{rota("d", dayDate("2026-04-20"), "rotarix"), rota("e", dayDate("2026-05-01"), "rotarix"), f},
+		want: engine.Assessment{Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotarix"}, Estimated: true,
+			Reasons: []engine.Reason{possiblyInvalid("d", 1, engine.CheckMaxAgeStart), {Code: engine.ReasonComplete}}},
+	}, {
+		// The same with f on 03-01: f at 1, d at 2 (within 24w@b) and e
+		// beyond the series → ✅.
+		name: "record after a rescued dose, f dated", today: "2026-06-01",
+		doses: []engine.DoseRecord{rota("d", dayDate("2026-04-20"), "rotarix"), rota("e", dayDate("2026-05-01"), "rotarix"), rota("f", dayDate("2026-03-01"), "rotarix")},
+		want: engine.Assessment{Disease: "rota", Bucket: engine.BucketComplete, SeriesUsed: []string{"rota-rotarix"},
+			Reasons: []engine.Reason{{Code: engine.ReasonComplete}}},
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			checkAssessment(t, assessmentOf(t, e, "rota", tc.today, birthRota, tc.doses...), tc.want)
+		})
+	}
+}
+
+// TestSlotBehindCountedDatedDose (issue #28 In scope 0c): behind a counted
+// dated dose the slot's chain is unchanged. minimal-max-age-complete, birth
+// 2006-06-01 (20y@b = 2026-06-01): d0 za on 2026-05-20 (no number, counted
+// at 1) and u za #2 undated, today 2026-07-01. u's chain (d0 + 4w = 06-17)
+// is past 06-01 → DOSE_AFTER_MAX_AGE{maxAgeComplete, u, 2}, as on main (u on
+// 2025-01-01 is valid only by moving d0 to 3). Masked dose 2 from d0:
+// ON_TRACK; the counted view is complete, so the data ⚪ stays.
+func TestSlotBehindCountedDatedDose(t *testing.T) {
+	t.Parallel()
+	e := loadEngine(t, "minimal-max-age-complete")
+	got := assessmentOf(t, e, "z", "2026-07-01", dayDate("2006-06-01"),
+		doseOf("z", "d0", dayDate("2026-05-20"), "za"), numbered(doseOf("z", "u", unknownDate, "za"), 2))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "z", Bucket: engine.BucketUnknown, SeriesUsed: []string{"z-a"}, Estimated: true,
+		Reasons: []engine.Reason{afterMaxAge("u", 2, engine.CheckMaxAgeComplete), {Code: engine.ReasonOnTrack}},
+	})
 }

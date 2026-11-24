@@ -41,8 +41,9 @@ type placement struct {
 	// force and forceAll are the walk's per-record override (issue #28 In
 	// scope 0e): the dated doses and level-4 slots in force, or every
 	// record with forceAll (the counted view), count whatever their checks
-	// (placement.forced). Set only on walk's own copy.
-	force    map[string]bool
+	// (placement.forced). force maps each record to the position it is
+	// forced at, or 0 for any position. Set only on walk's own copy.
+	force    map[string]int
 	forceAll bool
 
 	// Set by arrange, read by forLength: the numbered and the unnumbered

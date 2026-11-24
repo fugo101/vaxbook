@@ -1,6 +1,9 @@
 package engine
 
-import "slices"
+import (
+	"maps"
+	"slices"
+)
 
 // birthEnd is the birth date used by one evaluation of steps 5–9: one end of
 // the birth-date range (SAD §5.3 step 4), or no birth date (known false,
@@ -216,8 +219,9 @@ func (s seriesModel) walk(b birthEnd, today Date, pl placement) walkResult {
 	w.floating = pl.floating
 	if !pl.forceAll {
 		if rescued, rw, first := s.rescue(w, b, today, pl); len(rescued) > 0 {
-			pl.force = rescued
+			pl.force = maps.Clone(rescued)
 			w = s.forceLater(b, today, pl, rw, first)
+			pl.force = w.pinned(pl.force, rescued)
 		}
 		s.checkFloating(&w, b, today, pl)
 	}
@@ -334,7 +338,7 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 		dv := doseVerdict{minV: v, minChecks: checks}
 		dv.addMax(s.maxAges(pos, b, g.date))
 		dv.addMax(carry.maxDef, carry.maxPos)
-		if pl.forced(g.id) {
+		if pl.forced(g.id, pos) {
 			dv = dv.demoted()
 		}
 		reasons := dv.reasons(g.id, pos)
@@ -441,6 +445,8 @@ const coverBudget = 512
 //
 // A forced record's reasons at the position it has in w are its verdict
 // from the rescue (forceLater), so they never count against a placement.
+// A rescued dose is judged like any other record at any other position, so
+// a placement that moves it where it fails does not fit (placement.forced).
 //
 // fallback is the DOSE_POSSIBLY_INVALID reasons of the first placement
 // tried that fits only at one end; failed is the reasons on the floating
@@ -479,14 +485,9 @@ func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placem
 	isBad := func(x Reason) bool {
 		return (x.Code == ReasonDoseInvalid || x.Code == ReasonDoseAfterMaxAge) && !invalid[x.Params.Dose]
 	}
-	// settled are the forced records (rescue, forceLater) at their
-	// positions in w: the rescue already gave them their verdict there, and
-	// forceLater may have dropped its reason (beyond the series in the
-	// rescuing walk), so their reasons at that position are not the
-	// placement's.
-	settled := map[string]int{}
+	settled := map[string]int{} // the forced records at their positions in w
 	for _, it := range w.seq {
-		if it.dose.id != "" && pl.force[it.dose.id] {
+		if _, ok := pl.force[it.dose.id]; ok && it.dose.id != "" {
 			settled[it.dose.id] = it.pos
 		}
 	}
@@ -504,6 +505,9 @@ func (s seriesModel) floatingFit(w walkResult, b birthEnd, today Date, pl placem
 			}
 		}
 		for _, x := range r.reasons {
+			// A forced record at its position in w has its verdict from the
+			// rescue: forceLater may have dropped its reason (beyond the
+			// series in the rescuing walk).
 			if p, ok := settled[x.Params.Dose]; ok && p == x.Params.Number {
 				continue
 			}
@@ -664,7 +668,7 @@ func definiteIDs(reasons []Reason) map[string]bool {
 // placement that fits at one end only also rescues. It returns the rescued
 // doses, the first walk that rescues one (rw, for the earliest rescued
 // dose in walk order) and that dose's ID.
-func (s seriesModel) rescue(w walkResult, b birthEnd, today Date, pl placement) (rescued map[string]bool, rw walkResult, first string) {
+func (s seriesModel) rescue(w walkResult, b birthEnd, today Date, pl placement) (rescued map[string]int, rw walkResult, first string) {
 	if len(pl.floating) == 0 {
 		return nil, walkResult{}, ""
 	}
@@ -693,9 +697,9 @@ func (s seriesModel) rescue(w walkResult, b birthEnd, today Date, pl placement) 
 			}
 			if r.countsAt(id, s.length) {
 				if rescued == nil {
-					rescued, rw, first = map[string]bool{}, r, id
+					rescued, rw, first = map[string]int{}, r, id
 				}
-				rescued[id] = true
+				rescued[id] = 0
 				break
 			}
 		}
@@ -727,8 +731,8 @@ func (s seriesModel) forceLater(b birthEnd, today Date, pl placement, rw walkRes
 		more := false
 		after := w.recordsAfter(first)
 		for id := range definiteIDs(w.reasons) {
-			if after[id] && !keep[id] && !pl.force[id] {
-				pl.force[id], more = true, true
+			if _, forced := pl.force[id]; after[id] && !keep[id] && !forced {
+				pl.force[id], more = 0, true
 				drop[id] = beyond[id]
 			}
 		}
@@ -880,7 +884,7 @@ func (w *walkResult) closeRun(s seriesModel, b birthEnd, pl placement, run []ite
 		}
 		var dv doseVerdict
 		dv.addMax(it.maxDef, it.maxPos)
-		forced := pl.forced(it.dose.id)
+		forced := pl.forced(it.dose.id, it.pos)
 		if forced {
 			dv = dv.demoted()
 		}
@@ -922,10 +926,34 @@ func (w *walkResult) chainSkipping(s seriesModel, b birthEnd, it item, first *Ra
 	return best, ok, true
 }
 
-// forced reports whether the walk counts dated dose or level-4 slot id
-// whatever its checks (issue #28 In scope 0e): a rescued dose, a record
-// after it (forceLater), or every record in the counted view.
-func (pl placement) forced(id string) bool { return pl.forceAll || pl.force[id] }
+// forced reports whether the walk counts dated dose or level-4 slot id at
+// position pos whatever its checks (issue #28 In scope 0e): a rescued
+// dose, a record after it (forceLater), or every record in the counted
+// view. Once the rescue is settled, a rescued dose is pinned to its
+// position (walkResult.pinned): the floating fit then judges it afresh at
+// any other position, so that a placement that moves it where it fails
+// does not fit. A record forced by forceLater is not pinned: the rescuing
+// walk may put it beyond the series, which the fit, placing only the
+// floating doses the series still needs, does not reach.
+func (pl placement) forced(id string, pos int) bool {
+	if pl.forceAll {
+		return true
+	}
+	p, ok := pl.force[id]
+	return ok && (p == 0 || p == pos)
+}
+
+// pinned returns force with the records in pin pinned to their positions
+// in w.
+func (w walkResult) pinned(force, pin map[string]int) map[string]int {
+	out := maps.Clone(force)
+	for _, it := range w.seq {
+		if _, ok := pin[it.dose.id]; ok && it.dose.id != "" {
+			out[it.dose.id] = it.pos
+		}
+	}
+	return out
+}
 
 // demoted returns the verdict of a forced record: a definite failure becomes
 // possible, so the record counts with one DOSE_POSSIBLY_INVALID listing the
@@ -974,7 +1002,7 @@ func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first 
 		carrier, number = pl.beyond[0].id, pl.beyond[0].number
 	}
 	carry.minV, carry.minChecks = s.check(lastSlot.pos, b, u, from, run[:len(run)-1], first)
-	forced := lastSlot.dose.id != "" && pl.forced(lastSlot.dose.id)
+	forced := lastSlot.dose.id != "" && pl.forced(lastSlot.dose.id, lastSlot.pos)
 	if forced {
 		carry = carry.demoted()
 	}

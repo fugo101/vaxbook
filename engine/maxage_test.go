@@ -797,3 +797,39 @@ func TestSlotBehindCountedDatedDose(t *testing.T) {
 		Reasons: []engine.Reason{afterMaxAge("u", 2, engine.CheckMaxAgeComplete), {Code: engine.ReasonOnTrack}},
 	})
 }
+
+// TestFloatingFitAfterRescueJudgesMovedDose (issue #28 In scope 0b): after
+// a rescue, the floating fit judges the rescued dose afresh at any position
+// other than the one it is counted at, so a placement that moves it where
+// it definitely fails does not fit. In-test series x-a (product x):
+// maxAgeStart 15w (last day 04-15), maxAgeComplete 24w (exclusive 06-18);
+// dose 1 minAge 6w, dose 2 minInterval 4w, dose 3 minInterval 10w. Birth
+// 2026-01-01: D on 04-20 and f1, f2 undated, today 08-01.
+//   - Rescue: f1 and f2 in front put D at 3, before 03-12 + 10w = 05-21
+//     (DOSE_INVALID); f2 alone puts D at 2 (02-12 + 4w ≤ 04-20) → D is
+//     rescued, counted at 1 with DOSE_POSSIBLY_INVALID{maxAgeStart}.
+//   - Fit of f1 and f2: both in front of D put D at 3, DOSE_INVALID there;
+//     f1 in front puts f2 at 3 on D + 10w = 06-29, past 06-18; both after D
+//     put f2 at 3 on D + 4w + 10w = 07-27, past 06-18. No placement fits,
+//     so f2, the last by ID, gets DOSE_AFTER_MAX_AGE{maxAgeComplete, f2, 3}
+//     from the last one, and f1 stays counted.
+//   - k = 3, whose previous dose f1 has no date: step 7 stops. The counted
+//     view (every record counted) is complete, so the data ⚪ stays.
+func TestFloatingFitAfterRescueJudgesMovedDose(t *testing.T) {
+	t.Parallel()
+	s := oneDiseaseSnapshot([]string{"x"}, qSeries(t, "x-a", "x", "P15W", "P24W", []ruleset.DoseRule{
+		rule(t, "P6W", "", "", ruleset.FromBirth, "P2M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+		rule(t, "", "P10W", "", ruleset.FromPreviousDose, "P3M"),
+	}))
+	e := newEngine(t, s)
+	got := assessmentOf(t, e, "q", "2026-08-01", birthRota,
+		doseOf("q", "d", dayDate("2026-04-20"), "x"), doseOf("q", "f1", unknownDate, "x"), doseOf("q", "f2", unknownDate, "x"))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"x-a"}, Estimated: true,
+		Reasons: []engine.Reason{
+			possiblyInvalid("d", 1, engine.CheckMaxAgeStart), afterMaxAge("f2", 3, engine.CheckMaxAgeComplete),
+			{Code: engine.ReasonPreviousDoseDateUnknown, Params: engine.ReasonParams{Dose: "f1"}},
+		},
+	})
+}

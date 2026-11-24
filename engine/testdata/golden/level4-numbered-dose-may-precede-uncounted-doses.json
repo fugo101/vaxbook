@@ -1,0 +1,95 @@
+{
+  "ruleset": "minimal-single",
+  "input": {
+    "today": "2026-02-22",
+    "profile": {
+      "birth": {
+        "value": "2026-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "single"
+        ],
+        "date": {
+          "value": "2026-01-09",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "single"
+        ],
+        "date": {
+          "value": "2026-02-10",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "u",
+        "diseases": [
+          "single"
+        ],
+        "date": {
+          "precision": "unknown"
+        },
+        "doseNumbers": {
+          "single": 2
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-single-s1",
+    "today": "2026-02-22",
+    "assessments": [
+      {
+        "disease": "single",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "single-series"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "DOSE_INVALID",
+            "params": {
+              "checks": [
+                "minAge"
+              ],
+              "dose": "r1",
+              "number": 1
+            }
+          },
+          {
+            "code": "DOSE_INVALID",
+            "params": {
+              "checks": [
+                "minAge"
+              ],
+              "dose": "r2",
+              "number": 1
+            }
+          },
+          {
+            "code": "DOSE_POSSIBLY_INVALID",
+            "params": {
+              "checks": [
+                "minInterval"
+              ],
+              "dose": "u",
+              "number": 2
+            }
+          },
+          {
+            "code": "COMPLETE"
+          }
+        ]
+      }
+    ]
+  }
+}

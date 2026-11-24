@@ -205,11 +205,21 @@ func cloneInput(in engine.Input) engine.Input {
 	return out
 }
 
+// evaluate runs e on in and returns the output and its encoding. It also
+// checks the one shape rule that needs the input: an outOfAge
+// assessment has seriesUsed iff the disease has a dose record (issue #28,
+// Q74).
 func evaluate(t testing.TB, e *engine.Engine, in engine.Input) (engine.Output, []byte) {
 	t.Helper()
 	out, err := e.Evaluate(in)
 	if err != nil {
 		t.Fatalf("Evaluate(%+v): %v", in, err)
+	}
+	for _, a := range out.Assessments {
+		dosed := slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) })
+		if a.Block == engine.BlockOutOfAge && dosed != (a.SeriesUsed != nil) {
+			t.Fatalf("%s: outOfAge with seriesUsed %v, doses given %v (input %+v)", a.Disease, a.SeriesUsed, dosed, in)
+		}
 	}
 	b, err := engine.EncodeOutput(out)
 	if err != nil {
@@ -284,36 +294,56 @@ func reasonsWith(a engine.Assessment, code engine.ReasonCode) []engine.Reason {
 //   - exactly one of bucket and block;
 //   - bucket ⚪ only with a blocking reason (informational reasons never
 //     make it ⚪ on their own), and a blocking reason makes it ⚪ (SAD §5.3
-//     step 10: S3b has no block of layers 1–5 that masks one;
-//     notYetScheduled is layer 8, and the start-age outOfAge occurs only
-//     with no dose given, where no blocking reason arises at an end);
+//     step 10), except under the outOfAge block, which layer 5 puts over
+//     masked reasons (issue #28; notYetScheduled is layer 8);
 //   - a next dose unless the series is complete, the bucket is ⚪ (a ⚪
 //     assessment never carries a next dose, SAD §5.1) or the block is
-//     outOfAge, which also has no seriesUsed (issue #23);
-//   - due ≥ earliest and overdue ≥ due + 7 days.
+//     outOfAge;
+//   - outOfAge has OUT_OF_AGE, no products, and with no seriesUsed (no dose
+//     given, Q74; evaluate checks that against the input) only OUT_OF_AGE;
+//   - due ≥ earliest, and overdue ≥ due + 7 days, unless a cap reason
+//     (DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE) lowered them: then
+//     due ≤ overdue ≤ its lastDay;
+//   - a cap reason comes with a next dose that is never 🔴 (P3), or in a ⚪
+//     from step 4's comparison (with BIRTH_DATE_IMPRECISE); never under
+//     outOfAge and never in a ⚪ from steps 5–7 alone.
 func checkAssessmentShape(t testing.TB, name string, a engine.Assessment) {
 	t.Helper()
 	checkReasonParams(t, a)
 	if (a.Bucket == "") == (a.Block == "") {
 		t.Fatalf("%s %s: bucket %q, block %q", name, a.Disease, a.Bucket, a.Block)
 	}
+	outOfAge := a.Block == engine.BlockOutOfAge
 	blocked := slices.ContainsFunc(a.Reasons, func(r engine.Reason) bool { return blockingCodes[r.Code] })
-	if a.Bucket == engine.BucketUnknown && !blocked || blocked && a.Bucket != engine.BucketUnknown {
+	if a.Bucket == engine.BucketUnknown && !blocked || blocked && a.Bucket != engine.BucketUnknown && !outOfAge {
 		t.Fatalf("%s %s: bucket %q, block %q with reasons %v", name, a.Disease, a.Bucket, a.Block, a.Reasons)
 	}
-	outOfAge := a.Block == engine.BlockOutOfAge
-	if outOfAge && (a.SeriesUsed != nil || !reflect.DeepEqual(a.Reasons, []engine.Reason{{Code: engine.ReasonOutOfAge}})) {
-		t.Fatalf("%s %s: outOfAge with seriesUsed %v and reasons %v", name, a.Disease, a.SeriesUsed, a.Reasons)
+	if outOfAge && (!hasCode(a, engine.ReasonOutOfAge) || a.Products != nil ||
+		a.SeriesUsed == nil && !reflect.DeepEqual(a.Reasons, []engine.Reason{{Code: engine.ReasonOutOfAge}})) {
+		t.Fatalf("%s %s: outOfAge with seriesUsed %v, products %v and reasons %v", name, a.Disease, a.SeriesUsed, a.Products, a.Reasons)
 	}
 	noNext := len(reasonsWith(a, engine.ReasonComplete)) > 0 || a.Bucket == engine.BucketUnknown || outOfAge
 	if noNext != (a.NextDose == nil) {
 		t.Fatalf("%s %s: nextDose %v with bucket %q and reasons %v", name, a.Disease, a.NextDose, a.Bucket, a.Reasons)
 	}
+	caps := append(reasonsWith(a, engine.ReasonDueCappedByMaxAge), reasonsWith(a, engine.ReasonSeriesMayNotComplete)...)
+	switch {
+	case len(caps) == 0:
+	case outOfAge || a.Bucket == engine.BucketOverdue ||
+		a.NextDose == nil && !hasCode(a, engine.ReasonBirthDateImprecise) ||
+		a.NextDose != nil && len(caps) > 1:
+		t.Fatalf("%s %s: cap reasons %v with bucket %q, block %q, nextDose %v and reasons %v", name, a.Disease, caps, a.Bucket, a.Block, a.NextDose, a.Reasons)
+	}
 	if nd := a.NextDose; nd != nil {
 		if nd.Due.Before(nd.Earliest) {
 			t.Fatalf("%s %s: due %s before earliest %s", name, a.Disease, nd.Due, nd.Earliest)
 		}
-		if nd.Overdue.Before(nd.Due.AddDays(engine.OverdueGraceDays)) {
+		switch {
+		case len(caps) > 0:
+			if nd.Overdue.Before(nd.Due) || nd.Overdue.After(caps[0].Params.LastDay) {
+				t.Fatalf("%s %s: capped due %s and overdue %s, last day %s", name, a.Disease, nd.Due, nd.Overdue, caps[0].Params.LastDay)
+			}
+		case nd.Overdue.Before(nd.Due.AddDays(engine.OverdueGraceDays)):
 			t.Fatalf("%s %s: overdue %s before due %s + 7 days", name, a.Disease, nd.Overdue, nd.Due)
 		}
 	}
@@ -706,6 +736,16 @@ func noDoseImprecise(rng *rand.Rand, in engine.Input, maxes []ruleset.Span, wind
 //
 // The near-limit inputs of the fixtures with maximum ages run the same
 // check.
+//
+// Since S4b (issue #28) step 7 also gives CHECK_PRODUCT_NAME and
+// MIXED_PRODUCTS when one candidate is out of age and another is not, from
+// F, which counts from the latest dose's R.Hi: narrowing that dose can move
+// F earlier and end the disagreement (the wide result is the more cautious
+// ⚪). So the validity clause compares the step-5 disagreements only
+// (engine.DisagreeingRecords). The date clause skips a pair where a result
+// has a cap reason and a candidate has a later dose with minIntervalFromFirst:
+// C_c,k measures it from dose 1's R.Hi, so narrowing dose 1 can move the
+// last allowed day, and the capped dates, later. No fixture has both yet.
 func TestPropertyNarrowingDoseDate(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
@@ -758,8 +798,9 @@ func checkNarrowingDoseDate(t *testing.T, fx fixture, rng *rand.Rand, in engine.
 			len(reasonsWith(b, engine.ReasonNumberingConflict)) == 0
 		if placed && len(reasonsWith(a, engine.ReasonDosePossiblyInvalid)) == 0 {
 			ia, ib := uncountedKeys(a, in), uncountedKeys(b, in)
-			same := slices.Equal(ia, ib) && productDisagreement(a) == productDisagreement(b)
-			if !same && productDisagreement(a) == productDisagreement(b) {
+			da, db := len(disagreeingIn(t, fx.engine, a.Disease, in)) > 0, len(disagreeingIn(t, fx.engine, a.Disease, narrow)) > 0
+			same := slices.Equal(ia, ib) && da == db
+			if !same && da == db {
 				// Known exception (Q52 with Q62, reported to the owner;
 				// TestNarrowingDisagreeingRecordShape): a record whose
 				// DOSE_AFTER_MAX_AGE a disagreement drops shows no reason
@@ -778,6 +819,9 @@ func checkNarrowingDoseDate(t *testing.T, fx fixture, rng *rand.Rand, in engine.
 			continue
 		}
 		wn, nn := *a.NextDose, *b.NextDose
+		if (isCapped(a) || isCapped(b)) && slices.ContainsFunc(seriesUsed(t, fx.snap, a), hasFromFirst) {
+			continue
+		}
 		onePlan := !slices.ContainsFunc(seriesUsed(t, fx.snap, a), func(sr ruleset.Series) bool { return len(sr.Plans) > 1 })
 		if !sameSeries || nn.Due.After(wn.Due) || nn.Overdue.After(wn.Overdue) ||
 			(onePlan && nn.Earliest.After(wn.Earliest)) {
@@ -900,9 +944,12 @@ func minDateOf(a, b engine.Date) engine.Date {
 // TestPropertyDoseOnEarliestDateCounts: a dose given on the earliest allowed
 // date never fails a minimum check (no new DOSE_INVALID, and no
 // DOSE_POSSIBLY_INVALID listing minAge, minInterval or minIntervalFromFirst
-// on it), and unless a maximum age questions it (maxAgeQuestioned; S4b's cap
-// keeps E within the maximum ages, issue #15) it is counted (the next dose
-// number rises or the series completes). It uses day-precise inputs: with a
+// on it), and unless a maximum age questions it (maxAgeQuestioned) it is
+// counted (the next dose number rises or the series completes). Since S4b
+// the next dose is emitted only when it can still be given (issue #28), so
+// a maximum age no longer questions the new dose; the "counted" clause
+// skips a next dose with SERIES_MAY_NOT_COMPLETE, after which dose k+1 can
+// be past every limit (outOfAge). It uses day-precise inputs: with a
 // month-precision dose, a new exact dose can overlap its range and make the
 // order unknown.
 // The new dose has the first product the assessment offers, or no product
@@ -915,8 +962,9 @@ func minDateOf(a, b engine.Date) engine.Date {
 // are compared then (issue #23).
 // The random inputs rarely reach a maximum age, so the property also runs
 // on day-precise near-limit inputs (nearLimitDayInput), and some of their
-// results must take the maximum-age skip, or the first two clauses are
-// never tried at a maximum age.
+// next doses must be capped (DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE)
+// or take the maximum-age skip, or the clauses are never tried at a
+// maximum age.
 func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 	t.Parallel()
 	atMaxAge := 0 // results that reach a maximum age, from the near-limit inputs
@@ -932,13 +980,14 @@ func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 		}
 	}
 	if atMaxAge == 0 {
-		t.Fatal("no near-limit input put a dose on the earliest date at or past a maximum age: the property is vacuous there")
+		t.Fatal("no near-limit input put a dose on the earliest date of a capped next dose or at a maximum age: the property is vacuous there")
 	}
 }
 
 // checkDoseOnEarliestDate checks TestPropertyDoseOnEarliestDateCounts's
-// clauses on one day-precise input and returns how many of its results with
-// the new dose have a maximum-age reason (maxAgeQuestioned).
+// clauses on one day-precise input and returns how many of its next doses
+// are capped or have a result with the new dose that a maximum age
+// questions (maxAgeQuestioned).
 func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (atMaxAge int) {
 	t.Helper()
 	out, _ := evaluate(t, fx.engine, in)
@@ -959,6 +1008,10 @@ func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (atMaxAg
 		next.Doses = append(next.Doses, rec)
 		after, _ := evaluate(t, fx.engine, next)
 		b := after.Assessments[i]
+		mayNotComplete := hasCode(a, engine.ReasonSeriesMayNotComplete)
+		if mayNotComplete || hasCode(a, engine.ReasonDueCappedByMaxAge) {
+			atMaxAge++
+		}
 		if !reflect.DeepEqual(reasonsWith(b, engine.ReasonDoseInvalid), reasonsWith(a, engine.ReasonDoseInvalid)) {
 			t.Fatalf("%s %s: a dose on the earliest date %s changed DOSE_INVALID:\nbefore %v\nafter  %v",
 				fx.name, a.Disease, a.NextDose.Earliest, a.Reasons, b.Reasons)
@@ -976,6 +1029,9 @@ func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (atMaxAg
 		// and "counted" clauses skip those results.
 		if maxAgeQuestioned(b) {
 			atMaxAge++
+			continue
+		}
+		if mayNotComplete {
 			continue
 		}
 		hadDose := slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) })
@@ -1067,6 +1123,19 @@ func TestPropertyDeterministic(t *testing.T) {
 // hasCode reports whether a has a reason with code c.
 func hasCode(a engine.Assessment, c engine.ReasonCode) bool { return len(reasonsWith(a, c)) > 0 }
 
+// isCapped reports whether a has a cap reason (issue #28): its due and
+// overdue dates may have been lowered to a last allowed day.
+func isCapped(a engine.Assessment) bool {
+	return hasCode(a, engine.ReasonDueCappedByMaxAge) || hasCode(a, engine.ReasonSeriesMayNotComplete)
+}
+
+// hasFromFirst reports whether some dose of sr has minIntervalFromFirst.
+func hasFromFirst(sr ruleset.Series) bool {
+	return slices.ContainsFunc(sr.Plans, func(p ruleset.Plan) bool {
+		return slices.ContainsFunc(p.Doses, func(r ruleset.DoseRule) bool { return r.MinIntervalFromFirst != nil })
+	})
+}
+
 // checkCandidates checks the S3a members of an assessment (issue #14):
 //   - seriesUsed, when present, is not empty and names series of the
 //     disease without repeats, in rule-set order;
@@ -1074,22 +1143,25 @@ func hasCode(a engine.Assessment, c engine.ReasonCode) bool { return len(reasons
 //     once, and its candidates are seriesUsed with each series' product
 //     (omitted for a generic series); with no seriesUsed there is neither.
 //     With no dose given and a birth date, seriesUsed is the later end's
-//     choice (noDoseChoice, Q40), and the birth range can cross start-age
-//     changes, which split it into sub-ranges with one choice each (issue
-//     #23, PR #27). Only in a ⚪ BIRTH_DATE_IMPRECISE whose ends chose
-//     different lists does each sub-range keep its own SAFEST_SERIES (A8):
-//     one per maximal run of birth days with the same choice of two or more
-//     series, from the latest run to the oldest, without repeats, so
-//     seriesUsed may have one series while a SAFEST_SERIES is present.
-//     Ends that chose the same list, or agree on a result that is not ⚪,
-//     keep the rule above;
-//   - outOfAge has neither seriesUsed nor SAFEST_SERIES;
+//     choice after A3's removal (noDoseOracle, Q40; issue #28 In scope 1),
+//     and the birth range can cross start-age changes, which split it into
+//     sub-ranges with one choice each (issue #23, PR #27). Only in a ⚪
+//     BIRTH_DATE_IMPRECISE whose ends chose different lists does each
+//     evaluated date keep its own SAFEST_SERIES (A8): one per run of
+//     evaluated dates (the sub-range ends) with the same choice of two or
+//     more series, from the latest to the oldest, without repeats, so
+//     seriesUsed may have one series, or none when the later end has no
+//     candidate left, while a SAFEST_SERIES is present. Ends that chose the
+//     same list, or agree on a result that is not ⚪, keep the rule above;
+//   - with no dose given, outOfAge has neither seriesUsed nor SAFEST_SERIES
+//     (with doses given it keeps both, Q74);
 //   - products present ⇒ nextDose present, and products are non-retired
 //     catalog products that list the disease, in snapshot order without
 //     repeats;
 //   - with no dose of the disease, seriesUsed holds no series of a retired
 //     product unless no series of a non-retired product (or generic) can
-//     be started at the later end of the birth-date range (Q38, Q50 (b)).
+//     be started at the later end of the birth-date range, or every one
+//     that can is removed by A3 (Q38, Q50 (b), Q72).
 func checkCandidates(t testing.TB, fx fixture, in engine.Input, a engine.Assessment) {
 	t.Helper()
 	s := fx.snap
@@ -1124,14 +1196,27 @@ func checkCandidates(t testing.TB, fx fixture, in engine.Input, a engine.Assessm
 	}
 	differ := false // no dose, and the birth ends chose different lists
 	if lo, hi, ok := testPeriod(in.Profile.Birth, in.Today); ok && !hasDose {
-		loEnd, hiEnd := noDoseChoice(s, a.Disease, lo, in.Today), noDoseChoice(s, a.Disease, hi, in.Today)
+		o := noDoseOracle{s: s, disease: a.Disease, lo: lo, today: in.Today}
+		loEnd, _ := o.choice(lo)
+		hiEnd, _ := o.choice(hi)
 		if !slices.Equal(a.SeriesUsed, hiEnd) && (len(a.SeriesUsed) > 0 || len(hiEnd) > 0) {
 			fail("no dose: seriesUsed %v, want the later end's choice %v", a.SeriesUsed, hiEnd)
 		}
 		if differ = !slices.Equal(loEnd, hiEnd); differ && hasCode(a, engine.ReasonBirthDateImprecise) {
-			var runs [][]string // each run's choice, latest first
+			// The evaluated dates are the ends of the sub-ranges where the
+			// raw choice is fixed, latest first.
+			var points []engine.Date
 			for b := hi; !b.Before(lo); b = b.AddDays(-1) {
-				if c := noDoseChoice(s, a.Disease, b, in.Today); len(runs) == 0 || !slices.Equal(c, runs[len(runs)-1]) {
+				switch {
+				case b == hi || b == lo:
+					points = append(points, b)
+				case !slices.Equal(o.raw(b), o.raw(b.AddDays(1))) || !slices.Equal(o.raw(b), o.raw(b.AddDays(-1))):
+					points = append(points, b)
+				}
+			}
+			var runs [][]string // each run's choice, latest first
+			for _, b := range points {
+				if c, _ := o.choice(b); len(runs) == 0 || !slices.Equal(c, runs[len(runs)-1]) {
 					runs = append(runs, c)
 				}
 			}
@@ -1152,7 +1237,7 @@ func checkCandidates(t testing.TB, fx fixture, in engine.Input, a engine.Assessm
 		}
 	}
 	switch {
-	case a.Block == engine.BlockOutOfAge && (a.SeriesUsed != nil || len(safest) > 0):
+	case a.Block == engine.BlockOutOfAge && !hasDose && (a.SeriesUsed != nil || len(safest) > 0):
 		fail("outOfAge with seriesUsed %v and %d SAFEST_SERIES", a.SeriesUsed, len(safest))
 	case differ && hasCode(a, engine.ReasonBirthDateImprecise):
 		// Checked above against each end's choice.
@@ -1179,10 +1264,16 @@ func checkCandidates(t testing.TB, fx fixture, in engine.Input, a engine.Assessm
 	retired := func(sr ruleset.Series) bool {
 		return sr.Product != nil && slices.ContainsFunc(s.Products, func(p ruleset.Product) bool { return p.ID == *sr.Product && p.Retired })
 	}
-	if _, birthHi, ok := testPeriod(in.Profile.Birth, in.Today); ok && !hasDose {
-		openOther := slices.ContainsFunc(s.Series, func(sr ruleset.Series) bool {
-			return sr.Disease == a.Disease && !retired(sr) && bracketOpen(sr, birthHi, in.Today)
-		})
+	if birthLo, birthHi, ok := testPeriod(in.Profile.Birth, in.Today); ok && !hasDose {
+		o := noDoseOracle{s: s, disease: a.Disease, lo: birthLo, today: in.Today}
+		var open []string
+		for _, sr := range s.Series {
+			if sr.Disease == a.Disease && !retired(sr) && bracketOpen(sr, birthHi, in.Today) {
+				open = append(open, sr.ID)
+			}
+		}
+		kept, _ := o.filter(o.raw(birthHi), birthHi, o.subStart(birthHi))
+		openOther := len(open) > 0 && slices.ContainsFunc(kept, func(id string) bool { return slices.Contains(open, id) })
 		if openOther && slices.ContainsFunc(used, retired) {
 			fail("no dose, but seriesUsed %v has a retired product's series", a.SeriesUsed)
 		}
@@ -1261,7 +1352,9 @@ func TestPropertyCandidates(t *testing.T) {
 // TestPropertyUnknownProductNeverLessSafe (P1): replacing a dose's catalog
 // product with no product never turns a result that is not ✅ COMPLETE into
 // ✅ COMPLETE, and when both results have a next dose with the same number
-// it never moves earliest, due or overdue earlier (issue #14).
+// it never moves earliest earlier, nor due or overdue when neither result
+// has a cap reason (issue #14; issue #28: a superset of candidates can lower
+// the smallest L).
 func TestPropertyUnknownProductNeverLessSafe(t *testing.T) {
 	t.Parallel()
 	complete := func(a engine.Assessment) bool {
@@ -1297,7 +1390,8 @@ func TestPropertyUnknownProductNeverLessSafe(t *testing.T) {
 				if a.NextDose == nil || b.NextDose == nil || a.NextDose.Number != b.NextDose.Number {
 					continue
 				}
-				if b.NextDose.Earliest.Before(a.NextDose.Earliest) || b.NextDose.Due.Before(a.NextDose.Due) || b.NextDose.Overdue.Before(a.NextDose.Overdue) {
+				uncapped := !isCapped(a) && !isCapped(b)
+				if b.NextDose.Earliest.Before(a.NextDose.Earliest) || uncapped && (b.NextDose.Due.Before(a.NextDose.Due) || b.NextDose.Overdue.Before(a.NextDose.Overdue)) {
 					t.Fatalf("%s %s: removing product %s of %s moved a date earlier\nknown   %+v\nunknown %+v\ninput %+v",
 						fx.name, a.Disease, *in.Doses[i].Product, in.Doses[i].ID, *a.NextDose, *b.NextDose, in)
 				}
@@ -1309,8 +1403,10 @@ func TestPropertyUnknownProductNeverLessSafe(t *testing.T) {
 // TestPropertyMergeCoversCandidates compares the merged result with each
 // candidate alone: a snapshot that keeps only that series for the disease,
 // so that every tier falls back to it (issue #14, EQ6 item 2).
-//   - When both have a next dose with the same number, the merged earliest,
-//     due and overdue dates are each on or after the candidate's.
+//   - When both have a next dose with the same number, the merged earliest
+//     date is on or after the candidate's, and so are due and overdue when
+//     the merged result has no cap reason (the smallest L over the
+//     candidates can lower them, issue #28).
 //   - With a day-precise birth date and no blocking reason, every candidate
 //     with a next dose has the merged next dose number: candidates disagree
 //     on k only when some candidate has a blocking reason.
@@ -1345,7 +1441,7 @@ func TestPropertyMergeCoversCandidates(t *testing.T) {
 					o, _ := evaluate(t, single(id), in)
 					b := o.Assessments[j]
 					if a.NextDose != nil && b.NextDose != nil && a.NextDose.Number == b.NextDose.Number &&
-						(a.NextDose.Earliest.Before(b.NextDose.Earliest) || a.NextDose.Due.Before(b.NextDose.Due) || a.NextDose.Overdue.Before(b.NextDose.Overdue)) {
+						(a.NextDose.Earliest.Before(b.NextDose.Earliest) || !isCapped(a) && (a.NextDose.Due.Before(b.NextDose.Due) || a.NextDose.Overdue.Before(b.NextDose.Overdue))) {
 						t.Fatalf("%s %s: merged %+v is before %s alone %+v\ninput %+v", fx.name, a.Disease, *a.NextDose, id, *b.NextDose, in)
 					}
 					if in.Profile.Birth.Precision == engine.Day && !blocked && b.NextDose != nil &&

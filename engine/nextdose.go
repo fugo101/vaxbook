@@ -29,6 +29,9 @@ type nextResult struct {
 	plans   []planDates
 	reasons []Reason
 	stop    bool
+	// first is the first-dose anchor the dates used (an.first, possibly the
+	// EQ20c stand-in): C_c,k measures minIntervalFromFirst from it.
+	first *Range
 }
 
 // next computes next dose k for every plan and merges the plans (SAD §5.3
@@ -118,9 +121,7 @@ func (s seriesModel) next(b birthEnd, w walkResult) nextResult {
 		}
 	}
 
-	var best planDates
-	var overdue Date
-	for i, p := range s.plans {
+	for _, p := range s.plans {
 		pd, ok := p.doses[k-1].dates(b, an)
 		if !ok && !b.known {
 			return noBirth
@@ -134,13 +135,34 @@ func (s seriesModel) next(b birthEnd, w walkResult) nextResult {
 			return nextResult{stop: true}
 		}
 		r.plans = append(r.plans, pd)
-		if i == 0 || pd.due.Before(best.due) || (pd.due == best.due && pd.earliest.After(best.earliest)) {
+	}
+	r.first = an.first
+	r.next, _ = choosePlans(k, r.plans, func(planDates) bool { return true })
+	return r
+}
+
+// choosePlans merges the plans that keep accepts into next dose k (A7, EQ6
+// merge 1): the earliest and due dates from the plan with the earliest due
+// date, the latest earliest date on a tie (P1), and the overdue date from
+// the latest plan. It also returns how many plans it kept; S4b drops the
+// plans past a maximum age before the choice (Q88).
+func choosePlans(k int, plans []planDates, keep func(planDates) bool) (NextDose, int) {
+	var best planDates
+	var overdue Date
+	n := 0
+	for _, pd := range plans {
+		if !keep(pd) {
+			continue
+		}
+		if n == 0 || pd.due.Before(best.due) || (pd.due == best.due && pd.earliest.After(best.earliest)) {
 			best = pd
 		}
-		overdue = maxDate(overdue, pd.overdue)
+		if n == 0 || pd.overdue.After(overdue) {
+			overdue = pd.overdue
+		}
+		n++
 	}
-	r.next = NextDose{Number: k, Earliest: best.earliest, Due: best.due, Overdue: overdue}
-	return r
+	return NextDose{Number: k, Earliest: best.earliest, Due: best.due, Overdue: overdue}, n
 }
 
 // dates computes one plan's dates for its dose rule r:

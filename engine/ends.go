@@ -25,6 +25,9 @@ type endResult struct {
 	// DOSE_INVALID or DOSE_AFTER_MAX_AGE), which its counted view counts;
 	// an agreed DOSE_AFTER_MAX_AGE or a DOSE_INVALID is not listed here.
 	disagreeing []string
+	// counted are the candidate results of the counted view (issue #28 In
+	// scope 9, Q85), nil when no record is questioned (the view is cands).
+	counted []candidateResult
 }
 
 // class is the result as the user sees it: ⚪ whenever a reason blocks, and
@@ -52,10 +55,16 @@ func distanceOnly(class string) bool {
 // or with no dose given both ends of every sub-range where the start-age
 // choice is fixed (SAD §5.3 step 4, F05.5, EQ17, A8; noDosePoints).
 //
-// Two results agree when they have the same next dose number and the same
-// blocking reasons, and either the same class or two classes in
-// {notYetScheduled, 🟡, ✅ ON_TRACK}. Dates alone never make them differ: the
-// dates driven by a minimum age or interval come from the latest birth date.
+// Two results agree when they have the same next dose number, the same
+// blocking reasons and the same cap reasons present (DUE_CAPPED_BY_MAX_AGE,
+// SERIES_MAY_NOT_COMPLETE, by code and not by lastDay; issue #28 Q68), and
+// either the same class or two classes in {notYetScheduled, 🟡, ✅
+// ON_TRACK}. Two outOfAge results agree on the block alone: their masked
+// reasons are not compared, and the merged reasons are put in the reason
+// order (reasonRank), which keeps the per-dose group latest-first. Dates
+// alone never make results differ: the dates driven by a minimum age or
+// interval come from the latest birth date, and the capped dates from the
+// older end of the whole range at every date.
 // Agreement is an equivalence, so the results all agree when each agrees
 // with the latest one. Then the latest result is used, with its series
 // (seriesUsed) and products (issue #23 Q40, amended in PR #27). A ⚪ result
@@ -74,11 +83,15 @@ func distanceOnly(class string) bool {
 func compareResults(rs []endResult, hint Hint) endResult {
 	later := rs[len(rs)-1]
 	agree, limit := true, ageLimit(later.reasons)
+	outOfAge := later.block == BlockOutOfAge
 	for _, r := range rs[:len(rs)-1] {
 		co, cl := r.class(), later.class()
-		agree = agree && r.k == later.k &&
+		bothOut := r.block == BlockOutOfAge && outOfAge
+		outOfAge = bothOut
+		agree = agree && (bothOut || r.k == later.k &&
 			slices.EqualFunc(blockingOnly(r.reasons), blockingOnly(later.reasons), sameReason) &&
-			(co == cl || distanceOnly(co) && distanceOnly(cl))
+			capCodes(r.reasons) == capCodes(later.reasons) &&
+			(co == cl || distanceOnly(co) && distanceOnly(cl)))
 		limit = limit || ageLimit(r.reasons)
 	}
 	// listed holds the reasons already in res.reasons, so that removing
@@ -110,6 +123,9 @@ func compareResults(rs []endResult, hint Hint) endResult {
 					add(&res, r)
 				}
 			}
+		}
+		if outOfAge {
+			slices.SortStableFunc(res.reasons, func(x, y Reason) int { return reasonRank(x.Code) - reasonRank(y.Code) })
 		}
 		return res
 	}
@@ -166,6 +182,47 @@ func bucketReason(c ReasonCode) bool {
 		return true
 	}
 	return false
+}
+
+// capCodes encodes which cap reasons are present, for the agreement key.
+func capCodes(reasons []Reason) [2]bool {
+	return [2]bool{hasReason(reasons, ReasonDueCappedByMaxAge), hasReason(reasons, ReasonSeriesMayNotComplete)}
+}
+
+// reasonRank is a code's place in the reason order of one evaluated date
+// (SAD §5.4). The per-dose codes share one rank, so a stable sort keeps
+// their walk order. Only two agreeing outOfAge results are sorted: their
+// reasons are otherwise merged by appending.
+func reasonRank(c ReasonCode) int {
+	switch c {
+	case ReasonBirthDateImprecise:
+		return 1
+	case ReasonSafestSeries:
+		return 2
+	case ReasonDoseInvalid, ReasonDoseAfterMaxAge, ReasonDosePossiblyInvalid, ReasonIntervalUnverifiable:
+		return 3
+	case ReasonCheckProductName, ReasonMixedProducts:
+		return 4
+	case ReasonComplete:
+		return 5
+	case ReasonProductNotInCatalog:
+		return 6
+	case ReasonOutOfAge:
+		return 7
+	case ReasonPreviousDoseDateUnknown:
+		return 8
+	case ReasonNoBirthDate:
+		return 9
+	case ReasonFirstDoseDateAssumed:
+		return 10
+	case ReasonAlternativePlans:
+		return 11
+	case ReasonDueCappedByMaxAge, ReasonSeriesMayNotComplete:
+		return 12
+	case ReasonOnTrack:
+		return 13
+	}
+	return 0
 }
 
 func blockingOnly(reasons []Reason) []Reason {

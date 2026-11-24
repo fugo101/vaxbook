@@ -9,9 +9,13 @@ package engine
 //	due ≤ today + 6 months                      → 🟡 upcoming
 //	at least one dose counted                   → ✅ complete, ON_TRACK
 //	otherwise                                   → notYetScheduled block
-func classify(today Date, nd NextDose, anyCounted bool) (Bucket, Block, ReasonCode) {
+//
+// With neverRed the first rule is skipped (issue #28: a next dose capped by
+// a maximum age is never 🔴, F05.4b); then today ≥ overdue ≥ due ≥ earliest
+// gives 🟠.
+func classify(today Date, nd NextDose, anyCounted, neverRed bool) (Bucket, Block, ReasonCode) {
 	switch {
-	case !today.Before(nd.Overdue):
+	case !neverRed && !today.Before(nd.Overdue):
 		return BucketOverdue, "", ""
 	case !today.Before(nd.Earliest) && !nd.Due.After(today.AddDays(dueSoonDays)):
 		return BucketDue, "", ""

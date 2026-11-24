@@ -95,14 +95,22 @@ func (s seriesModel) withoutMaxAges() seriesModel {
 // startLimit returns dose 1's start limit for a person born on b: the
 // earlier of b + maxAgeStart and b + the group's last bracket max, each when
 // present (Q55). Spans of different units are compared as dates at b.
-func (s seriesModel) startLimit(b Date) (Date, bool) {
+func (s seriesModel) startLimit(b Date) (Date, bool) { return s.startLimitAt(b, b) }
+
+// startLimitAt is startLimit with maxAgeStart counted from ageBirth and the
+// bracket max from bracketBirth: the next dose's start limit uses b_old and
+// b_s (issue #28, Q65, Q73).
+func (s seriesModel) startLimitAt(ageBirth, bracketBirth Date) (Date, bool) {
 	var lim Date
 	ok := false
-	for _, m := range []optSpan{s.maxStart, s.groupMax} {
-		if !m.ok {
+	for _, t := range []struct {
+		m optSpan
+		b Date
+	}{{s.maxStart, ageBirth}, {s.groupMax, bracketBirth}} {
+		if !t.m.ok {
 			continue
 		}
-		if d := b.AddSpan(m.span); !ok || d.Before(lim) {
+		if d := t.b.AddSpan(t.m.span); !ok || d.Before(lim) {
 			lim, ok = d, true
 		}
 	}
@@ -588,15 +596,17 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) (
 		at = ev.at
 	} else {
 		// No dose given: each birth date chooses its brackets from its own
-		// age today (EQ10); a date with none left is outOfAge (Q24).
-		at = func(b birthEnd) endResult {
-			return dz.evaluate(arr, dz.noDoseAt(b.date, today), today, nil, true).at(b)
-		}
+		// age today (EQ10); a date with none left is outOfAge (Q24). Since
+		// S4b the candidates already out of age are removed (A3).
+		at = func(b birthEnd) endResult { return dz.noDoseResult(arr, b, today) }
 	}
 
 	// Step 4: steps 5–9 at each end of the birth-date range, or once. With
 	// no dose given the range is also split where the start-age choice
 	// changes, and both ends of every sub-range are evaluated (PR #27).
+	// Every evaluated date also carries the whole range's ends, from which
+	// the maximum ages of the next dose are computed, and the older end of
+	// its sub-range (issue #28, Q65, Q73).
 	var res endResult
 	switch {
 	case !birth.known:
@@ -608,21 +618,24 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) (
 		if birth.precision == Year {
 			hint = HintBirthMonth
 		}
-		pts := []Date{birth.r.Lo, birth.r.Hi}
+		subs := []Range{birth.r}
 		if len(doses) == 0 {
-			pts = dz.noDosePoints(birth.r, today)
+			subs = dz.noDoseSubRanges(birth.r, today)
 		}
-		rs := make([]endResult, len(pts))
-		for i, p := range pts {
-			rs[i] = at(birthEnd{date: p, known: true})
+		var rs []endResult
+		for _, sub := range subs {
+			for _, p := range slices.Compact([]Date{sub.Lo, sub.Hi}) {
+				rs = append(rs, at(birthEnd{date: p, known: true, old: birth.r.Lo, late: birth.r.Hi, start: sub.Lo}))
+			}
 		}
 		res = compareResults(rs, hint)
 	}
 	a.Reasons = append(a.Reasons, res.reasons...)
 	a.Bucket, a.Block = res.bucket, res.block
 	// seriesUsed is the final result's candidates: the latest birth date's
-	// when the results differ (Q40), none for outOfAge.
-	if res.block != BlockOutOfAge {
+	// when the results differ (Q40), none for an outOfAge with no dose given
+	// (with doses given the doses fixed the candidates, Q74).
+	if res.block != BlockOutOfAge || len(doses) > 0 {
 		for _, c := range res.series {
 			a.SeriesUsed = append(a.SeriesUsed, dz.series[c].id)
 		}

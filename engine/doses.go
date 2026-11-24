@@ -5,9 +5,29 @@ import "slices"
 // birthEnd is the birth date used by one evaluation of steps 5–9: one end of
 // the birth-date range (SAD §5.3 step 4), or no birth date (known false,
 // EQ19), in which case no age-based step runs.
+//
+// The maximum ages of the next dose also read the whole range (issue #28,
+// Q65): old is its older end (b_old) and late its later end capped at today
+// (b_late); start is the older end of the evaluated sub-range (b_s), which
+// chose the start-age bracket (Q45, Q73), and with doses given b_old. A
+// zero value means date. Given doses are still validated at date (S4a).
 type birthEnd struct {
-	date  Date
-	known bool
+	date             Date
+	known            bool
+	old, late, start Date
+}
+
+// older returns b_old, later b_late and subStart b_s.
+func (b birthEnd) older() Date    { return orDate(b.old, b.date) }
+func (b birthEnd) later() Date    { return orDate(b.late, b.date) }
+func (b birthEnd) subStart() Date { return orDate(b.start, b.older()) }
+
+// orDate returns d, or def when d is the zero Date.
+func orDate(d, def Date) Date {
+	if d.IsZero() {
+		return def
+	}
+	return d
 }
 
 // verdict is the outcome of a dose-validity check over date ranges.

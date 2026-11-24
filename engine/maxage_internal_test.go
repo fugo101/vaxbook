@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/fugo101/vaxbook/ruleset"
@@ -79,7 +80,9 @@ func TestAnyUnknownProduct(t *testing.T) {
 // that does not list rota, or is implied. The generator covers every rota
 // product (rotateq retired in half the runs), othervax, an off-catalog
 // product and none, exact and month dates and level-4 records near the
-// limits of illustrative-max-age.
+// limits of illustrative-max-age. Since S4b step 7 can also give
+// CHECK_PRODUCT_NAME or MIXED_PRODUCTS (issue #28 In scope 2), so only the
+// step-5 reasons (asWalked, before step7At) are compared.
 func TestPropertyMaxAgeDisagreement(t *testing.T) {
 	t.Parallel()
 	listing := map[string]bool{"rotarix": true, "rotateq": true, "rotavin": true}
@@ -169,7 +172,9 @@ func TestPropertyMaxAgeDisagreement(t *testing.T) {
 					anyDisagree = anyDisagree || disagree
 				}
 			}
-			cpn, mixed := hasReason(res.reasons, ReasonCheckProductName), hasReason(res.reasons, ReasonMixedProducts)
+			walked, step7At, _ := ev.asWalked(res.cands)
+			step5 := walked.reasons[:step7At]
+			cpn, mixed := hasReason(step5, ReasonCheckProductName), hasReason(step5, ReasonMixedProducts)
 			switch {
 			case cpn && mixed:
 				t.Fatalf("both CHECK_PRODUCT_NAME and MIXED_PRODUCTS: %+v", res.reasons)
@@ -184,10 +189,6 @@ func TestPropertyMaxAgeDisagreement(t *testing.T) {
 	if agreed == 0 || disagreed == 0 {
 		t.Fatalf("DOSE_AFTER_MAX_AGE kept %d times and dropped %d times; want both", agreed, disagreed)
 	}
-}
-
-func hasReason(rs []Reason, c ReasonCode) bool {
-	return slices.ContainsFunc(rs, func(r Reason) bool { return r.Code == c })
 }
 
 // TestBirthHintForAgeLimitReasons (issue #15 Q58, SAD §5.3 step 4): when the
@@ -371,4 +372,80 @@ func TestPropertyUndatedDefiniteMaxAge(t *testing.T) {
 		t.Fatal("no undated record got DOSE_AFTER_MAX_AGE; the property is vacuous")
 	}
 	t.Logf("%d undated records with DOSE_AFTER_MAX_AGE checked", checked)
+}
+
+// TestLastAllowedByForwardChain (issue #28 Q70): C_c,k is the latest day for
+// dose k from which the later doses, each on its earliest date under the
+// most lenient plan for that dose, end by L_c, found by bisection. Generic
+// in-test series, birth 2010-01-01 and maxAgeComplete 15y (L = 2024-12-31)
+// unless stated.
+func TestLastAllowedByForwardChain(t *testing.T) {
+	t.Parallel()
+	series := func(maxComplete string, plans ...string) seriesModel {
+		t.Helper()
+		var ps []string
+		for i, p := range plans {
+			ps = append(ps, `{"id": "`+string(rune('a'+i))+`", "doses": [`+p+`]}`)
+		}
+		s, err := ruleset.Decode([]byte(`{"version": "v", "illustrative": true, "diseases": [{"id": "q", "name": "Q"}], "products": [], ` +
+			`"series": [{"id": "q-1", "disease": "q", "stage": "childhood", "maxAgeComplete": "` + maxComplete + `", "plans": [` + strings.Join(ps, ", ") + `]}]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, err := New(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e.diseases[0].series[0]
+	}
+	dose := func(fields string) string {
+		return `{` + fields + `"recommended": {"from": "birth", "offset": "P9Y"}}`
+	}
+	first := dose(`"minAge": "P9Y", `)
+	hpv := series("P15Y", strings.Join([]string{first, dose(`"minInterval": "P4W", `), dose(`"minInterval": "P12W", "minIntervalFromFirst": "P5M", `)}, ", "))
+	b := birthEnd{date: d(t, "2010-01-01"), known: true}
+	at := func(s string) *Range { r := Exact(d(t, s)); return &r }
+	day := func(s string) bound { return dateBound(d(t, s)) }
+	impossible := bound{kind: boundImpossible}
+	cases := []struct {
+		name  string
+		s     seriesModel
+		k     int
+		b     birthEnd
+		first *Range
+		want  bound
+	}{
+		// Dose 3 is at least d + 5m, later than d + 16w: d + 5m ≤ L. The
+		// sum of the minimum intervals alone (L − 16w = 09-10) would leave
+		// no room for dose 3.
+		{"minIntervalFromFirst of a later dose", hpv, 1, b, nil, day("2024-07-31")},
+		// Dose 1 on 05-01 (+ 5m = 10-01 ≤ L): dose 3 at d + 12w ≤ L.
+		{"first-dose anchor that fits", hpv, 2, b, at("2024-05-01"), day("2024-10-08")},
+		// Dose 1 on 09-01: dose 3 is at least 2025-02-01 > L.
+		{"first-dose anchor past the limit", hpv, 2, b, at("2024-09-01"), impossible},
+		{"last dose", hpv, 3, b, nil, day("2024-12-31")},
+		// Dose 2's minimum age 179m (2024-12-01) puts dose 3 at least
+		// 2025-01-26: no day for dose 1 works, although the intervals alone
+		// would allow L − 12w.
+		{"binding later minimum age", series("P15Y", strings.Join([]string{first, dose(`"minAge": "P179M", "minInterval": "P4W", `), dose(`"minInterval": "P8W", `)}, ", ")), 1, b, nil, impossible},
+		// Birth 2025-04-01, maxAgeComplete 1y: L = 2026-03-31. 01-31 + 1m +
+		// 1m = 03-28 (month-end clamping) fits, 02-01 + 1m + 1m = 04-01
+		// does not; stepping back from L by months would give 01-28.
+		{"month-end clamping", series("P1Y", strings.Join([]string{dose(`"minAge": "P0D", `), dose(`"minInterval": "P1M", `), dose(`"minInterval": "P1M", `)}, ", ")),
+			1, birthEnd{date: d(t, "2025-04-01"), known: true}, nil, day("2026-01-31")},
+		// Plan a is more lenient for dose 2 (4w), plan b for dose 3 (4w):
+		// the chain takes each, d + 8w ≤ L.
+		{"most lenient plan per dose", series("P15Y",
+			strings.Join([]string{first, dose(`"minInterval": "P4W", `), dose(`"minInterval": "P12W", `)}, ", "),
+			strings.Join([]string{first, dose(`"minInterval": "P8W", `), dose(`"minInterval": "P4W", `)}, ", ")), 1, b, nil, day("2024-11-05")},
+	}
+	for _, tc := range cases {
+		lc := tc.s.completeBound(tc.b.older())
+		if got := tc.s.lastAllowed(tc.k, tc.b, tc.first, lc); got != tc.want {
+			t.Errorf("%s: C_%d = %+v, want %+v", tc.name, tc.k, got, tc.want)
+		}
+	}
+	if got := hpv.lastAllowed(1, b, nil, bound{}); got.present() {
+		t.Errorf("without maxAgeComplete: C_1 = %+v, want absent", got)
+	}
 }

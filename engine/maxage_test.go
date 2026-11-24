@@ -438,12 +438,17 @@ func TestNoBirthDateNeverChecksMaxAges(t *testing.T) {
 // in-test series has maxAgeStart 15w and maxAgeComplete 16w (16w@b =
 // 04-23): r1 in 2026-04 ([04-01, 04-30]) is possibly past both → one
 // DOSE_POSSIBLY_INVALID{[maxAgeStart, maxAgeComplete]}, counted.
+//
+// Since S4b (issue #28) dose 2 here can never be given in time (r1.Hi + 4w =
+// 05-28 is past L = 04-22), so in the counted view the series is certainly
+// out of age and layer 5 gives outOfAge, which keeps the reason as a masked
+// reason before OUT_OF_AGE.
 func TestMaxAgeCheckListsAreCatalogOrdered(t *testing.T) {
 	t.Parallel()
 	s := loadSnapshot(t, "illustrative-max-age")
 	s.Series[0].MaxAgeComplete = spanOf(t, "P16W")
 	got := assessmentOf(t, newEngine(t, s), "rota", "2026-05-10", birthRota, rota("r1", monthDate("2026-04"), "rotarix"))
-	if want := []engine.Reason{possiblyInvalid("r1", 1, engine.CheckMaxAgeStart, engine.CheckMaxAgeComplete)}; !slices.EqualFunc(got.Reasons, want, func(a, b engine.Reason) bool {
+	if want := []engine.Reason{possiblyInvalid("r1", 1, engine.CheckMaxAgeStart, engine.CheckMaxAgeComplete), {Code: engine.ReasonOutOfAge}}; !slices.EqualFunc(got.Reasons, want, func(a, b engine.Reason) bool {
 		return a.Code == b.Code && slices.Equal(a.Params.Checks, b.Params.Checks) && a.Params.Dose == b.Params.Dose && a.Params.Number == b.Params.Number
 	}) {
 		t.Errorf("reasons %+v, want %+v", got.Reasons, want)

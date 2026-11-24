@@ -54,10 +54,12 @@ func (fx gapFixture) diseaseOf(t *testing.T) diseaseModel {
 // (TestPropertyUndatedDefiniteMaxAge): a step-2 reason, CHECK_PRODUCT_NAME
 // or MIXED_PRODUCTS, or a dated record some candidate counts moving to
 // another position. It fails when no checked record lies behind an
-// uncounted unnumbered dated dose (the shape the gap search covers).
+// uncounted unnumbered dated dose (the shape the gap search covers). It
+// also logs, as a precision counter for Q99, how many records the gap
+// search demotes with no day that clears them.
 func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 	t.Parallel()
-	checked, behind, fails := 0, 0, 0
+	checked, behind, fails, demoted, uncleared := 0, 0, 0, 0, 0
 	for _, fx := range []gapFixture{
 		{"minimal-single", "single", "2026-01-01", "2026-01-01", []string{""}, 200},
 		{"illustrative-vn", "pertussis", "2026-01-01", "2026-01-01", []string{""}, 300},
@@ -130,7 +132,7 @@ func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 			return Date{}, Assessment{}, false
 		}
 		rng := rand.New(rand.NewPCG(91, uint64(len(fx.name)+len(fx.disease))))
-		pairChecked, pairBehind, pairFails := checked, behind, fails
+		pairChecked, pairBehind, pairFails, pairDemoted, pairUncleared := checked, behind, fails, demoted, uncleared
 		for range 6000 {
 			today := base.AddDays(30 + rng.IntN(fx.span))
 			var doses []givenDose
@@ -140,9 +142,21 @@ func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 			}
 			u := dose("u", nil, rng, 2)
 			a, res := dz.assess(birth, today, append(slices.Clone(doses), u))
-			if res.cands == nil || !slices.ContainsFunc(a.Reasons, func(r Reason) bool {
+			if res.cands == nil {
+				continue
+			}
+			if !slices.ContainsFunc(a.Reasons, func(r Reason) bool {
 				return r.Code == ReasonDoseInvalid && r.Params.Dose == "u" && slices.Contains(r.Params.Checks, CheckMinInterval)
 			}) {
+				// Informational: u demoted by the gap search in some candidate
+				// and DOSE_INVALID in none, with no day that clears it.
+				if slices.ContainsFunc(res.cands, func(c candidateResult) bool { return c.walk.lowered["u"] }) &&
+					!slices.ContainsFunc(a.Reasons, func(r Reason) bool { return r.Code == ReasonDoseInvalid && r.Params.Dose == "u" }) {
+					demoted++
+					if _, _, ok := clearDay(today, doses, u, a, res); !ok {
+						uncleared++
+					}
+				}
 				continue
 			}
 			checked++
@@ -156,8 +170,8 @@ func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 				}
 			}
 		}
-		t.Logf("%s/%s: %d checked, %d behind an uncounted dose, %d counterexamples",
-			fx.name, fx.disease, checked-pairChecked, behind-pairBehind, fails-pairFails)
+		t.Logf("%s/%s: %d checked, %d behind an uncounted dose, %d counterexamples; %d demoted, %d of them with no day that clears them",
+			fx.name, fx.disease, checked-pairChecked, behind-pairBehind, fails-pairFails, demoted-pairDemoted, uncleared-pairUncleared)
 	}
 	if fails > 0 {
 		t.Errorf("%d counterexamples", fails)

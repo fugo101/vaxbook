@@ -81,6 +81,9 @@ type item struct {
 	// dated dose, computed without that walk.
 	runBest         Date
 	hasRun, guardOK bool
+	// step is a dated dose's step-2 position (placement.steps), which the
+	// S2 chain gap search reads as q_k (issue #35).
+	step int
 }
 
 // slotMax checks undated slot it against the maximum ages (issue #28 In
@@ -179,6 +182,11 @@ type walkResult struct {
 	reasons  []Reason
 	floating []givenDose
 	k        int // next dose number: highest counted position + floating doses + 1
+	// lowered are the records whose definite minimum-interval failure as
+	// the last trailing undated slot the gap search made possible (issue
+	// #35): the slot's ID, or the record beyond the series that carries an
+	// implied slot's verdict.
+	lowered map[string]bool
 }
 
 // walk validates the doses (SAD §5.3 step 5, F05.10) at one birth end.
@@ -196,7 +204,10 @@ type walkResult struct {
 // definitely invalid when R.Hi < P.Lo + minInterval and possibly invalid
 // when R.Lo < P.Hi + minInterval. Behind undated slots the interval is
 // waived (INTERVAL_UNVERIFIABLE) and replaced by the feasibility of the
-// slots (chain). The minimum age is checked when the birth date is known.
+// slots (chain), from the dated dose before the run; the last slot after
+// the last dated dose must fit by today from a dated dose before the run
+// that the positions allow (checkTrailing, gapBound, issue #35). The
+// minimum age is checked when the birth date is known.
 // minIntervalFromFirst is checked against dose 1: a counted dated dose, or
 // an undated slot at its earliest dates, so that a dose that no placement
 // of dose 1 allows is DOSE_INVALID.
@@ -312,6 +323,9 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 		// by this dose.
 		carry := w.closeRun(s, b, pl, run, g.date)
 		it := item{pos: pos, dose: g}
+		if i < len(pl.steps) {
+			it.step = pl.steps[i]
+		}
 		if len(run) > 0 {
 			it.runBest, _, it.hasRun = s.chain(b, from, run, first)
 		}
@@ -334,7 +348,7 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 			}
 			continue
 		}
-		v, checks := s.check(pos, b, g.date, from, run, first)
+		v, checks := s.check(pos, b, g.date, from, run, first, gapBound{})
 		dv := doseVerdict{minV: v, minChecks: checks}
 		dv.addMax(s.maxAges(pos, b, g.date))
 		dv.addMax(carry.maxDef, carry.maxPos)
@@ -928,6 +942,97 @@ func (w *walkResult) chainSkipping(s seriesModel, b birthEnd, it item, first *Ra
 	return best, ok, true
 }
 
+// gapBound is the definite end of the minimum interval of the last trailing
+// undated slot, from the gaps before the uncounted doses that it may lie in
+// (issue #35, Q98, Q99): best is the earliest predecessor chain end over
+// the gaps that fit, and open is set when such a chain is unbounded. Unset,
+// the walked threshold stands.
+type gapBound struct {
+	set, open bool
+	best      Date
+}
+
+// lower returns the definite minimum-interval threshold def of a dose on x,
+// lowered to best + minInterval (best alone without one). An open bound
+// never fails x definitely.
+func (gb gapBound) lower(x Range, def Date, minInterval optSpan) Date {
+	switch {
+	case !gb.set:
+		return def
+	case gb.open:
+		return minDate(def, x.Hi)
+	}
+	end := gb.best
+	if minInterval.ok {
+		end = end.AddSpan(minInterval.span)
+	}
+	return minDate(def, end)
+}
+
+// gapBound returns the gap bound of last, the last trailing undated slot at
+// position n = last.pos (issue #35, Q98, Q99 (a)). Before the trailing run
+// the walk has the uncounted unnumbered dated doses U1 < … < Um (undated
+// slots between them skipped), back to P, the latest dated dose that is
+// counted or numbered, or birth. They hold no position in the walk, so last
+// may lie before them. For k < m, gap k lies after Uk (P, or birth, for k =
+// 0) and before U(k+1). With q_k Uk's step-2 position (P's, or 0), a gap
+// with q_k ≥ n is not tried: dated there, last would contradict the
+// numbers. Otherwise positions q_k + 1 … n − 1 lie between Uk and last
+// (undated slots or implied doses), chained from Uk under the most lenient
+// plan per position, as chain does, and the gap fits when last's earliest
+// date there is on or before U(k+1).Hi. Gap m, behind Um, is the walk's own
+// chain, which check measures. The result is unset when no gap fits or m =
+// 0. It reads only the walk, two chains per gap, and q_k grows with k, so
+// at most n − 1 gaps are chained.
+func (w *walkResult) gapBound(s seriesModel, b birthEnd, first *Range, last item) gapBound {
+	seq := w.seq[:len(w.seq)-1]
+	j := len(seq)
+	var us []item
+	for ; j > 0; j-- {
+		x := seq[j-1]
+		if !x.dose.dated {
+			continue
+		}
+		if x.counted || x.dose.number > 0 {
+			break
+		}
+		us = append(us, x)
+	}
+	var gb gapBound
+	if len(us) == 0 {
+		return gb
+	}
+	slices.Reverse(us)
+	var from *Range
+	q := 0
+	if j > 0 {
+		from, q = &seq[j-1].dose.date, seq[j-1].step
+	}
+	for k, next := range us {
+		if k > 0 {
+			from, q = &us[k-1].dose.date, us[k-1].step
+		}
+		if q >= last.pos {
+			break
+		}
+		run := make([]item, 0, last.pos-q)
+		for p := q + 1; p < last.pos; p++ {
+			run = append(run, item{pos: p})
+		}
+		if end, _, ok := s.chain(b, from, append(slices.Clip(run), last), first); ok && end.After(next.dose.date.Hi) {
+			continue
+		}
+		pred, _, ok := s.chain(b, from, run, first)
+		switch {
+		case !ok:
+			gb.set, gb.open = true, true
+		case !gb.set || pred.Before(gb.best):
+			gb.set, gb.best = true, pred
+		}
+	}
+	return gb
+}
+
 // forced reports whether the walk counts dated dose or level-4 slot id at
 // position pos whatever its checks (issue #28 In scope 0e): a rescued
 // dose, a record after it (forceLater), or every record in the counted
@@ -976,6 +1081,16 @@ func (d doseVerdict) demoted() doseVerdict {
 // DOSE_POSSIBLY_INVALID. Its checks name the minimums that push it past
 // today; a failure of the chain before it is minInterval.
 //
+// The chain runs from the dated dose before the run. When that dose is
+// uncounted and unnumbered, it holds no position, so a last slot that is a
+// fixed slot (pl.fixed, not an inserted floating dose) may lie before it
+// (issue #35, Q98, Q99): when its minimum interval fails definitely, the
+// definite threshold is lowered to the gaps that fit (gapBound), so the
+// slot is DOSE_INVALID only when it fails in every gap and behind the
+// uncounted doses, and is otherwise DOSE_POSSIBLY_INVALID and counted
+// (walkResult.lowered). Its minimum age, maximum ages and carrier are
+// unchanged. A forced slot and the counted view skip the search.
+//
 // When the last trailing slot is an implied dose, the record whose number
 // implies it is a level-4 dose beyond the series (an in-series or dated
 // record would follow it). The lowest such record carries the reason, with
@@ -1003,8 +1118,21 @@ func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first 
 		}
 		carrier, number = pl.beyond[0].id, pl.beyond[0].number
 	}
-	carry.minV, carry.minChecks = s.check(lastSlot.pos, b, u, from, run[:len(run)-1], first)
+	carry.minV, carry.minChecks = s.check(lastSlot.pos, b, u, from, run[:len(run)-1], first, gapBound{})
 	forced := lastSlot.dose.id != "" && pl.forced(lastSlot.dose.id, lastSlot.pos)
+	if carry.minV == verdictDefinite && !forced && !pl.forceAll && !pl.noGapSearch {
+		if g, ok := pl.fixed[lastSlot.pos]; ok && g.id == lastSlot.dose.id {
+			if gb := w.gapBound(s, b, first, *lastSlot); gb.set {
+				if v, checks := s.check(lastSlot.pos, b, u, from, run[:len(run)-1], first, gb); v != verdictDefinite {
+					carry.minV, carry.minChecks = v, checks
+					if w.lowered == nil {
+						w.lowered = map[string]bool{}
+					}
+					w.lowered[carrier] = true
+				}
+			}
+		}
+	}
 	if forced {
 		carry = carry.demoted()
 	}
@@ -1024,14 +1152,17 @@ func (s seriesModel) hasInterval(pos int) bool {
 // end b, and the checks it fails. from is the dated dose before it in time
 // (nil if none) and run the undated slots between them; first is the counted
 // dated dose at position 1, or the earliest dates of an undated dose 1
-// (nil if neither).
+// (nil if neither). gb lowers the definite end of the minimum interval of
+// the last trailing undated slot to the gaps before the uncounted dated
+// doses that it may lie in (gapBound, issue #35); the possible end stays
+// the one from from. A dated dose passes the zero gapBound.
 //
 // A plan's verdict is the worst of its checks; the dose's verdict is the
 // best over plans (A7). The checks reported are those that reach that
 // verdict in the plans that have it, merged in catalog order: a
 // DOSE_INVALID lists the checks failed at every end, not one failed at one
 // end only. For exact dates this is the S1 check.
-func (s seriesModel) check(pos int, b birthEnd, x Range, from *Range, run []item, first *Range) (verdict, []Check) {
+func (s seriesModel) check(pos int, b birthEnd, x Range, from *Range, run []item, first *Range, gb gapBound) (verdict, []Check) {
 	var chainBest, chainWorst Date
 	chained := false
 	if len(run) > 0 {
@@ -1048,13 +1179,13 @@ func (s seriesModel) check(pos int, b birthEnd, x Range, from *Range, run []item
 		}
 		switch {
 		case len(run) == 0 && from != nil && r.minInterval.ok:
-			vs[1] = against(x, from.Lo.AddSpan(r.minInterval.span), from.Hi.AddSpan(r.minInterval.span))
+			vs[1] = against(x, gb.lower(x, from.Lo.AddSpan(r.minInterval.span), r.minInterval), from.Hi.AddSpan(r.minInterval.span))
 		case chained:
 			lo, hi := chainBest, chainWorst
 			if r.minInterval.ok {
 				lo, hi = lo.AddSpan(r.minInterval.span), hi.AddSpan(r.minInterval.span)
 			}
-			vs[1] = against(x, lo, hi)
+			vs[1] = against(x, gb.lower(x, lo, r.minInterval), hi)
 		}
 		if first != nil && r.minFromFirst.ok {
 			vs[2] = against(x, first.Lo.AddSpan(r.minFromFirst.span), first.Hi.AddSpan(r.minFromFirst.span))

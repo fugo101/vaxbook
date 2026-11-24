@@ -45,6 +45,14 @@ type placement struct {
 	// forced at, or 0 for any position. Set only on walk's own copy.
 	force    map[string]int
 	forceAll bool
+	// steps are the step-2 positions of the dated doses, in walk order:
+	// the next free one for an unnumbered dose, the number for a numbered
+	// one (item 2's time-order check, which assumes every dated dose takes
+	// a position). The S2 chain gap search reads them (issue #35, q_k).
+	steps []int
+	// noGapSearch turns the gap search off, so that a test can compare the
+	// walks with and without it (issue #35, Q103). Only tests set it.
+	noGapSearch bool
 
 	// Set by arrange, read by forLength: the numbered and the unnumbered
 	// level-4 doses, each by ID, and the positions the records take.
@@ -136,8 +144,10 @@ func arrange(doses []givenDose) placement {
 			if g.number == 0 {
 				c = nextFree(c, reserved)
 				occupied[c] = true
+				pl.steps = append(pl.steps, c)
 				continue
 			}
+			pl.steps = append(pl.steps, g.number)
 			if _, dup := conflict[g.id]; !dup && g.number <= c {
 				conflict[g.id] = g.number
 			}

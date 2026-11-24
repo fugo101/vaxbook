@@ -380,3 +380,43 @@ func TestOutOfAgeUncertainOnlyDecidingPositions(t *testing.T) {
 		})
 	}
 }
+
+// TestOutOfAgeUncertainTwoPlans: a candidate is certain only when every
+// plan is out from the earliest possible dates, so F_c^lo takes the
+// smallest plan earliest date (Q88). In-test series q-1: dose 1 minAge 9y,
+// due birth + 9y; dose 2 in plan a minInterval 4w, in plan b minInterval
+// 8w, both due previous + 1m; maxAgeComplete 15y. Birth 2010-01-15, so L =
+// 2025-01-14; today 2025-01-01.
+//   - r1 in 2024-12: plan a E = 12-31 + 4w = 2025-01-28, plan b E = 12-31 +
+//     8w = 2025-02-25; F = 01-28 > L → out. From R.Lo: plan a 12-01 + 4w =
+//     12-29, plan b 12-01 + 8w = 2025-01-26 > L; F^lo = max(01-01, 12-29) =
+//     01-01 ≤ L → not certain (plan b alone would be). Plan a's term from
+//     R.Hi, 01-28, is past L → ⚪ [OUT_OF_AGE_UNCERTAIN{numbers: [1]}], est.
+//   - r1 on 12-01: plan a own F = max(01-01, 12-29) = 01-01 ≤ L; plan b
+//     own F = 01-26 > L → dropped, so no ALTERNATIVE_PLANS. Plan a: E =
+//     12-29, Du = max(E, 12-01 + 1m = 01-01) = 01-01, O = 01-08 ≤ L_2 = L,
+//     nothing lowered → 🟠 {2, 12-29, 01-01, 01-08}, no reasons.
+func TestOutOfAgeUncertainTwoPlans(t *testing.T) {
+	t.Parallel()
+	dose1 := rule(t, "P9Y", "", "", ruleset.FromBirth, "P9Y")
+	e := newEngine(t, oneDiseaseSnapshot(nil, qSeries(t, "q-1", "", "", "P15Y",
+		[]ruleset.DoseRule{dose1, rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M")},
+		[]ruleset.DoseRule{dose1, rule(t, "", "P8W", "", ruleset.FromPreviousDose, "P1M")})))
+	birth := dayDate("2010-01-15")
+	t.Run("month dose", func(t *testing.T) {
+		t.Parallel()
+		got := assessmentOf(t, e, "q", "2025-01-01", birth, doseOf("q", "r1", monthDate("2024-12"), ""))
+		checkAssessment(t, got, engine.Assessment{
+			Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"q-1"}, Estimated: true,
+			Reasons: []engine.Reason{outOfAgeUncertain(1)},
+		})
+	})
+	t.Run("earliest day of the month", func(t *testing.T) {
+		t.Parallel()
+		got := assessmentOf(t, e, "q", "2025-01-01", birth, doseOf("q", "r1", dayDate("2024-12-01"), ""))
+		checkAssessment(t, got, engine.Assessment{
+			Disease: "q", Bucket: engine.BucketDue, NextDose: nextDose(t, 2, "2024-12-29", "2025-01-01", "2025-01-08"),
+			SeriesUsed: []string{"q-1"},
+		})
+	})
+}

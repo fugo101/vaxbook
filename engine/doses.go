@@ -996,16 +996,17 @@ func (gb gapBound) lower(x Range, def Date, minInterval optSpan) Date {
 // with q_k ≥ n is not tried: dated there, last would contradict the
 // numbers. Otherwise positions q_k + 1 … n − 1 lie between Uk and last
 // (undated slots or implied doses), chained from Uk under the most lenient
-// plan per position, as chain does, and the gap fits when last's earliest
-// date there is before U(k+1).Hi, or on it when last walks first on that
-// day: dated on U(k+1)'s day, a numbered last walks before U(k+1) only when
-// U(k+1)'s step-2 position q_(k+1) is above n (orderSameDay), and
-// otherwise measures its interval from U(k+1), which is gap k + 1. An
-// unnumbered or implied last has no such order and fits on the day (the
-// safe side). Gap m, behind Um, is the walk's own
-// chain, which check measures. The result is unset when no gap fits or m =
-// 0. It reads only the walk, two chains per gap, and q_k grows with k, so
-// at most n − 1 gaps are chained.
+// plan per position, as chain does; gap 0 chains through position 1, so
+// its dose 1 is that position at its earliest dates, as the walk takes an
+// undated dose 1. The gap fits when last's earliest date there is before
+// U(k+1).Hi, or on it when last walks first on that day: dated on
+// U(k+1)'s day, a numbered last walks before U(k+1) only when U(k+1)'s
+// step-2 position q_(k+1) is above n (orderSameDay), and otherwise
+// measures its interval from U(k+1), which is gap k + 1. An unnumbered or
+// implied last has no such order and fits on the day (the safe side). Gap
+// m, behind Um, is the walk's own chain, which check measures. The result
+// is unset when no gap fits or m = 0. It reads only the walk, two chains
+// per gap, and q_k grows with k, so at most n − 1 gaps are chained.
 func (w *walkResult) gapBound(s seriesModel, b birthEnd, first *Range, last item) gapBound {
 	seq := w.seq[:len(w.seq)-1]
 	j := len(seq)
@@ -1041,11 +1042,20 @@ func (w *walkResult) gapBound(s seriesModel, b birthEnd, first *Range, last item
 		for p := q + 1; p < last.pos; p++ {
 			run = append(run, item{pos: p})
 		}
-		if end, _, ok := s.chain(b, from, append(slices.Clip(run), last), first); ok &&
+		// Gap 0 chains through position 1, so its dose 1 is that position
+		// at its earliest dates (EQ20b), not the walk's.
+		f := first
+		if q == 0 {
+			f = nil
+			if lo, hi, ok := s.chain(b, nil, []item{{pos: 1}}, nil); ok {
+				f = &Range{Lo: lo, Hi: hi}
+			}
+		}
+		if end, _, ok := s.chain(b, from, append(slices.Clip(run), last), f); ok &&
 			(end.After(next.dose.date.Hi) || end == next.dose.date.Hi && last.dose.number > 0 && next.step < last.pos) {
 			continue
 		}
-		pred, _, ok := s.chain(b, from, run, first)
+		pred, _, ok := s.chain(b, from, run, f)
 		switch {
 		case !ok:
 			gb.set, gb.open = true, true

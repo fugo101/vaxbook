@@ -342,3 +342,39 @@ func TestGapBoundSameDay(t *testing.T) {
 		},
 	})
 }
+
+// TestGapZeroChecksFromFirst (issue #35, Q99 (a), F05.10): gap 0 chains from
+// birth through position 1, so when the walk has no dose 1 (U1, at step-2
+// position 1, is uncounted), dose 1 of that gap is the chain's own position
+// 1, and minIntervalFromFirst of the later positions is measured from it,
+// as for an undated dose 1 in the walk (EQ20b). In-test series q-1
+// (maxAgeStart 15w = 04-16): dose 1 minAge 6w, dose 2 minInterval 4w, dose
+// 3 minInterval 4w and minIntervalFromFirst 16w. Today 06-10: u1 05-01
+// (past 15w → DOSE_AFTER_MAX_AGE{maxAgeStart, u1, 1}, uncounted), s #3
+// undated, so dose 2 is implied.
+//   - As walked: u1 → implied 2 ≥ 05-29 → s ≥ 06-26 > today.
+//   - Gap 0 (q_0 = 0 < 3): dose 1 ≥ 02-12, dose 2 ≥ 03-12, s ≥ max(04-09,
+//     02-12 + 16w = 06-04) = 06-04 > u1.Hi → does not fit. s dated 04-09 to
+//     04-30 fails minIntervalFromFirst from implied dose 1, and from 05-01
+//     on it lies behind u1 → no day clears s.
+//
+// → DOSE_INVALID{minInterval, s, 3}, as on main. Without dose 1 in the gap
+// chain, s ≥ 04-09 ≤ u1 would fit and demote it.
+func TestGapZeroChecksFromFirst(t *testing.T) {
+	t.Parallel()
+	e := newEngine(t, oneDiseaseSnapshot(nil, qSeries(t, "q-1", "", "P15W", "", []ruleset.DoseRule{
+		rule(t, "P6W", "", "", ruleset.FromBirth, "P2M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+		rule(t, "", "P4W", "P16W", ruleset.FromPreviousDose, "P1M"),
+	})))
+	got := assessmentOf(t, e, "q", "2026-06-10", birthGap,
+		doseOf("q", "u1", dayDate("2026-05-01"), ""), numbered(doseOf("q", "s", unknownDate, ""), 3))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"q-1"}, Estimated: true,
+		Reasons: []engine.Reason{
+			{Code: engine.ReasonImpliedEarlierDoses, Params: engine.ReasonParams{Numbers: []int{2}}},
+			afterMaxAge("u1", 1, engine.CheckMaxAgeStart),
+			invalidDose("s", 3, engine.CheckMinInterval),
+		},
+	})
+}

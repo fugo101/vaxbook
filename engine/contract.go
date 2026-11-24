@@ -287,8 +287,10 @@ type ReasonParams struct {
 	// fails after the last dated dose (DOSE_INVALID, DOSE_AFTER_MAX_AGE), or
 	// the number the user entered (NUMBERING_CONFLICT).
 	Number int `json:"number,omitzero"`
-	// Numbers are the positions of implied doses, ascending:
-	// IMPLIED_EARLIER_DOSES.
+	// Numbers are series positions, ascending and without repeats: the
+	// implied doses (IMPLIED_EARLIER_DOSES), or since S4b the doses whose
+	// exact date would show whether the next dose can still be given
+	// (OUT_OF_AGE_UNCERTAIN).
 	Numbers []int `json:"numbers,omitzero"`
 	// Series is a series ID: ALTERNATIVE_PLANS.
 	Series string `json:"series,omitzero"`
@@ -478,4 +480,16 @@ const (
 	// capped at Lim and the next dose is never 🔴 (F05.4b case 2; issue #28
 	// Q66). Params: lastDay. Added in S4b.
 	ReasonSeriesMayNotComplete ReasonCode = "SERIES_MAY_NOT_COMPLETE"
+	// ReasonOutOfAgeUncertain: the next dose is past a maximum age when
+	// counted from the latest possible date of an earlier dose (the later
+	// end of an imprecise date, or the EQ20c stand-in for an undated or
+	// implied dose 1), but not from the earliest possible dates, so the
+	// person may still be in age: "có thể đã quá tuổi tiêm mũi tiếp theo —
+	// nhập ngày tiêm chính xác của mũi N để biết" ("the next dose may
+	// already be past the age limit — enter the exact date of dose N to
+	// find out"). No next dose is shown, since one counted from the
+	// earliest dates could be past the limit (P1; SAD §5.3 step 7, owner
+	// 2026-11-24). Params: numbers (the positions whose exact date would
+	// decide). Added in S4b.
+	ReasonOutOfAgeUncertain ReasonCode = "OUT_OF_AGE_UNCERTAIN"
 )

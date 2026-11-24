@@ -396,7 +396,7 @@ func TestSchemaEnumsMatchConstants(t *testing.T) {
 			engine.ReasonPreviousDoseDateUnknown, engine.ReasonNoBirthDate, engine.ReasonFirstDoseDateAssumed,
 			engine.ReasonAlternativePlans, engine.ReasonOnTrack, engine.ReasonAgeAtStartUncertain, engine.ReasonOutOfAge,
 			engine.ReasonDoseAfterMaxAge, engine.ReasonCheckProductName, engine.ReasonMixedProducts,
-			engine.ReasonDueCappedByMaxAge, engine.ReasonSeriesMayNotComplete)},
+			engine.ReasonDueCappedByMaxAge, engine.ReasonSeriesMayNotComplete, engine.ReasonOutOfAgeUncertain)},
 		{"ReasonParams", "checks", str(engine.CheckMinAge, engine.CheckMinInterval, engine.CheckMinIntervalFromFirst,
 			engine.CheckMaxAgeStart, engine.CheckMaxAgeComplete)},
 		{"ReasonParams", "hint", str(engine.HintBirthMonth, engine.HintFullBirthDate)},

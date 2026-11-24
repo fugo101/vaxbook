@@ -31,6 +31,10 @@ In dev, `VAXBOOK_MAILER=console` writes sign-in codes to the server log instead 
 
 The API contract is [`contracts/openapi.yaml`](contracts/openapi.yaml). Write requests need the header `X-VaxBook-CSRF: 1`.
 
+## Contributing
+
+Issues and pull requests are welcome; see [`CONTRIBUTING.md`](CONTRIBUTING.md). Everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately as described in [`SECURITY.md`](SECURITY.md). For questions, see [`SUPPORT.md`](SUPPORT.md).
+
 ## License
 
 Apache-2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).

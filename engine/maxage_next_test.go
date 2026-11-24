@@ -244,6 +244,29 @@ func TestOwnFNotMergedF(t *testing.T) {
 	})
 }
 
+// TestMergedOutCandidate (issue #28 In scope 2c, Q86): a candidate that is
+// in on its own F but past its limit at the merged F gives ⚪, not a capped
+// date. p (dose-2 minInterval 4w, maxAgeComplete 18w: L = 05-06) and q (8w,
+// 30w: L = 07-29), both dose-1 minAge 6w; birth 2026-01-01, r1 with no
+// product on 03-12, today 04-16. p's own F is today (E = 04-09) and q's is
+// E = 05-07, each by its own limit, so neither is out. The merged F 05-07 is
+// past p's L: p could be given only before the date q needs → ⚪
+// CHECK_PRODUCT_NAME. Merging anyway would show dose 2 from 05-07, past p's
+// last day (P1).
+func TestMergedOutCandidate(t *testing.T) {
+	t.Parallel()
+	two := func(interval string) []ruleset.DoseRule {
+		return []ruleset.DoseRule{rule(t, "P6W", "", "", ruleset.FromBirth, "P2M"), rule(t, "", interval, "", ruleset.FromBirth, "P4M")}
+	}
+	s := oneDiseaseSnapshot([]string{"p", "q"}, qSeries(t, "p-1", "p", "", "P18W", two("P4W")), qSeries(t, "q-1", "q", "", "P30W", two("P8W")))
+	e := newEngine(t, s)
+	got := assessmentOf(t, e, "q", "2026-04-16", birthRota, doseOf("q", "r1", dayDate("2026-03-12"), ""))
+	checkAssessment(t, got, engine.Assessment{
+		Disease: "q", Bucket: engine.BucketUnknown, SeriesUsed: []string{"p-1", "q-1"},
+		Reasons: []engine.Reason{safest("p", "p-1", "q", "q-1"), {Code: engine.ReasonCheckProductName}},
+	})
+}
+
 // TestMostLenientPlanForOut (Q88): a generic 2-dose series with two plans
 // (dose 1 minAge 2m), maxAgeComplete 4m, birth 2026-01-21 (L = 05-20). Dose 2: plan a minInterval
 // 4w and due previous + 4w; plan b minInterval 2w and due previous + 8w. r1

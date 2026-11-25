@@ -240,42 +240,54 @@ func rdate(d engine.Date) *ruleset.Date {
 	return &ruleset.Date{Year: y, Month: m, Day: dd}
 }
 
-// historySpan returns the earliest date of in's history for disease: the
-// earliest day of the birth date when known, else the earliest dose date
-// (today with none); unbounded is set with no birth date and an undated
-// record, whose trailing slot's envelope reads every segment up to today
-// (Q105).
+// historySpan returns the earliest date of in's history for disease that
+// #29's covering windows must contain: the earliest day of its earliest
+// dated dose (today with none), or, when the disease has an undated
+// record, the earliest day of the birth date, since the trailing slot's
+// envelope reads the segments from b_old on (Q105). unbounded is set for an
+// undated record with no birth date: the envelope then reads every segment
+// up to today.
 func historySpan(in engine.Input, disease string) (lower engine.Date, unbounded bool) {
 	lower = in.Today
-	if lo, _, ok := testPeriod(in.Profile.Birth, in.Today); ok && lo.Before(lower) {
-		lower = lo
-	}
+	undated := false
 	for _, r := range in.Doses {
 		if !slices.Contains(r.Diseases, disease) {
 			continue
 		}
 		if lo, _, ok := testPeriod(r.Date, in.Today); ok && lo.Before(lower) {
 			lower = lo
-		} else if !ok && r.Date.Precision == engine.Unknown && in.Profile.Birth.Precision == engine.None {
-			unbounded = true
+		} else if !ok && r.Date.Precision == engine.Unknown {
+			undated = true
 		}
 	}
-	return lower, unbounded
+	if !undated {
+		return lower, false
+	}
+	lo, _, ok := testPeriod(in.Profile.Birth, in.Today)
+	if !ok {
+		return lower, true
+	}
+	if lo.Before(lower) {
+		lower = lo
+	}
+	return lower, false
 }
 
 // TestPropertyWindowsCoveringHistoryChangeNothing (issue #29): windows that
 // contain every relevant date change nothing. Each random input of each
 // windowless fixture is evaluated again on a variant where every series of
 // a disease gets its own random window containing every date from the
-// history's start (historySpan: birth, else the earliest dose date, else
-// today; no lower bound with no birth date and an undated record) to the
-// latest overdue date the windowless output shows (today with none). Every
-// dose range and every shown date then lies in one segment, so no version
-// arises and the envelope reads today's series only: the output must be
-// byte-equal to the windowless one.
+// history's start (historySpan: the earliest dose date, today with no
+// dose; from birth when the disease has an undated record, with no lower
+// bound when there is no birth date either) to the latest overdue date the
+// windowless output shows (today with none). Every dose range and every
+// shown date then lies in one segment, so no version arises and the
+// envelope reads today's series only: the output must be byte-equal to the
+// windowless one. A counter fails the test when no window starts after the
+// birth date's earliest day, the case a lower bound at birth would miss.
 func TestPropertyWindowsCoveringHistoryChangeNothing(t *testing.T) {
 	t.Parallel()
-	compared := 0
+	compared, afterBirth := 0, 0
 	for _, fx := range fixtures(t) {
 		if windowed(fx.snap) {
 			continue
@@ -291,10 +303,15 @@ func TestPropertyWindowsCoveringHistoryChangeNothing(t *testing.T) {
 				}
 			}
 			v := cloneSnapshot(fx.snap)
+			birth, _, hasBirth := testPeriod(in.Profile.Birth, in.Today)
 			for i := range v.Series {
 				lower, unbounded := historySpan(in, v.Series[i].Disease)
 				if !unbounded && rng.IntN(4) != 0 {
-					v.Series[i].ValidFrom = rdate(lower.AddDays(-rng.IntN(400)))
+					from := lower.AddDays(-rng.IntN(400))
+					v.Series[i].ValidFrom = rdate(from)
+					if hasBirth && from.After(birth) {
+						afterBirth++
+					}
 				}
 				if rng.IntN(4) != 0 {
 					v.Series[i].ValidTo = rdate(upper.AddDays(1 + rng.IntN(400)))
@@ -307,8 +324,9 @@ func TestPropertyWindowsCoveringHistoryChangeNothing(t *testing.T) {
 			compared++
 		}
 	}
-	if compared == 0 {
-		t.Fatal("nothing compared")
+	t.Logf("%d inputs compared, %d windows from after the birth date", compared, afterBirth)
+	if compared == 0 || afterBirth == 0 {
+		t.Fatalf("nothing compared (%d) or no window starts after the birth date (%d)", compared, afterBirth)
 	}
 }
 

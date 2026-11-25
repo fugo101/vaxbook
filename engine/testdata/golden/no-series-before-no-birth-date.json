@@ -1,0 +1,48 @@
+{
+  "ruleset": "minimal-effective-dating",
+  "input": {
+    "today": "2026-02-01",
+    "profile": {
+      "birth": {
+        "precision": "none"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "minimal-effective-dating-s4c",
+    "today": "2026-02-01",
+    "assessments": [
+      {
+        "disease": "ed",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "NO_BIRTH_DATE"
+          }
+        ]
+      },
+      {
+        "disease": "gone",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "NO_SERIES_IN_EFFECT"
+          }
+        ]
+      },
+      {
+        "disease": "bare",
+        "bucket": "unknown",
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "NO_SERIES_IN_EFFECT"
+          }
+        ]
+      }
+    ]
+  }
+}

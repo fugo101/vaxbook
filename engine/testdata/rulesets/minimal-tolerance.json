@@ -1,0 +1,40 @@
+{
+  "version": "minimal-tolerance-s4c",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "tol",
+      "name": "Bệnh minh hoạ dung sai"
+    }
+  ],
+  "series": [
+    {
+      "id": "tol-1",
+      "disease": "tol",
+      "stage": "childhood",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              },
+              "tolerance": "P4D"
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              },
+              "tolerance": "P4D"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

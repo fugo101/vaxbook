@@ -1,0 +1,52 @@
+{
+  "ruleset": "minimal-tolerance",
+  "input": {
+    "today": "2026-03-20",
+    "profile": {
+      "birth": {
+        "value": "2026-01-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "tol"
+        ],
+        "date": {
+          "value": "2026-02-08",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "tol"
+        ],
+        "date": {
+          "value": "2026-03-04",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-tolerance-s4c",
+    "today": "2026-03-20",
+    "assessments": [
+      {
+        "disease": "tol",
+        "bucket": "complete",
+        "seriesUsed": [
+          "tol-1"
+        ],
+        "reasons": [
+          {
+            "code": "COMPLETE"
+          }
+        ]
+      }
+    ]
+  }
+}

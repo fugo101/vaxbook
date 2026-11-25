@@ -1,0 +1,38 @@
+{
+  "ruleset": "minimal-catch-up-age",
+  "input": {
+    "today": "2026-01-20",
+    "profile": {
+      "birth": {
+        "value": "2024-01",
+        "precision": "month"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "minimal-catch-up-age-s4c",
+    "today": "2026-01-20",
+    "assessments": [
+      {
+        "disease": "cu",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "cu-1"
+        ],
+        "estimated": true,
+        "reasons": [
+          {
+            "code": "BIRTH_DATE_IMPRECISE",
+            "params": {
+              "hint": "fullBirthDate"
+            }
+          },
+          {
+            "code": "CATCH_UP_ASK_DOCTOR"
+          }
+        ]
+      }
+    ]
+  }
+}

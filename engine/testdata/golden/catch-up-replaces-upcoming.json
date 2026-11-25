@@ -1,0 +1,42 @@
+{
+  "ruleset": "minimal-catch-up-age",
+  "input": {
+    "today": "2026-02-10",
+    "profile": {
+      "birth": {
+        "value": "2023-01-10",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "cu"
+        ],
+        "date": {
+          "value": "2026-01-20",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-catch-up-age-s4c",
+    "today": "2026-02-10",
+    "assessments": [
+      {
+        "disease": "cu",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "cu-1"
+        ],
+        "reasons": [
+          {
+            "code": "CATCH_UP_ASK_DOCTOR"
+          }
+        ]
+      }
+    ]
+  }
+}

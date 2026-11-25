@@ -72,6 +72,10 @@ type seriesModel struct {
 	// it has one: a maximum age to start for dose 1 of every series of the
 	// group (A5, Q55). All three are series-level, not per plan.
 	maxStart, maxComplete, groupMax optSpan
+	// catchUp is catchUpAfterAge, absent for none: a clean next dose whose
+	// earliest shown date is at or after birth + catchUp is handed to a
+	// doctor (evaluation.catchUp; issue #29 In scope 5).
+	catchUp optSpan
 }
 
 // hasMaxAges reports whether the series has any maximum age. Without one,
@@ -348,7 +352,8 @@ func compileDisease(s *ruleset.Snapshot, disease string, inEffect func(int) bool
 }
 
 func compileSeries(sr ruleset.Series) seriesModel {
-	m := seriesModel{id: sr.ID, length: len(sr.Plans[0].Doses), maxStart: optional(sr.MaxAgeStart), maxComplete: optional(sr.MaxAgeComplete)}
+	m := seriesModel{id: sr.ID, length: len(sr.Plans[0].Doses), maxStart: optional(sr.MaxAgeStart), maxComplete: optional(sr.MaxAgeComplete),
+		catchUp: optional(sr.CatchUpAfterAge)}
 	if sr.Product != nil {
 		m.product = *sr.Product
 	}

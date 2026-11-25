@@ -442,7 +442,7 @@ func TestPropertyOutOfAgeNoCompleteCandidate(t *testing.T) {
 			if e, ok := alone[id]; ok {
 				return e
 			}
-			s := loadSnapshot(t, fx.name)
+			s := cloneSnapshot(fx.snap)
 			disease := seriesByID(s, id).Disease
 			s.Series = slices.DeleteFunc(s.Series, func(sr ruleset.Series) bool { return sr.Disease == disease && sr.ID != id })
 			e, err := engine.New(s)

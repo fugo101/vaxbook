@@ -43,8 +43,11 @@ type CandidateView struct {
 // ResultView is the final result of steps 4–9 of one disease: its
 // candidates as walked, and the counted view (the same walks when no record
 // is questioned). For compared results it is the latest evaluated date's.
+// Next is the result's next dose, shown or masked (nil when it has none):
+// the catch-up property reads a ⚪'s masked earliest date (issue #29).
 type ResultView struct {
 	Walked, Counted []CandidateView
+	Next            *NextDose
 }
 
 // ResultViews returns the ResultView of each disease of e that reaches
@@ -86,6 +89,10 @@ func ResultViews(e *Engine, in Input) (map[string]ResultView, error) {
 			continue
 		}
 		v := ResultView{Walked: view(dz, res.series, res.cands)}
+		if res.hasNext {
+			nd := res.next
+			v.Next = &nd
+		}
 		v.Counted = v.Walked
 		if res.counted != nil {
 			v.Counted = view(dz, res.series, res.counted)

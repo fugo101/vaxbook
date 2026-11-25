@@ -181,6 +181,17 @@ func (r candidateResult) ownF(today Date) Date {
 	return maxDate(today, f)
 }
 
+// lastF is today, or the latest earliest date of the candidate's plans when
+// later: no merge that keeps the candidate gives an F above it from its
+// own dates.
+func (r candidateResult) lastF(today Date) Date {
+	f := today
+	for _, p := range r.next.plans {
+		f = maxDate(f, p.earliest)
+	}
+	return f
+}
+
 // ownFLo is the candidate's own F_c^lo (owner 2026-11-24): today, or the
 // smallest earliest date of its plans from the earliest possible anchors
 // (nextResult.lows) when later. It equals ownF when every dose date

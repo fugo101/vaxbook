@@ -116,3 +116,37 @@ func TestCatchUpGuardAtOlderBirthEnd(t *testing.T) {
 		Disease: "q", Block: engine.BlockNotYetScheduled, NextDose: nextDose(t, 1, "2025-12-22", "2026-07-01", "2026-07-08"), SeriesUsed: used,
 	})
 }
+
+// TestCatchUpGuardSeesRemovedCandidate (Q108): with no dose given, a
+// candidate removed as out of age from b_old's limits, but not out at the
+// evaluated birth date, still guards catch-up there. Disease q:
+//   - cu-a, generic, one dose, minAge 48w due 54w, maxAgeComplete 4y,
+//     catchUpAfterAge 3y;
+//   - cu-b, product p, one dose, minAge 109w due 126w, maxAgeComplete 5y.
+//
+// No doses, today 2023-01-10:
+//   - birth month 2019-01: cu-a is past its 4 years from b_old (limit
+//     2022-12-31) but not from 01-31 (2023-01-30), so at 01-31 it is removed
+//     only possibly. For birth dates where cu-a is still a candidate F =
+//     today lies past their 3-year catch-up age, and the engine asks for a
+//     doctor there, so 01-31 cannot show cu-b's overdue dates: that end is
+//     ⚪ [BIRTH_DATE_IMPRECISE{fullBirthDate}], the ends differ → ⚪
+//     [BIRTH_DATE_IMPRECISE{fullBirthDate}], est, seriesUsed [cu-b];
+//   - birth 2019-01-15: both candidates, F = today ≥ 2022-01-15 → ⚪
+//     [SAFEST_SERIES{cu-a, cu-b}, CATCH_UP_ASK_DOCTOR];
+//   - birth 2019-01-01: cu-a certainly out, cu-b alone → 🔴 {1, 2021-02-02,
+//     2021-06-01, 2021-06-08}.
+func TestCatchUpGuardSeesRemovedCandidate(t *testing.T) {
+	t.Parallel()
+	a := qSeries(t, "cu-a", "", "", "P4Y", []ruleset.DoseRule{rule(t, "P48W", "", "", ruleset.FromBirth, "P54W")})
+	a.CatchUpAfterAge = spanOf(t, "P3Y")
+	b := qSeries(t, "cu-b", "p", "", "P5Y", []ruleset.DoseRule{rule(t, "P109W", "", "", ruleset.FromBirth, "P126W")})
+	e := newEngine(t, oneDiseaseSnapshot([]string{"p"}, a, b))
+	checkAssessment(t, assessmentOf(t, e, "q", "2023-01-10", monthDate("2019-01")), unknownWith([]string{"cu-b"}, true, fullBirthDate))
+	both := []string{"cu-a", "cu-b"}
+	checkAssessment(t, assessmentOf(t, e, "q", "2023-01-10", dayDate("2019-01-15")),
+		unknownWith(both, false, safest("", "cu-a", "p", "cu-b"), askDoctor))
+	checkAssessment(t, assessmentOf(t, e, "q", "2023-01-10", dayDate("2019-01-01")), engine.Assessment{
+		Disease: "q", Bucket: engine.BucketOverdue, NextDose: nextDose(t, 1, "2021-02-02", "2021-06-01", "2021-06-08"), SeriesUsed: []string{"cu-b"}, Products: []string{"p"},
+	})
+}

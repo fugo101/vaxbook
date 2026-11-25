@@ -88,6 +88,10 @@ type evaluation struct {
 	// safest is SAFEST_SERIES as a bucket reason of each birth date, set
 	// when no dose is given and two or more candidates remain.
 	safest *Reason
+	// doubt are the no-dose candidates removed as out of age only from
+	// b_old's limits (filterOutOfAge): catchUp reads their catch-up ages at
+	// b_old (Q108).
+	doubt []removed
 	// unknownProduct: some dose of the disease, implied doses included, has
 	// an unknown product (anyUnknownProduct). It chooses CHECK_PRODUCT_NAME
 	// over MIXED_PRODUCTS when the candidates disagree on a maximum age.
@@ -211,6 +215,12 @@ func (ev evaluation) at(b birthEnd) endResult {
 // BIRTH_DATE_IMPRECISE{fullBirthDate} (the reason is an age limit); this
 // end's reason has the same key and is listed once. With an exact birth
 // date b_old is b, so nothing changes.
+//
+// The same holds when a no-dose candidate removed only from b_old's limits
+// (ev.doubt) has a catch-up age and F, raised to that candidate's latest
+// earliest date, is at or past b_old + catchUpAfterAge: for the birth
+// dates of the range where it is still a candidate, the result there could
+// be caught up. With an exact birth date nothing is removed that way.
 func (ev evaluation) catchUp(b birthEnd, atK []int, res endResult) endResult {
 	if !b.known || !res.hasNext || res.block == BlockOutOfAge || blocking(res.reasons) {
 		return res
@@ -222,11 +232,15 @@ func (ev evaluation) catchUp(b birthEnd, atK []int, res endResult) endResult {
 			return s.catchUp.ok && !f.Before(at.AddSpan(s.catchUp.span))
 		})
 	}
+	doubted := slices.ContainsFunc(ev.doubt, func(r removed) bool {
+		s := ev.dz.series[r.series]
+		return s.catchUp.ok && !maxDate(f, r.earliest).Before(b.older().AddSpan(s.catchUp.span))
+	})
 	var ask Reason
 	switch {
 	case caught(b.date):
 		ask = Reason{Code: ReasonCatchUpAskDoctor}
-	case caught(b.older()):
+	case caught(b.older()) || doubted:
 		ask = Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: HintFullBirthDate}}
 	default:
 		return res

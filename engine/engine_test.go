@@ -453,7 +453,7 @@ func TestAlternativePlansTieTakesLatestEarliest(t *testing.T) {
 func TestNextAfterUncountedDose(t *testing.T) {
 	t.Parallel()
 	e := testEngine(t)
-	s := e.diseases[0].series[0]
+	s := onlySegment(t, e, 0).series[0]
 	birth := birthEnd{date: d(t, "2026-01-10"), known: true}
 	doses := []givenDose{{id: "r1", date: Exact(d(t, "2026-03-10")), dated: true}, {id: "r2", date: Exact(d(t, "2026-03-31")), dated: true}}
 	w := s.walk(birth, d(t, "2026-04-01"), s.place(doses))
@@ -611,7 +611,7 @@ func TestNewAcceptsBracketedGroups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New error = %v", err)
 	}
-	dz := e.diseases[0]
+	dz := onlySegment(t, e, 0)
 	var order [][]string
 	for _, g := range dz.groups {
 		var ids []string
@@ -648,7 +648,7 @@ func TestMergeMaskedByDoseInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dz := e.diseases[1]
+	dz := onlySegment(t, e, 1)
 	doses := []givenDose{{id: "r1", date: Exact(d(t, "2026-03-01")), dated: true}, {id: "r2", date: Exact(d(t, "2026-04-01")), dated: true}}
 	cands := dz.candidates(doses, false)
 	ev := dz.evaluate(arrange(doses), cands, d(t, "2026-04-20"), nil, false)
@@ -694,7 +694,7 @@ func TestCandidateResultsKeptWhole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dz := e.diseases[1]
+	dz := onlySegment(t, e, 1)
 	doses := []givenDose{{id: "r1", date: Exact(d(t, "2026-03-01")), dated: true}, {id: "r2", date: Exact(d(t, "2026-04-01")), dated: true}}
 	cands := dz.candidates(doses, false)
 	ev := dz.evaluate(arrange(doses), cands, d(t, "2026-04-20"), nil, false)

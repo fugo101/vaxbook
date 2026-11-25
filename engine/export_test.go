@@ -1,5 +1,7 @@
 package engine
 
+import "testing"
+
 // DisagreeingRecords returns, for each disease of e, the records whose
 // DOSE_AFTER_MAX_AGE a maximum-age disagreement dropped (issue #15 In scope
 // 5, Q52), by ID. It is test-only: the narrowing property limits its Q52/Q62
@@ -10,7 +12,8 @@ func DisagreeingRecords(e *Engine, in Input) (map[string][]string, error) {
 		return nil, err
 	}
 	out := map[string][]string{}
-	for _, dz := range e.diseases {
+	for _, tl := range e.diseases {
+		dz := tl.at(in.Today)
 		if _, res := dz.assess(birth, in.Today, byDisease[dz.id]); len(res.disagreeing) > 0 {
 			out[dz.id] = res.disagreeing
 		}
@@ -66,7 +69,8 @@ func ResultViews(e *Engine, in Input) (map[string]ResultView, error) {
 		return out
 	}
 	out := map[string]ResultView{}
-	for _, dz := range e.diseases {
+	for _, tl := range e.diseases {
+		dz := tl.at(in.Today)
 		_, res := dz.assess(birth, in.Today, byDisease[dz.id])
 		if res.cands == nil {
 			continue
@@ -79,4 +83,21 @@ func ResultViews(e *Engine, in Input) (map[string]ResultView, error) {
 		out[dz.id] = v
 	}
 	return out, nil
+}
+
+// onlySegment returns disease i of e, failing unless the disease has one
+// validity segment (a windowless snapshot): the internal tests that read a
+// diseaseModel directly run on such snapshots (issue #29 In scope 2).
+func onlySegment(t testing.TB, e *Engine, i int) diseaseModel {
+	t.Helper()
+	return e.diseases[i].only(t)
+}
+
+// only returns the timeline's model, failing unless it has one segment.
+func (tl diseaseTimeline) only(t testing.TB) diseaseModel {
+	t.Helper()
+	if len(tl.models) != 1 {
+		t.Fatalf("disease %s has %d validity segments, want 1", tl.id, len(tl.models))
+	}
+	return tl.models[0]
 }

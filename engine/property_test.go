@@ -379,9 +379,10 @@ func TestPropertyNextDoseBounds(t *testing.T) {
 			}
 			out, _ := evaluate(t, fx.engine, in)
 			_, birthHi, birthKnown := testPeriod(in.Profile.Birth, in.Today)
+			fxo, clean := fx.on(in)
 			for _, a := range out.Assessments {
 				checkAssessmentShape(t, fx.name, a)
-				if a.NextDose == nil {
+				if a.NextDose == nil || !clean(a.Disease) {
 					continue
 				}
 				nd := *a.NextDose
@@ -396,7 +397,7 @@ func TestPropertyNextDoseBounds(t *testing.T) {
 						latest, haveLatest = hi, true
 					}
 				}
-				for _, sr := range seriesUsed(t, fx.snap, a) {
+				for _, sr := range seriesUsed(t, fxo.snap, a) {
 					if len(sr.Plans[0].Doses) < nd.Number {
 						continue
 					}
@@ -1427,8 +1428,11 @@ func TestPropertyCandidates(t *testing.T) {
 				in = randomDayInput(t, rng, fx.snap)
 			}
 			out, _ := evaluate(t, fx.engine, in)
+			fxo, clean := fx.on(in)
 			for _, a := range out.Assessments {
-				checkCandidates(t, fx, in, a)
+				if clean(a.Disease) {
+					checkCandidates(t, fxo, in, a)
+				}
 			}
 		}
 	}

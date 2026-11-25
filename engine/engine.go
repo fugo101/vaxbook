@@ -15,7 +15,7 @@ import (
 // use.
 type Engine struct {
 	version  string
-	diseases []diseaseModel
+	diseases []diseaseTimeline // per validity segment (issue #29)
 	known    map[string]bool
 	products map[string]bool // every catalog product ID, retired ones included
 }
@@ -243,16 +243,21 @@ func New(s *ruleset.Snapshot) (*Engine, error) {
 		e.products[p.ID] = true
 	}
 	for _, dz := range s.Diseases {
-		m := compileDisease(s, dz.ID)
+		tl, err := compileTimeline(s, dz.ID)
+		if err != nil {
+			return nil, err
+		}
 		e.known[dz.ID] = true
-		e.diseases = append(e.diseases, m)
+		e.diseases = append(e.diseases, tl)
 	}
 	return e, nil
 }
 
 // compileDisease prepares the series of one disease and its candidate
-// tiers (SAD §5.3 step 3).
-func compileDisease(s *ruleset.Snapshot, disease string) diseaseModel {
+// tiers (SAD §5.3 step 3), from the series of the snapshot for which
+// inEffect (an index into s.Series) holds: those of one validity segment
+// (compileTimeline).
+func compileDisease(s *ruleset.Snapshot, disease string, inEffect func(int) bool) diseaseModel {
 	retired := map[string]bool{}
 	for _, p := range s.Products {
 		retired[p.ID] = p.Retired
@@ -266,8 +271,8 @@ func compileDisease(s *ruleset.Snapshot, disease string) diseaseModel {
 	own := map[string][]int{} // product → its series for the disease
 	var generic []int
 	group := map[string]int{} // product ("" generic) → index into m.groups
-	for _, sr := range s.Series {
-		if sr.Disease != disease {
+	for j, sr := range s.Series {
+		if sr.Disease != disease || !inEffect(j) {
 			continue
 		}
 		sm := compileSeries(sr)
@@ -437,7 +442,8 @@ func (e *Engine) Evaluate(in Input) (Output, error) {
 		return Output{}, err
 	}
 	out := Output{RuleSetVersion: e.version, Today: in.Today, Assessments: make([]Assessment, 0, len(e.diseases))}
-	for _, dz := range e.diseases {
+	for _, tl := range e.diseases {
+		dz := tl.at(in.Today)
 		a, _ := dz.assess(birth, in.Today, byDisease[dz.id])
 		out.Assessments = append(out.Assessments, a)
 	}

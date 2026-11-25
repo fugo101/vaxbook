@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/fugo101/vaxbook/engine"
@@ -36,5 +37,33 @@ func TestNoSeriesInEffect(t *testing.T) {
 		numbered(doseOf("q", "r1", dayDate("2025-11-01"), ""), 1), numbered(doseOf("q", "r2", dayDate("2025-12-01"), ""), 1))
 	if len(got.Reasons) != 1 || got.Reasons[0].Code != engine.ReasonNumberingConflict {
 		t.Errorf("numbering conflict: reasons %v, want NUMBERING_CONFLICT alone", got.Reasons)
+	}
+}
+
+// TestRulesetDateParsesAsEngineDate: ruleset.ParseDate (validity bounds)
+// and engine.ParseDate (input dates) accept exactly the same strings, the
+// schema's $defs/Date pattern, and agree on the day (issue #29 Contract).
+// ruleset cannot import engine, so the two parsers are written twice.
+func TestRulesetDateParsesAsEngineDate(t *testing.T) {
+	t.Parallel()
+	corpus := []string{"2026-01-01", "0001-01-01", "9999-12-31", "0000-01-01", "2024-02-29", "2025-02-29", "1900-02-29",
+		"2000-02-29", "2026-04-30", "2026-04-31", "2026-13-01", "2026-00-01", "2026-01-00", "2026-1-01", "+2026-01-01",
+		"2026-01-01 ", " 2026-01-01", "2026/01/01", "20260101", "2026-01-0a", "10000-01-01", "", "2026-12-31T00:00"}
+	for y := 1896; y <= 2104; y += 4 {
+		corpus = append(corpus, fmt.Sprintf("%04d-02-29", y), fmt.Sprintf("%04d-02-28", y+1), fmt.Sprintf("%04d-02-29", y+1))
+	}
+	for _, s := range corpus {
+		rd, rerr := ruleset.ParseDate(s)
+		ed, eerr := engine.ParseDate(s)
+		if (rerr == nil) != (eerr == nil) {
+			t.Errorf("%q: ruleset.ParseDate error %v, engine.ParseDate error %v", s, rerr, eerr)
+			continue
+		}
+		if rerr != nil {
+			continue
+		}
+		if y, m, dd := ed.YMD(); y != rd.Year || m != rd.Month || dd != rd.Day || rd.String() != ed.String() {
+			t.Errorf("%q: ruleset %v, engine %v", s, rd, ed)
+		}
 	}
 }

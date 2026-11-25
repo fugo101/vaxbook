@@ -20,8 +20,8 @@ type gapFixture struct {
 	span                       int
 }
 
-// diseaseOf loads fixture fx and returns its disease model.
-func (fx gapFixture) diseaseOf(t *testing.T) diseaseModel {
+// diseaseOf loads fixture fx and returns its disease's validity segments.
+func (fx gapFixture) diseaseOf(t *testing.T) diseaseTimeline {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", "rulesets", fx.name+".json"))
 	if err != nil {
@@ -35,13 +35,13 @@ func (fx gapFixture) diseaseOf(t *testing.T) diseaseModel {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, dz := range e.diseases {
-		if dz.id == fx.disease {
-			return dz
+	for _, tl := range e.diseases {
+		if tl.id == fx.disease {
+			return tl
 		}
 	}
 	t.Fatalf("%s has no disease %s", fx.name, fx.disease)
-	return diseaseModel{}
+	return diseaseTimeline{}
 }
 
 // TestPropertyUndatedDefiniteMinInterval (issue #35, Q100 (a); SAD §5.7): a
@@ -67,7 +67,7 @@ func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 		{"illustrative-vn", "pertussis", "2026-01-01", "2026-01-01", []string{""}, 300},
 		{"illustrative-max-age", "rota", "2026-01-01", "2026-01-01", []string{"", "rotarix", "rotateq", "rotavin"}, 330},
 	} {
-		dz := fx.diseaseOf(t)
+		tl := fx.diseaseOf(t)
 		birthDay, base := d(t, fx.birth), d(t, fx.base)
 		birth := birthRange{r: Exact(birthDay), known: true, precision: Day}
 		dose := func(id string, date *Date, rng *rand.Rand, numberOdds int) givenDose {
@@ -101,6 +101,7 @@ func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 		// that day has no definite reason and no other record gains one, the
 		// days above skipped; ok is false when there is none.
 		clearDay := func(today Date, doses []givenDose, u givenDose, a Assessment, res endResult) (day Date, a2 Assessment, ok bool) {
+			dz := tl.at(today)
 			had := definiteIDs(a.Reasons)
 			pos := positions(res)
 			for day := birthDay; !day.After(today); day = day.AddDays(1) {
@@ -143,7 +144,7 @@ func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 				doses = append(doses, dose(fmt.Sprintf("d%d", i), &day, rng, 4))
 			}
 			u := dose("u", nil, rng, 2)
-			a, res := dz.assess(birth, today, append(slices.Clone(doses), u))
+			a, res := tl.at(today).assess(birth, today, append(slices.Clone(doses), u))
 			if res.cands == nil {
 				continue
 			}
@@ -229,7 +230,7 @@ func TestGapSearchAddsNoDefinite(t *testing.T) {
 		{"illustrative-max-age", "rota", "2026-01-01", "2026-01-01", nil, 330},
 		{"minimal-max-age-complete", "z", "2006-06-01", "2024-05-01", nil, 2*365 + 200},
 	} {
-		sources = append(sources, source{fx, fx.diseaseOf(t).series})
+		sources = append(sources, source{fx, fx.diseaseOf(t).only(t).series})
 	}
 	sources = append(sources, source{gapFixture{"in-test q-1", "q", "2026-01-01", "2026-01-01", nil, 130}, floatingFitSeries(t)})
 	for _, fx := range sources {
@@ -306,7 +307,7 @@ func floatingFitSeries(t *testing.T) []seriesModel {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return e.diseases[0].series
+	return onlySegment(t, e, 0).series
 }
 
 // TestGapSearchFixedSlotsOnly (issue #35 In scope 1, SAD §5.3 step 5): the
@@ -324,7 +325,7 @@ func floatingFitSeries(t *testing.T) []seriesModel {
 //     ≤ u1.Hi → fits, so f is lowered.
 func TestGapSearchFixedSlotsOnly(t *testing.T) {
 	t.Parallel()
-	dz := gapFixture{name: "illustrative-max-age", disease: "rota"}.diseaseOf(t)
+	dz := gapFixture{name: "illustrative-max-age", disease: "rota"}.diseaseOf(t).only(t)
 	i := slices.IndexFunc(dz.series, func(s seriesModel) bool { return s.id == "rota-rotateq" })
 	if i < 0 {
 		t.Fatal("no rota-rotateq series")

@@ -99,32 +99,33 @@ func TestPropertyNoDoseBrackets(t *testing.T) {
 				continue
 			}
 			out, _ := evaluate(t, fx.engine, in)
+			fxo, clean := fx.on(in)
 			for _, a := range out.Assessments {
-				if slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) }) {
+				if slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) }) || !clean(a.Disease) {
 					continue
 				}
 				fail := func(format string, args ...any) {
 					t.Helper()
 					t.Fatalf("%s %s: "+format+"\nassessment %+v\ninput %+v", append(append([]any{fx.name, a.Disease}, args...), a, in)...)
 				}
-				checkCandidates(t, fx, in, a)
+				checkCandidates(t, fxo, in, a)
 				var series []ruleset.Series
-				for _, sr := range fx.snap.Series {
+				for _, sr := range fxo.snap.Series {
 					if sr.Disease == a.Disease {
 						series = append(series, sr)
 					}
 				}
-				o := noDoseOracle{s: fx.snap, disease: a.Disease, lo: lo, today: in.Today}
+				o := noDoseOracle{s: fxo.snap, disease: a.Disease, lo: lo, today: in.Today}
 				noneOpen := func(b engine.Date) bool {
 					kept, certain := o.choice(b)
 					return len(kept) == 0 && certain
 				}
-				for _, sr := range seriesUsed(t, fx.snap, a) {
+				for _, sr := range seriesUsed(t, fxo.snap, a) {
 					if !bracketOpen(sr, hi, in.Today) {
 						fail("seriesUsed has %s, whose start age is past at the later end %s", sr.ID, hi)
 					}
 					for _, o := range series {
-						if o.ID != sr.ID && productGroup(t, fx.snap, a.Disease, o.ID) == productGroup(t, fx.snap, a.Disease, sr.ID) &&
+						if o.ID != sr.ID && productGroup(t, fxo.snap, a.Disease, o.ID) == productGroup(t, fxo.snap, a.Disease, sr.ID) &&
 							o.StartAge != nil && o.StartAge.Max != nil && ruleset.SpanAtMost(*o.StartAge.Max, sr.StartAge.Min) &&
 							bracketOpen(o, hi, in.Today) {
 							fail("seriesUsed has %s, but %s of its group comes before it and is still open at %s", sr.ID, o.ID, hi)
@@ -145,7 +146,7 @@ func TestPropertyNoDoseBrackets(t *testing.T) {
 				case hasCode(a, engine.ReasonBirthDateImprecise):
 					reached["two-end ⚪"]++
 				}
-				if differ := !slices.Equal(noDoseChoice(fx.snap, a.Disease, lo, in.Today), noDoseChoice(fx.snap, a.Disease, hi, in.Today)); differ {
+				if differ := !slices.Equal(noDoseChoice(fxo.snap, a.Disease, lo, in.Today), noDoseChoice(fxo.snap, a.Disease, hi, in.Today)); differ {
 					switch {
 					case a.Block == engine.BlockOutOfAge || hasCode(a, engine.ReasonOutOfAge):
 					case hasCode(a, engine.ReasonBirthDateImprecise):

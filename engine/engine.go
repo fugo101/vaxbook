@@ -216,6 +216,12 @@ func optional(s *ruleset.Span) optSpan {
 
 type doseRule struct {
 	minAge, minInterval, minFromFirst, buffer optSpan
+	// tol is the rule's tolerance in days (weeks × 7; 0 without one): its
+	// minimum thresholds are (anchor + span) − tol when a given dose is
+	// validated (check, the step-5 chain), never for a next-dose date or
+	// limit (F05.10, EQ27; issue #29 In scope 6). Validate allows only days
+	// and weeks (Q80).
+	tol int
 	// minAgeImplied: minAge is absent or implied by dose 1's minimum age and
 	// the intervals (ruleset.MinAgeImplied), so it needs no birth date.
 	minAgeImplied bool
@@ -357,6 +363,7 @@ func compileSeries(sr ruleset.Series) seriesModel {
 				minInterval:   optional(r.MinInterval),
 				minFromFirst:  optional(r.MinIntervalFromFirst),
 				buffer:        optional(r.Buffer),
+				tol:           toleranceDays(r.Tolerance),
 				minAgeImplied: ruleset.MinAgeImplied(p, k+1),
 				from:          r.Recommended.From,
 				offset:        r.Recommended.Offset,
@@ -369,6 +376,18 @@ func compileSeries(sr ruleset.Series) seriesModel {
 		m.plans = append(m.plans, pm)
 	}
 	return m
+}
+
+// toleranceDays returns a tolerance in days: n for P<n>D, 7n for P<n>W, 0
+// when absent. ruleset.Validate rejects any other unit (TOLERANCE_UNIT).
+func toleranceDays(s *ruleset.Span) int {
+	switch {
+	case s == nil:
+		return 0
+	case s.Unit == ruleset.Weeks:
+		return 7 * s.N
+	}
+	return s.N
 }
 
 // spanGap returns b − a when both spans are in the same unit family (months

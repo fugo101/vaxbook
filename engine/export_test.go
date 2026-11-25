@@ -27,7 +27,9 @@ func DisagreeingRecords(e *Engine, in Input) (map[string][]string, error) {
 // (none when step 7 stopped), whether step 7 stopped on
 // PREVIOUS_DOSE_DATE_UNKNOWN, and whether position 1 holds a dated record
 // (else dose 1 is undated or implied, and step 7 may use the EQ20c
-// stand-in).
+// stand-in). Counted maps each record the walk counts in the series to its
+// position (issue #29: the tolerance property compares walks that count the
+// same records at the same positions).
 type CandidateView struct {
 	Series           string
 	Complete         bool
@@ -35,6 +37,7 @@ type CandidateView struct {
 	Earliest         []Date
 	StoppedOnUnknown bool
 	FirstDated       bool
+	Counted          map[string]int
 }
 
 // ResultView is the final result of steps 4–9 of one disease: its
@@ -59,10 +62,17 @@ func ResultViews(e *Engine, in Input) (map[string]ResultView, error) {
 			for _, p := range r.next.plans {
 				v.Earliest = append(v.Earliest, p.earliest)
 			}
+			v.Counted = map[string]int{}
 			for _, it := range r.walk.seq {
 				if it.pos == 1 {
 					v.FirstDated = it.dose.dated
 				}
+				if it.counted && it.pos <= dz.series[series[i]].length && it.dose.id != "" {
+					v.Counted[it.dose.id] = it.pos
+				}
+			}
+			for _, g := range r.walk.floating {
+				v.Counted[g.id] = 0
 			}
 			out = append(out, v)
 		}

@@ -47,7 +47,9 @@ func (fx gapFixture) diseaseOf(t *testing.T) diseaseTimeline {
 // TestPropertyUndatedDefiniteMinInterval (issue #35, Q100 (a); SAD §5.7): a
 // definite DOSE_INVALID listing minInterval on an undated record holds for
 // every exact day the record could have. On minimal-single,
-// illustrative-vn pertussis and illustrative-max-age, with an exact birth,
+// minimal-tolerance (whose gap search is tolerant, issue #29 Q90; a
+// tolerance-free one fails here), illustrative-vn pertussis and
+// illustrative-max-age, with an exact birth,
 // one to three exact dated doses (a quarter numbered 1–3) and one undated
 // record u (half numbered 1–3), each with a random product or none: when u
 // gets DOSE_INVALID listing minInterval, no day d in [birth, today] for u
@@ -64,6 +66,7 @@ func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 	checked, behind, fails, demoted, uncleared := 0, 0, 0, 0, 0
 	for _, fx := range []gapFixture{
 		{"minimal-single", "single", "2026-01-01", "2026-01-01", []string{""}, 200},
+		{"minimal-tolerance", "tol", "2026-01-01", "2026-01-01", []string{""}, 200},
 		{"illustrative-vn", "pertussis", "2026-01-01", "2026-01-01", []string{""}, 300},
 		{"illustrative-max-age", "rota", "2026-01-01", "2026-01-01", []string{"", "rotarix", "rotateq", "rotavin"}, 330},
 	} {
@@ -200,7 +203,8 @@ func behindUncounted(seq []item) bool {
 // walk, and must not trade the false definite for another. On the three
 // fixtures above, minimal-max-age-complete and the in-test series of
 // TestGapSearchKeepsFloatingFit (whose draws reach the floating fit with a
-// demoted slot, which the fixtures' draws do not), with an exact birth,
+// demoted slot, which the fixtures' draws do not), with minimal-tolerance
+// among the fixtures (issue #29), with an exact birth,
 // zero to three exact dated doses (a quarter numbered 1–3), one floating
 // record u0 and one record u1 numbered 1–3, both undated: for every
 // series, the walk with the gap search gives no record a DOSE_INVALID or
@@ -226,6 +230,7 @@ func TestGapSearchAddsNoDefinite(t *testing.T) {
 	var sources []source
 	for _, fx := range []gapFixture{
 		{"minimal-single", "single", "2026-01-01", "2026-01-01", nil, 200},
+		{"minimal-tolerance", "tol", "2026-01-01", "2026-01-01", nil, 200},
 		{"illustrative-vn", "pertussis", "2026-01-01", "2026-01-01", nil, 300},
 		{"illustrative-max-age", "rota", "2026-01-01", "2026-01-01", nil, 330},
 		{"minimal-max-age-complete", "z", "2006-06-01", "2024-05-01", nil, 2*365 + 200},

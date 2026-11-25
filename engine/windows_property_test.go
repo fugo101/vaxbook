@@ -349,6 +349,13 @@ func warnCodes(s *ruleset.Snapshot) []ruleset.ProblemCode {
 // buys: without c's own verdict on the whole range, the parts could turn a
 // possible verdict into a definite one.
 //
+// That needs a cut inside an imprecise dose range that crosses a maximum
+// age, which random inputs seldom give. So a fixture with maximum ages
+// (ageLimits) also gets len(limits) × propertyRuns / 2 near-limit inputs
+// (nearLimitInput), half the cuts fall inside an imprecise dose range of
+// the disease, and a counter fails the test when no cut falls inside a
+// dose range of a copied series with a maximum age.
+//
 // Only a series alone in its product group is copied, which narrows #29's
 // property. Copying one of a bracketed group makes the group's other
 // series versions in the older segment, and with no dose 1 counted #29 In
@@ -358,14 +365,20 @@ func warnCodes(s *ruleset.Snapshot) []ruleset.ProblemCode {
 // conflict there; the narrowing awaits an owner decision.
 func TestPropertyIdenticalCopiesChangeNothing(t *testing.T) {
 	t.Parallel()
-	compared := 0
+	compared, inside := 0, 0
 	for _, fx := range fixtures(t) {
 		if windowed(fx.snap) {
 			continue
 		}
 		rng := rand.New(rand.NewPCG(71, uint64(len(fx.name))))
-		for range propertyRuns / 2 {
-			in := randomInput(t, rng, fx.snap)
+		limits := ageLimits(fx.snap)
+		for run := range propertyRuns/2 + len(limits)*propertyRuns/2 {
+			var in engine.Input
+			if run < propertyRuns/2 {
+				in = randomInput(t, rng, fx.snap)
+			} else {
+				in = nearLimitInput(t, rng, fx.snap, limits)
+			}
 			_, want := evaluate(t, fx.engine, in)
 			var alone []int
 			for i, sr := range fx.snap.Series {
@@ -382,6 +395,23 @@ func TestPropertyIdenticalCopiesChangeNothing(t *testing.T) {
 			orig := fx.snap.Series[i]
 			lower, _ := historySpan(in, orig.Disease)
 			cut := lower.AddDays(1 + rng.IntN(daysBetween(lower, in.Today)+1))
+			// Half the time the cut falls inside an imprecise dose range of
+			// the disease, where c's verdict on the whole range and the
+			// parts' can differ.
+			var ranges [][2]engine.Date
+			for _, r := range in.Doses {
+				if lo, hi, ok := testPeriod(r.Date, in.Today); ok && slices.Contains(r.Diseases, orig.Disease) && lo.Before(hi) {
+					ranges = append(ranges, [2]engine.Date{lo, hi})
+				}
+			}
+			if len(ranges) > 0 && rng.IntN(2) == 0 {
+				x := ranges[rng.IntN(len(ranges))]
+				cut = x[0].AddDays(1 + rng.IntN(daysBetween(x[0], x[1])))
+			}
+			if len(ageLimits(&ruleset.Snapshot{Series: []ruleset.Series{orig}})) > 0 &&
+				slices.ContainsFunc(ranges, func(x [2]engine.Date) bool { return x[0].Before(cut) && !cut.After(x[1]) }) {
+				inside++
+			}
 			v := cloneSnapshot(fx.snap)
 			cp := v.Series[i]
 			cp.ID += "-copy"
@@ -418,7 +448,8 @@ func TestPropertyIdenticalCopiesChangeNothing(t *testing.T) {
 			compared++
 		}
 	}
-	if compared == 0 {
-		t.Fatal("nothing compared")
+	t.Logf("%d inputs compared, %d cut inside a dose range of a series with a maximum age", compared, inside)
+	if compared == 0 || inside == 0 {
+		t.Fatalf("nothing compared (%d) or no cut inside a dose range of a series with a maximum age (%d)", compared, inside)
 	}
 }

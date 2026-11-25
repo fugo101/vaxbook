@@ -103,7 +103,7 @@ The days a series is in effect: a half-open range [`validFrom`, `validTo`), eith
 _Avoid_: Effective period (ambiguous with a dose date range), Validity range
 
 **Validity segment**:
-A stretch of time in which the same series of a disease are in effect: the validity windows of its series cut time at their bounds. The engine compiles each segment once and evaluates on the one that contains today; a series of another segment that may count a given dose is a _version_ of today's series.
+A stretch of time in which the same series of a disease are in effect: the validity windows of its series cut time at their bounds. The engine compiles each segment once and evaluates on the one that contains today; a series of another segment that may count a given dose is a _version_ of today's series. A series re-issued unchanged and still in effect today (a twin) is not a version.
 _Avoid_: Period, Era
 
 **Catch-up age** — *Tuổi tiêm bù*:

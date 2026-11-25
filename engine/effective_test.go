@@ -760,3 +760,28 @@ func TestNearTwinIsAVersion(t *testing.T) {
 		}
 	}
 }
+
+// TestVersionNoDoseOneReadsWholeRange (Q106): with no dose 1 counted, dose
+// 1's range for the bracket match ends at R.Hi of the whole dose being
+// judged, not at the end of the part. k3-a [6w, 9m) with dose 2 at 4w and
+// k3-b [9m, —) at 9m until 2025-02-10, k3-2026 (no bracket) at 8m from
+// then. Birth 2024-05-15 (9 months = 2025-02-15), r1 2024-06-10 (below 6
+// weeks: DOSE_INVALID{minAge, r1, 1}), r2 #2 in 2025-02, today 2026-02-01.
+// r2's range [02-01, 02-28] is cut at 02-10: on [02-10, 02-28] k3-2026's 8
+// months from r1 (02-10) pass. On [02-01, 02-09] k3-2026 fails, and dose 1
+// lies in [birth, 02-28], which may pass 9 months, so k3-a only possibly
+// holds it: its 4 weeks soften the part, and r2 is ⚪
+// [DOSE_INVALID{minAge, r1, 1}, DOSE_POSSIBLY_INVALID{minInterval, r2, 2},
+// COMPLETE], est. Ending dose 1's range at the part (02-09) would match
+// k3-a certainly and count r2.
+func TestVersionNoDoseOneReadsWholeRange(t *testing.T) {
+	t.Parallel()
+	e := newEngine(t, oneDiseaseSnapshot(nil,
+		ws(t, twoDose(t, "k3-a", "", "P6W", "P4W"), "", "2025-02-10", "P6W", "P9M"),
+		ws(t, twoDose(t, "k3-b", "", "P6W", "P9M"), "", "2025-02-10", "P9M", ""),
+		ws(t, twoDose(t, "k3-2026", "", "P6W", "P8M"), "2025-02-10", "", "", ""),
+	))
+	got := assessmentOf(t, e, "q", "2026-02-01", dayDate("2024-05-15"), qDose("r1", "2024-06-10"), numbered(qDose("r2", "2025-02"), 2))
+	checkAssessment(t, got, unknownWith([]string{"k3-2026"}, true,
+		invalidDose("r1", 1, engine.CheckMinAge), possiblyInvalid("r2", 2, engine.CheckMinInterval), complete))
+}

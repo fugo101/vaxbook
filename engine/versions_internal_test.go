@@ -2,6 +2,7 @@ package engine
 
 import (
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 
@@ -9,25 +10,35 @@ import (
 )
 
 // versionTimelines returns windowed disease timelines for the version
-// properties: minimal-effective-dating's ed, and an in-test bracketed
-// group k-a [6w, 9m) (dose 2 at 4w, maxAgeComplete 3y) and k-b [9m, —)
-// (8w, 2y) until 2026-01-01, then k-2026 (8w, 2y) and a product series
-// k-p for product p (4w) from then.
+// properties: minimal-effective-dating's ed, and an in-test disease k with
+// a bracketed group k-a [6w, 9m) (dose 2 at 4w, maxAgeComplete 3y) and k-b
+// [9m, —) (8w, 2y) and a three-dose series k-q-old for product q (4w,
+// then 4w) until 2026-01-01, then k-2026 (8w, 2y), a product series k-p
+// for product p (10w) and a two-dose k-q-new for q (10w) from then. The
+// lenient older series exercise each rule that keeps a version out: Q93's
+// "possibly" bracket match (k-a), Q94's tiers (k-a under k-p for a dose
+// with no product) and Q96's last dose (k-q-old under k-q-new).
 func versionTimelines(t *testing.T) []diseaseTimeline {
 	t.Helper()
 	ed := gapFixture{name: "minimal-effective-dating", disease: "ed"}.diseaseOf(t)
-	dose2 := func(interval string) string {
-		return `{"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}}, {"minInterval": "` + interval + `", "recommended": {"from": "previousDose", "offset": "P1M"}}`
+	doses := func(intervals ...string) string {
+		out := `{"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}}`
+		for _, iv := range intervals {
+			out += `, {"minInterval": "` + iv + `", "recommended": {"from": "previousDose", "offset": "P1M"}}`
+		}
+		return out
 	}
-	series := func(id, extra, interval string) string {
-		return `{"id": "` + id + `", "disease": "k", "stage": "childhood", ` + extra + `"plans": [{"id": "a", "doses": [` + dose2(interval) + `]}]}`
+	series := func(id, extra string, intervals ...string) string {
+		return `{"id": "` + id + `", "disease": "k", "stage": "childhood", ` + extra + `"plans": [{"id": "a", "doses": [` + doses(intervals...) + `]}]}`
 	}
 	doc := `{"version": "v", "illustrative": true, "diseases": [{"id": "k", "name": "K"}],
-	  "products": [{"id": "p", "name": "P", "diseases": ["k"], "live": false}], "series": [` + strings.Join([]string{
+	  "products": [{"id": "p", "name": "P", "diseases": ["k"], "live": false}, {"id": "q", "name": "Q", "diseases": ["k"], "live": false}], "series": [` + strings.Join([]string{
 		series("k-a", `"startAge": {"min": "P6W", "max": "P9M"}, "maxAgeComplete": "P3Y", "validTo": "2026-01-01", `, "P4W"),
 		series("k-b", `"startAge": {"min": "P9M"}, "maxAgeComplete": "P2Y", "validTo": "2026-01-01", `, "P8W"),
+		series("k-q-old", `"product": "q", "validTo": "2026-01-01", `, "P4W", "P4W"),
 		series("k-2026", `"maxAgeComplete": "P2Y", "validFrom": "2026-01-01", `, "P8W"),
-		series("k-p", `"product": "p", "validFrom": "2026-01-01", `, "P4W"),
+		series("k-p", `"product": "p", "validFrom": "2026-01-01", `, "P10W"),
+		series("k-q-new", `"product": "q", "validFrom": "2026-01-01", `, "P10W"),
 	}, ", ") + `]}`
 	s, err := ruleset.Decode([]byte(doc))
 	if err != nil {
@@ -40,15 +51,100 @@ func versionTimelines(t *testing.T) []diseaseTimeline {
 	return []diseaseTimeline{ed, e.diseases[0]}
 }
 
+// segmentOf returns the index of the segment of tl that holds day.
+func segmentOf(tl diseaseTimeline, day Date) int {
+	i := 0
+	for i+1 < len(tl.starts) && !day.Before(tl.starts[i+1]) {
+		i++
+	}
+	return i
+}
+
+// countsOnDay is the oracle of TestPropertyVersionsOnlyHelp, read from the
+// segments' models rather than from the compiled versions: a dose of
+// product on day y at position pos, under c (series ci of segment i, today's)
+// with predecessor pd and dose 1 first, meets c at b, or meets at both ends
+// of the birth range (at b with no birth date) a series d of y's segment j
+// ≠ i that certainly qualifies for it there (issue #29 In scope 3):
+//   - Q94: d is in the tier of the dose's catalog product in j, and d is in
+//     c's group or c is in that product's tier today, neither tier the
+//     every-series fall-through; a dose with no product or another product
+//     only meets c's group;
+//   - Q96: d has at least pos doses, and pos is d's last when it is c's;
+//   - Q93, Q95: d has no bracket or is alone in its group in j, or, with a
+//     birth date and a dose-1 range (y itself for pos 1, else firstBr),
+//     every birth date and dose-1 day put the age at dose 1 in d's reach
+//     [floor, max) in j.
+func countsOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd predecessor, first, firstBr *Range, product string) bool {
+	day := Range{Lo: y, Hi: y}
+	c := tl.models[i].series[ci]
+	if c.verdictAt(pos, b, day, pd, first).sev() == verdictOK {
+		return true
+	}
+	j := segmentOf(tl, y)
+	if j == i {
+		return false
+	}
+	mi, mj := tl.models[i], tl.models[j]
+	ends := []birthEnd{b}
+	if b.known {
+		ends = []birthEnd{{date: b.older(), known: true}, {date: b.later(), known: true}}
+	}
+	doseOne := firstBr
+	if pos == 1 {
+		doseOne = &day
+	}
+	for di, d := range mj.series {
+		sameGroup := d.product == c.product
+		applies := sameGroup
+		if _, catalog := mj.tier[product]; catalog {
+			applies = slices.Contains(mj.tier[product], di) &&
+				(sameGroup || !mj.fallsThrough[product] && !mi.fallsThrough[product] && slices.Contains(mi.tier[product], ci))
+		}
+		if !applies || d.length < pos || pos == c.length && d.length != pos {
+			continue
+		}
+		br := d.start
+		certain := !br.ok || len(mj.groups[mj.groupOf[di]].series) == 1
+		if !certain && b.known && doseOne != nil {
+			certain = (!br.floor.ok || !doseOne.Lo.Before(b.later().AddSpan(br.floor.span))) &&
+				(!br.max.ok || doseOne.Hi.Before(b.older().AddSpan(br.max.span)))
+		}
+		if !certain {
+			continue
+		}
+		ok := true
+		for _, e := range ends {
+			ok = ok && d.verdictAt(pos, e, day, pd, first).sev() == verdictOK
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
 // TestPropertyVersionsOnlyHelp (issue #29 In scope 3): for a fixed
 // position, dose range, predecessor (dated or behind a run), dose 1 and
-// dose-1 range, the verdict with versions (datedVerdict) is never worse
-// than today's c alone (verdictAt). Birth dates, ranges and products are
-// random, and the ranges often cross a boundary. The whole-walk
-// counterexample is TestVersionsNotMonotoneOverWalk.
+// dose-1 range, the verdict with versions (datedVerdict)
+//   - is never worse than today's c alone (verdictAt). datedVerdict takes
+//     the better of the two, so this holds by construction and guards the
+//     construction;
+//   - is OK only when every day of the range is counted by c or by a
+//     series of that day's segment that certainly qualifies for the dose
+//     (countsOnDay, an oracle read from the segments' models). A part is
+//     OK only under one rule for all of it, so this is weaker than the
+//     engine's rule, and it is the P1 direction: a version that wrongly
+//     applies (Q94), wrongly counts a last dose (Q96) or is matched
+//     certainly where only possibly (Q93) makes a dose count that this
+//     oracle does not.
+//
+// Birth dates, ranges and products are random, and the ranges often cross
+// a boundary. The whole-walk counterexample is
+// TestVersionsNotMonotoneOverWalk.
 func TestPropertyVersionsOnlyHelp(t *testing.T) {
 	t.Parallel()
-	helped := 0
+	helped, counted := 0, 0
 	for _, tl := range versionTimelines(t) {
 		rng := rand.New(rand.NewPCG(83, uint64(len(tl.id))))
 		base := d(t, "2024-01-01")
@@ -56,11 +152,13 @@ func TestPropertyVersionsOnlyHelp(t *testing.T) {
 			day := func(n int) Date { return base.AddDays(rng.IntN(n)) }
 			span := func(lo Date) Range { return Range{Lo: lo, Hi: lo.AddDays(rng.IntN(3) * rng.IntN(25))} }
 			today := day(1000)
-			dz := tl.at(today)
+			i := segmentOf(tl, today)
+			dz := tl.models[i]
 			if len(dz.series) == 0 {
 				continue
 			}
-			s := dz.series[rng.IntN(len(dz.series))]
+			ci := rng.IntN(len(dz.series))
+			s := dz.series[ci]
 			var b birthEnd
 			if rng.IntN(6) != 0 {
 				lo := day(400)
@@ -92,7 +190,7 @@ func TestPropertyVersionsOnlyHelp(t *testing.T) {
 					firstBr = &Range{Lo: b.older(), Hi: r.Hi}
 				}
 			}
-			product := []string{"", "p", "x"}[rng.IntN(3)]
+			product := []string{"", "p", "q", "x"}[rng.IntN(4)]
 			vc := s.verdictAt(pos, b, x, pd, first)
 			v := s.datedVerdict(pos, b, x, pd, first, firstBr, product)
 			if v.sev() > vc.sev() {
@@ -101,9 +199,20 @@ func TestPropertyVersionsOnlyHelp(t *testing.T) {
 			if v.sev() < vc.sev() {
 				helped++
 			}
+			if v.sev() != verdictOK || vc.sev() == verdictOK {
+				continue
+			}
+			counted++
+			for y := x.Lo; !y.After(x.Hi); y = y.AddDays(1) {
+				if !countsOnDay(tl, i, ci, pos, b, y, pd, first, firstBr, product) {
+					t.Fatalf("%s %s: pos %d on %v (product %q, birth %+v, first %v, dose-1 range %v) counts with versions, but no qualifying series counts it on %s",
+						tl.id, s.id, pos, x, product, b, first, firstBr, y)
+				}
+			}
 		}
 	}
-	if helped == 0 {
-		t.Fatal("no version ever helped; the property is vacuous")
+	t.Logf("versions helped %d times, made %d doses count", helped, counted)
+	if helped == 0 || counted == 0 {
+		t.Fatal("no version ever helped or made a dose count; the property is vacuous")
 	}
 }

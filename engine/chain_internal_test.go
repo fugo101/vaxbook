@@ -60,7 +60,12 @@ func (fx gapFixture) diseaseOf(t *testing.T) diseaseTimeline {
 // another position. It fails when no checked record lies behind an
 // uncounted unnumbered dated dose (the shape the gap search covers). It
 // also logs, as a precision counter for Q99, how many records the gap
-// search demotes with no day that clears them.
+// search demotes with no day that clears them. Since S4c (issue #29 Q105
+// (b)) it also runs on the windowed minimal-effective-dating, segment at
+// today, with u always numbered: the envelope covers fixed slots only, so
+// floating doses are not checked there, and that fixture adds nothing to
+// the behind-uncounted count; its demotions with no clearing day are
+// logged with the others.
 func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 	t.Parallel()
 	checked, behind, fails, demoted, uncleared := 0, 0, 0, 0, 0
@@ -69,8 +74,13 @@ func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 		{"minimal-tolerance", "tol", "2026-01-01", "2026-01-01", []string{""}, 200},
 		{"illustrative-vn", "pertussis", "2026-01-01", "2026-01-01", []string{""}, 300},
 		{"illustrative-max-age", "rota", "2026-01-01", "2026-01-01", []string{"", "rotarix", "rotateq", "rotavin"}, 330},
+		// Windowed (issue #29 Q105): today falls on both sides of
+		// 2026-01-01, and u is always numbered (a fixed slot), the only
+		// slot the envelope covers.
+		{"minimal-effective-dating", "ed", "2025-09-01", "2025-09-01", []string{""}, 250},
 	} {
 		tl := fx.diseaseOf(t)
+		windowed := len(tl.models) > 1
 		birthDay, base := d(t, fx.birth), d(t, fx.base)
 		birth := birthRange{r: Exact(birthDay), known: true, precision: Day}
 		dose := func(id string, date *Date, rng *rand.Rand, numberOdds int) givenDose {
@@ -147,6 +157,9 @@ func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 				doses = append(doses, dose(fmt.Sprintf("d%d", i), &day, rng, 4))
 			}
 			u := dose("u", nil, rng, 2)
+			if windowed && u.number == 0 {
+				u.number = 1 + rng.IntN(2)
+			}
 			a, res := tl.at(today).assess(birth, today, append(slices.Clone(doses), u))
 			if res.cands == nil {
 				continue
@@ -166,7 +179,7 @@ func TestPropertyUndatedDefiniteMinInterval(t *testing.T) {
 				continue
 			}
 			checked++
-			if slices.ContainsFunc(res.cands, func(c candidateResult) bool { return behindUncounted(c.walk.seq) }) {
+			if !windowed && slices.ContainsFunc(res.cands, func(c candidateResult) bool { return behindUncounted(c.walk.seq) }) {
 				behind++
 			}
 			if day, a2, ok := clearDay(today, doses, u, a, res); ok {
@@ -204,7 +217,9 @@ func behindUncounted(seq []item) bool {
 // fixtures above, minimal-max-age-complete and the in-test series of
 // TestGapSearchKeepsFloatingFit (whose draws reach the floating fit with a
 // demoted slot, which the fixtures' draws do not), with minimal-tolerance
-// among the fixtures (issue #29), with an exact birth,
+// and, at today's segment, the windowed minimal-effective-dating among the
+// fixtures (issue #29; noGapSearch turns the Q105 envelope off too), with
+// an exact birth,
 // zero to three exact dated doses (a quarter numbered 1–3), one floating
 // record u0 and one record u1 numbered 1–3, both undated: for every
 // series, the walk with the gap search gives no record a DOSE_INVALID or
@@ -225,7 +240,7 @@ func TestGapSearchAddsNoDefinite(t *testing.T) {
 	}
 	type source struct {
 		gapFixture
-		series []seriesModel
+		series func(today Date) []seriesModel
 	}
 	var sources []source
 	for _, fx := range []gapFixture{
@@ -234,10 +249,15 @@ func TestGapSearchAddsNoDefinite(t *testing.T) {
 		{"illustrative-vn", "pertussis", "2026-01-01", "2026-01-01", nil, 300},
 		{"illustrative-max-age", "rota", "2026-01-01", "2026-01-01", nil, 330},
 		{"minimal-max-age-complete", "z", "2006-06-01", "2024-05-01", nil, 2*365 + 200},
+		// Windowed (issue #29 Q105): the segment at today, so the gap search
+		// and the envelope are switched together.
+		{"minimal-effective-dating", "ed", "2025-09-01", "2025-09-01", nil, 250},
 	} {
-		sources = append(sources, source{fx, fx.diseaseOf(t).only(t).series})
+		tl := fx.diseaseOf(t)
+		sources = append(sources, source{fx, func(today Date) []seriesModel { return tl.at(today).series }})
 	}
-	sources = append(sources, source{gapFixture{"in-test q-1", "q", "2026-01-01", "2026-01-01", nil, 130}, floatingFitSeries(t)})
+	fit := floatingFitSeries(t)
+	sources = append(sources, source{gapFixture{"in-test q-1", "q", "2026-01-01", "2026-01-01", nil, 130}, func(Date) []seriesModel { return fit }})
 	for _, fx := range sources {
 		base := d(t, fx.base)
 		b := birthEnd{date: d(t, fx.birth), known: true}
@@ -258,7 +278,7 @@ func TestGapSearchAddsNoDefinite(t *testing.T) {
 			if arr.blocked() {
 				continue
 			}
-			for _, s := range fx.series {
+			for _, s := range fx.series(today) {
 				pl := arr.forLength(s.length)
 				on := s.walk(b, today, pl)
 				if w := s.walkWith(b, today, pl, nil); len(w.lowered) > 0 {

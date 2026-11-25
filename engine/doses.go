@@ -1027,28 +1027,15 @@ func (gb gapBound) lower(x Range, def Date, minInterval optSpan, tol int) Date {
 // result is unset when no gap fits or m = 0. It reads only the walk, two
 // chains per gap, and q_k grows with k, so at most n − 1 gaps are chained.
 func (w *walkResult) gapBound(s seriesModel, b birthEnd, first *Range, last item, order int) gapBound {
-	seq := w.seq[:len(w.seq)-1]
-	j := len(seq)
-	var us []item
-	for ; j > 0; j-- {
-		x := seq[j-1]
-		if !x.dose.dated {
-			continue
-		}
-		if x.counted || x.dose.number > 0 {
-			break
-		}
-		us = append(us, x)
-	}
+	p, us := w.beforeTrailing()
 	var gb gapBound
 	if len(us) == 0 {
 		return gb
 	}
-	slices.Reverse(us)
 	var from *Range
 	q := 0
-	if j > 0 {
-		from, q = &seq[j-1].dose.date, seq[j-1].step
+	if p != nil {
+		from, q = &p.dose.date, p.step
 	}
 	for k, next := range us {
 		if k > 0 {
@@ -1083,6 +1070,71 @@ func (w *walkResult) gapBound(s seriesModel, b birthEnd, first *Range, last item
 		}
 	}
 	return gb
+}
+
+// beforeTrailing scans back from the last item of the walk (the last
+// trailing undated slot) over the undated slots and the uncounted
+// unnumbered dated doses to P, the latest dated dose that is counted or
+// numbered (nil when there is none). It returns P and those uncounted
+// dated doses U1 < … < Um, in time order.
+func (w *walkResult) beforeTrailing() (p *item, us []item) {
+	seq := w.seq[:len(w.seq)-1]
+	j := len(seq)
+	for ; j > 0; j-- {
+		x := seq[j-1]
+		if !x.dose.dated {
+			continue
+		}
+		if x.counted || x.dose.number > 0 {
+			break
+		}
+		us = append(us, x)
+	}
+	slices.Reverse(us)
+	if j > 0 {
+		p = &seq[j-1]
+	}
+	return p, us
+}
+
+// envelope returns, for the last trailing fixed slot last, a copy of s
+// whose plans are s's plus those of every version of s that could apply to
+// it (issue #29 In scope 3, Q105 (b), F05.10): the version applies to
+// last's product (an implied slot has none, so c's group only, Q94) and to
+// its position (Q96), and its segment meets [P.Lo, today], P the latest
+// counted or numbered dated dose before the run (beforeTrailing), else
+// [b_old, today], else (−∞, today]. Every placement of last lies after P,
+// since the gap search searches only the gaps after P. There is no bracket
+// test: last has no date to take an age from, and leaving it out only adds
+// plans. ok is false when no version is added.
+func (w *walkResult) envelope(s seriesModel, b birthEnd, today Date, last item) (env seriesModel, ok bool) {
+	if len(s.versions) == 0 {
+		return s, false
+	}
+	var lo Date
+	bounded := true
+	switch p, _ := w.beforeTrailing(); {
+	case p != nil:
+		lo = p.dose.date.Lo
+	case b.known:
+		lo = b.older()
+	default:
+		bounded = false
+	}
+	env = s
+	for _, v := range s.versions {
+		if !v.applies(last.dose.product) || !v.lastDose(last.pos, s.length) {
+			continue
+		}
+		if v.seg.hasFrom && v.seg.from.After(today) || bounded && v.seg.hasTo && !lo.Before(v.seg.to) {
+			continue
+		}
+		if !ok {
+			env.plans, ok = slices.Clip(s.plans), true
+		}
+		env.plans = append(env.plans, v.s.plans...)
+	}
+	return env, ok
 }
 
 // forced reports whether the walk counts dated dose or level-4 slot id at
@@ -1143,6 +1195,13 @@ func (d doseVerdict) demoted() doseVerdict {
 // (walkResult.lowered). Its minimum age, maximum ages and carrier are
 // unchanged. A forced slot and the counted view skip the search.
 //
+// Since S4c, a last fixed slot that is still definite is checked again on
+// the envelope of its series' versions (envelope, issue #29 Q105 (b)), the
+// check and the gap search alike: a day in an older segment may clear it
+// although today's rule fails it on every day (F05.10). When the envelope
+// does not fail it definitely, it is DOSE_POSSIBLY_INVALID and counted
+// like a slot the gap search demoted. noGapSearch turns this off too.
+//
 // When the last trailing slot is an implied dose, the record whose number
 // implies it is a level-4 dose beyond the series (an in-series or dated
 // record would follow it). The lowest such record carries the reason, with
@@ -1178,17 +1237,36 @@ func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first 
 			if lastSlot.dose.id == "" {
 				order = number // the carrier beyond the series
 			}
+			// demote takes the slot's verdict once it is not definite. Only
+			// a slot that now counts is demoted for 0b (Q103): one that a
+			// maximum age still fails definitely keeps that verdict, in the
+			// rescue too.
+			demote := func(v verdict, checks []Check) {
+				carry.minV, carry.minChecks = v, checks
+				if carry.counted() {
+					if w.lowered == nil {
+						w.lowered = map[string]bool{}
+					}
+					w.lowered[carrier] = true
+				}
+			}
 			if gb := w.gapBound(s, b, first, *lastSlot, order); gb.set {
 				if v, checks := s.check(lastSlot.pos, b, u, from, run[:len(run)-1], first, gb); v != verdictDefinite {
-					carry.minV, carry.minChecks = v, checks
-					// Only a slot that now counts is demoted for 0b (Q103):
-					// one that a maximum age still fails definitely keeps
-					// that verdict, in the rescue too.
-					if carry.counted() {
-						if w.lowered == nil {
-							w.lowered = map[string]bool{}
+					demote(v, checks)
+				}
+			}
+			// The envelope (Q105 (b)): still definite, the check and the gap
+			// search are rerun with the versions' plans added. Not definite
+			// there, the slot is possible, with the envelope's checks (c's
+			// when the envelope passes it): never OK, and no date moves.
+			if carry.minV == verdictDefinite {
+				if env, ok := w.envelope(s, b, today, *lastSlot); ok {
+					gb := w.gapBound(env, b, first, *lastSlot, order)
+					if v, checks := env.check(lastSlot.pos, b, u, from, run[:len(run)-1], first, gb); v != verdictDefinite {
+						if v == verdictOK {
+							checks = carry.minChecks
 						}
-						w.lowered[carrier] = true
+						demote(verdictPossible, checks)
 					}
 				}
 			}

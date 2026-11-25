@@ -431,3 +431,42 @@ func TestVersionTiers(t *testing.T) {
 		checkAssessment(t, assessmentOf(t, e, "q", "2026-02-01", birth, pqDose("r1", "2025-11-01", ""), pqDose("r2", "2025-11-26", "")), want)
 	})
 }
+
+// TestEnvelopeInGapZero (Q105 (b)): w-old (until 2025-09-01) and w-new (from
+// then): maxAgeStart 2m, dose 1 minAge 6w, dose 2 at 4w / 8w. Birth
+// 2025-06-01 (6w = 07-13, 2m = 08-01), r1 2025-08-20 (past 2m under both:
+// DOSE_AFTER_MAX_AGE{maxAgeStart, r1, 1}), u #2 undated, today 2025-10-01.
+// Under w-new u needs r1 + 8w = 10-15 and gap 0 needs 07-13 + 8w = 09-07 >
+// r1. There is no P, so the envelope reads the segments from birth; with
+// w-old's 4w gap 0 fits (08-10 < r1) → ⚪ [DOSE_AFTER_MAX_AGE{r1},
+// DOSE_POSSIBLY_INVALID{minInterval, u, 2}, COMPLETE], est. Under Q105 (a)
+// u is DOSE_INVALID, though u dated 08-10 gives ✅.
+func TestEnvelopeInGapZero(t *testing.T) {
+	t.Parallel()
+	w := func(id, interval string) ruleset.Series {
+		sr := twoDose(t, id, "", "P6W", interval)
+		sr.MaxAgeStart = spanOf(t, "P2M")
+		return sr
+	}
+	e := newEngine(t, oneDiseaseSnapshot(nil, ws(t, w("w-old", "P4W"), "", "2025-09-01", "", ""), ws(t, w("w-new", "P8W"), "2025-09-01", "", "", "")))
+	got := assessmentOf(t, e, "q", "2025-10-01", dayDate("2025-06-01"), qDose("r1", "2025-08-20"), numbered(qDose("u", ""), 2))
+	checkAssessment(t, got, unknownWith([]string{"w-new"}, true,
+		afterMaxAge("r1", 1, engine.CheckMaxAgeStart), possiblyInvalid("u", 2, engine.CheckMinInterval), complete))
+}
+
+// TestEnvelopeReadsSegmentsFromP (Q105 (b)): br-a [6w, 9m) from 2024-01-01,
+// br-b [9m, —) from 2025-06-01, dose 2 at 4w / 8w. Birth 2024-06-01, r1
+// 2025-07-01 (13 months: br-b), u #2 undated, today 2025-08-10: u needs r1
+// + 8w = 08-26. P is r1, and br-a's lone segment [2024-01-01, 2025-06-01)
+// ends before it, so the envelope adds nothing → ⚪ [DOSE_INVALID{minInterval,
+// u, 2}], est, as without windows. Read from birth, br-a (C8 there) would
+// demote u, although u ≥ r1 can never lie in that segment.
+func TestEnvelopeReadsSegmentsFromP(t *testing.T) {
+	t.Parallel()
+	e := newEngine(t, oneDiseaseSnapshot(nil,
+		ws(t, twoDose(t, "br-a", "", "P6W", "P4W"), "2024-01-01", "", "P6W", "P9M"),
+		ws(t, twoDose(t, "br-b", "", "P6W", "P8W"), "2025-06-01", "", "P9M", ""),
+	))
+	got := assessmentOf(t, e, "q", "2025-08-10", dayDate("2024-06-01"), qDose("r1", "2025-07-01"), numbered(qDose("u", ""), 2))
+	checkAssessment(t, got, unknownWith([]string{"br-b"}, true, invalidDose("u", 2, engine.CheckMinInterval)))
+}

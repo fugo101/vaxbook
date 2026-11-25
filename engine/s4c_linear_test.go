@@ -70,3 +70,79 @@ func TestToleranceGapSearchLinear(t *testing.T) {
 		return time.Since(began)
 	})
 }
+
+// TestCompileManySeriesInEffect (issue #29 In scope 2–3): compiling a
+// disease's validity segments and versions stays of low degree in the
+// number of series in effect at once, so that a valid snapshot with many
+// products compiles quickly in the browser too. Two shapes, each with n
+// and 2n products (one two-dose series each, product p<k>):
+//   - staggered: p<k>'s series is in effect from 2020-01-01 + 7k days, with
+//     no end, so the segments k..n all hold it;
+//   - re-issued: p<k> has five series, each in effect for one year from
+//     2020-01-01 + m years + 7k days (m = 0..4), so every product is in
+//     effect at once and its boundaries are staggered.
+//
+// The bytes engine.New allocates must grow at most 12× when n doubles (a
+// cubic cost grows 8×). The version compile used to build a tier map per
+// pair of series of two segments, a fifth power.
+func TestCompileManySeriesInEffect(t *testing.T) {
+	if testing.Short() || runtime.GOOS == "js" {
+		t.Skip("allocation test")
+	}
+	doses := []ruleset.DoseRule{
+		rule(t, "P6W", "", "", ruleset.FromBirth, "P2M"),
+		rule(t, "", "P4W", "", ruleset.FromPreviousDose, "P1M"),
+	}
+	start := mustDate(t, "2020-01-01")
+	shapes := []struct {
+		name string
+		snap func(n int) *ruleset.Snapshot
+	}{
+		{"staggered", func(n int) *ruleset.Snapshot {
+			var products []string
+			var series []ruleset.Series
+			for k := range n {
+				p := fmt.Sprintf("p%d", k)
+				products = append(products, p)
+				series = append(series, ws(t, qSeries(t, p+"-s", p, "", "", doses), start.AddDays(7*k).String(), "", "", ""))
+			}
+			return oneDiseaseSnapshot(products, series...)
+		}},
+		{"re-issued", func(n int) *ruleset.Snapshot {
+			var products []string
+			var series []ruleset.Series
+			for k := range n {
+				p := fmt.Sprintf("p%d", k)
+				products = append(products, p)
+				for m := range 5 {
+					base := start.AddDays(7 * k)
+					from, to := base.AddSpan(ruleset.Span{N: m, Unit: ruleset.Years}), base.AddSpan(ruleset.Span{N: m + 1, Unit: ruleset.Years})
+					series = append(series, ws(t, qSeries(t, fmt.Sprintf("%s-%d", p, m), p, "", "", doses), from.String(), to.String(), "", ""))
+				}
+			}
+			return oneDiseaseSnapshot(products, series...)
+		}},
+	}
+	for _, sh := range shapes {
+		allocated := func(n int) uint64 {
+			s := sh.snap(n)
+			if rejects := ruleset.Rejects(ruleset.Validate(s)); len(rejects) > 0 {
+				t.Fatalf("%s: %v", sh.name, rejects)
+			}
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			if _, err := engine.New(s); err != nil {
+				t.Fatal(err)
+			}
+			runtime.ReadMemStats(&after)
+			return after.TotalAlloc - before.TotalAlloc
+		}
+		const n = 16
+		small, large := allocated(n), allocated(2*n)
+		t.Logf("%s: n=%d: %d bytes, 2n: %d bytes (%.1f×)", sh.name, n, small, large, float64(large)/float64(small))
+		if large > 12*small {
+			t.Errorf("%s: twice the products allocated %.1f× as much (%d vs %d bytes)", sh.name, float64(large)/float64(small), large, small)
+		}
+	}
+}

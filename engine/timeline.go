@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/fugo101/vaxbook/ruleset"
@@ -104,39 +106,51 @@ func compileTimeline(s *ruleset.Snapshot, disease string) (diseaseTimeline, erro
 		}
 		tl.models = append(tl.models, compileDisease(s, disease, inEffect))
 	}
-	tl.compileVersions()
+	rank := map[string]int{}
+	for i, sr := range s.Series {
+		rank[sr.ID] = i
+	}
+	tl.compileVersions(rank)
 	return tl, nil
 }
 
-// version is a series d of another validity segment j that may count a
-// dose of today's series c as the rule in effect on its date (SAD §5.3 step
-// 5, F05.10 "Rule versions", EQ26; issue #29 In scope 3, Q77, Q93–Q96).
+// version is a series d of other validity segments that may count a dose
+// of today's series c as the rule in effect on its date (SAD §5.3 step 5,
+// F05.10 "Rule versions", EQ26; issue #29 In scope 3, Q77, Q93–Q96).
 type version struct {
-	// s is d as compiled in segment j: its plans, its maximum ages and its
-	// bracket's reach there (floor, max, groupMax). It has no versions.
-	s seriesModel
-	// seg is segment j, [from, to); a missing bound is unbounded.
+	// s is d as compiled in its segments: its plans, its maximum ages and its
+	// bracket's reach there (floor, max, groupMax). It has no versions, and
+	// is shared by every version of d in the same segments.
+	s *seriesModel
+	// seg is the run of adjacent segments, [from, to), in which d is compiled
+	// alike (sameSegmentRules) and applies alike; a missing bound is
+	// unbounded. It never holds today's segment.
 	seg window
-	// lone: d is alone in its product group in segment j, so its bracket
-	// holds every age there (C8, Q95).
+	// lone: d is alone in its product group in seg, so its bracket holds
+	// every age there (C8, Q95).
 	lone bool
-	// sameGroup: d is in c's product group. tier holds, for each catalog
-	// product P of the disease, whether d applies to a P dose under c
-	// (Q94): d is in P's tier in segment j, and d is in c's group or c is
-	// in P's tier today, neither tier being the every-series fall-through.
-	// A dose with no product or another product has every series as its
-	// tier, so d applies to it iff sameGroup.
-	sameGroup bool
-	tier      map[string]bool
+	// sameGroup: d is in c's product group. d applies to a dose of catalog
+	// product P under c (Q94) when d is in P's tier in seg (inTier), and d is
+	// in c's group, or c is in P's tier today (cTier), neither tier being the
+	// every-series fall-through (fallsThrough in seg; cTier leaves out
+	// today's). A dose with no product or another product has every series
+	// as its tier, so d applies to it iff sameGroup. The three tables are
+	// shared by every version that reads them.
+	sameGroup                   bool
+	inTier, fallsThrough, cTier map[string]bool
 }
 
 // applies reports whether the version applies to a dose of product
 // (Q94).
 func (v version) applies(product string) bool {
-	if a, ok := v.tier[product]; ok {
-		return a
+	in, catalog := v.inTier[product]
+	switch {
+	case !catalog:
+		return v.sameGroup
+	case v.sameGroup:
+		return in
 	}
-	return v.sameGroup
+	return in && !v.fallsThrough[product] && v.cTier[product]
 }
 
 // lastDose reports whether the version may count a dose at position pos of
@@ -146,13 +160,33 @@ func (v version) lastDose(pos, n int) bool {
 	return v.s.length >= pos && (pos != n || v.s.length == pos)
 }
 
-// compileVersions attaches to each series of each segment its versions:
-// every series d of every other segment that applies to some dose under it
-// (version.tier, version.sameGroup), in segment order, then rule-set order.
-// A series in effect in several segments is a version of itself there,
-// since its floor, groupMax or tiers may differ. Nothing in a walk reads
-// another segment's model, so a version carries what it needs.
-func (tl diseaseTimeline) compileVersions() {
+// sameSegmentRules reports whether a and b, one series compiled in two
+// segments, have the same rules. compileSeries derives every field from
+// the series alone except the bracket's floor and groupMax, which follow
+// from the product group in effect (compileDisease).
+func sameSegmentRules(a, b *seriesModel) bool {
+	return a.id == b.id && a.start == b.start && a.groupMax == b.groupMax
+}
+
+// compileVersions attaches to each series c of each segment i its
+// versions: every series d of every other segment j that applies to some
+// dose under it (version.applies), and its cuts, the bounds of those
+// segments, ascending. A series in effect in several segments is a version
+// of itself there, since its floor, groupMax or tiers may differ.
+//
+// The versions of one d in adjacent segments other than i that compile and
+// apply alike are one version over their run, and the versions are in
+// rule-set order of d (rank), then segment order. Both keep datedVerdict's
+// output: the cuts still split a dose range at every segment bound, a part
+// lies in one segment, where at most one version of each d is in effect,
+// so its versions come in rule-set order as they would one segment at a
+// time; and the envelope's checks do not depend on the order or repeats of
+// its plans. The work is the pairs (c, d) that apply, found through the
+// tiers, so a snapshot with many series in effect at once compiles in
+// about segments² × series time, not as the product of all pairs and the
+// catalog. Nothing in a walk reads another segment's model, so a version
+// carries what it needs.
+func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 	if len(tl.models) < 2 {
 		return
 	}
@@ -163,46 +197,92 @@ func (tl diseaseTimeline) compileVersions() {
 			segs[j].to, segs[j].hasTo = tl.starts[j+1], true
 		}
 	}
-	// orig holds every segment's series before any versions are attached.
-	orig := make([][]seriesModel, len(tl.models))
+	// The shared tables of each segment j: inTier[j][d] for each series d,
+	// cTier[j][c] (with its products in catalog order, cProducts[j][c]) for
+	// each series c, and byProduct[j], the series of each product ("" for
+	// generic) in rule-set order. orig holds every segment's series before
+	// any versions are attached, and bare maps each of them to a copy with
+	// no maximum age.
+	n := len(tl.models)
+	orig := make([][]seriesModel, n)
+	bare := map[*seriesModel]*seriesModel{}
+	inTier := make([][]map[string]bool, n)
+	cTier := make([][]map[string]bool, n)
+	cProducts := make([][][]string, n)
+	byProduct := make([]map[string][]int, n)
 	for j, m := range tl.models {
 		orig[j] = slices.Clone(m.series)
+		inTier[j] = make([]map[string]bool, len(m.series))
+		cTier[j] = make([]map[string]bool, len(m.series))
+		cProducts[j] = make([][]string, len(m.series))
+		byProduct[j] = map[string][]int{}
+		for d, sm := range m.series {
+			b := sm.withoutMaxAges()
+			bare[&orig[j][d]] = &b
+			inTier[j][d] = make(map[string]bool, len(m.catalog))
+			cTier[j][d] = map[string]bool{}
+			byProduct[j][sm.product] = append(byProduct[j][sm.product], d)
+		}
+		for _, p := range m.catalog {
+			for d := range m.series {
+				inTier[j][d][p] = false
+			}
+			for _, d := range m.tier[p] {
+				inTier[j][d][p] = true
+				if !m.fallsThrough[p] {
+					cTier[j][d][p] = true
+					cProducts[j][d] = append(cProducts[j][d], p)
+				}
+			}
+		}
 	}
+	var found []int
 	for i, mi := range tl.models {
 		for ci := range mi.series {
 			c := &mi.series[ci]
+			last := map[string]int{} // d's id → its latest version in c.versions
 			for j, mj := range tl.models {
 				if j == i {
 					continue
 				}
-				for di, d := range orig[j] {
-					v := version{s: d, seg: segs[j], lone: len(mj.groups[mj.groupOf[di]].series) == 1, sameGroup: d.product == c.product}
-					useful := v.sameGroup
-					for _, p := range mi.catalog {
-						a := slices.Contains(mj.tier[p], di) &&
-							(v.sameGroup || !mj.fallsThrough[p] && !mi.fallsThrough[p] && slices.Contains(mi.tier[p], ci))
-						if v.tier == nil {
-							v.tier = map[string]bool{}
-						}
-						v.tier[p] = a
-						useful = useful || a
+				// The series of segment j that apply to some dose under c:
+				// c's group, and the tier in j of each product whose tier
+				// today holds c, neither falling through.
+				found = append(found[:0], byProduct[j][c.product]...)
+				for _, p := range cProducts[i][ci] {
+					if !mj.fallsThrough[p] {
+						found = append(found, mj.tier[p]...)
 					}
-					if !useful {
-						continue
-					}
-					c.versions = append(c.versions, v)
-					v.s = v.s.withoutMaxAges()
-					c.bare = append(c.bare, v)
+				}
+				slices.Sort(found)
+				for _, di := range slices.Compact(found) {
+					d := &orig[j][di]
+					v := version{s: d, seg: segs[j], lone: len(mj.groups[mj.groupOf[di]].series) == 1, sameGroup: d.product == c.product,
+						inTier: inTier[j][di], fallsThrough: mj.fallsThrough, cTier: cTier[i][ci]}
 					if v.seg.hasFrom {
 						c.cuts = append(c.cuts, v.seg.from)
 					}
 					if v.seg.hasTo {
 						c.cuts = append(c.cuts, v.seg.to)
 					}
+					if k, ok := last[d.id]; ok {
+						if p := &c.versions[k]; p.seg.hasTo && p.seg.to == v.seg.from && sameSegmentRules(p.s, d) && p.lone == v.lone &&
+							maps.Equal(p.inTier, v.inTier) && maps.Equal(p.fallsThrough, v.fallsThrough) {
+							p.seg.to, p.seg.hasTo = v.seg.to, v.seg.hasTo
+							continue
+						}
+					}
+					last[d.id] = len(c.versions)
+					c.versions = append(c.versions, v)
 				}
 			}
+			slices.SortStableFunc(c.versions, func(a, b version) int { return cmp.Compare(rank[a.s.id], rank[b.s.id]) })
+			for _, v := range c.versions {
+				v.s = bare[v.s]
+				c.bare = append(c.bare, v)
+			}
 			slices.SortFunc(c.cuts, Date.Compare)
-			c.cuts = slices.Compact(c.cuts)
+			c.cuts = slices.Clip(slices.Compact(c.cuts))
 		}
 	}
 }

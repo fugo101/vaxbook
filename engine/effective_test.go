@@ -233,15 +233,21 @@ func TestVersionFinalDose(t *testing.T) {
 		unknownWith([]string{"h-2026"}, false, invalidDose("r2", 2, engine.CheckMinInterval)))
 }
 
-// TestVersionBirthRange (In scope 3): a version is judged at both ends of
-// the birth range. g-2025 (until 2026-01-01): one dose, minAge 9m,
+// TestVersionBirthRange (In scope 3, Q107): a version is judged at both
+// ends of the birth range. g-2025 (until 2026-01-01): one dose, minAge 9m,
 // maxAgeComplete 2y. g-2026 (from then): minAge 4w, maxAgeComplete 8m. r1
 // 2025-08-15, today 2026-02-01.
-//   - Birth in 2024: at 2024-01-01 g-2026's 8m fails r1 and g-2025 fails its
-//     9m at b_late; at 2024-12-31 g-2026 counts it → the ends differ → ⚪
-//     [BIRTH_DATE_IMPRECISE{fullBirthDate}, COMPLETE, DOSE_AFTER_MAX_AGE],
-//     est. Judged at b alone, g-2025 would count it at 2024-01-01 although
-//     a birth date between fails both.
+//   - Birth in 2024: at the 2024-01-01 end g-2026's 8m fails r1 definitely;
+//     g-2025 passes r1 at b_old 2024-01-01 (9m = 2024-10-01, 2y =
+//     2026-01-01) and fails its 9m at b_late 2024-12-31 (2025-09-30), so
+//     it passes at one end only and softens the failure (Q107): ⚪
+//     [DOSE_POSSIBLY_INVALID{maxAgeComplete, r1, 1}, COMPLETE]. At the
+//     2024-12-31 end g-2026 counts it: ✅. The ends differ → ⚪
+//     [BIRTH_DATE_IMPRECISE{fullBirthDate}, COMPLETE,
+//     DOSE_POSSIBLY_INVALID{maxAgeComplete, r1, 1}], est. Judged at b
+//     alone, g-2025 would count r1 at 2024-01-01 although a birth date
+//     between fails both; judged by its worse end it would make the failure
+//     definite although birth 2024-01-01 counts r1.
 //   - Birth 2024-12-01 (8.5 months at r1): past g-2026's 8m, below g-2025's
 //     9m → ⚪ DOSE_AFTER_MAX_AGE.
 //   - Birth 2024-01-01: past today's 8m, within g-2025's rules → ✅.
@@ -258,7 +264,7 @@ func TestVersionBirthRange(t *testing.T) {
 	r1 := qDose("r1", "2025-08-15")
 	after := afterMaxAge("r1", 1, engine.CheckMaxAgeComplete)
 	checkAssessment(t, assessmentOf(t, e, "q", "2026-02-01", engine.RecalledDate{Value: "2024", Precision: engine.Year}, r1),
-		unknownWith(used, true, fullBirthDate, complete, after))
+		unknownWith(used, true, fullBirthDate, complete, possiblyInvalid("r1", 1, engine.CheckMaxAgeComplete)))
 	checkAssessment(t, assessmentOf(t, e, "q", "2026-02-01", dayDate("2024-12-01"), r1), unknownWith(used, false, after))
 	checkAssessment(t, assessmentOf(t, e, "q", "2026-02-01", dayDate("2024-01-01"), r1), completeWith(used, false))
 }
@@ -510,36 +516,31 @@ func TestIdenticalCopyInBracketedGroup(t *testing.T) {
 	}
 }
 
-// TestVersionBirthRangeDefinite pins a consequence of #29 In scope 3's
-// birth-range rule (a version is judged by the worse of its verdicts at
-// b_old and b_late), open for the owner: a definite verdict that narrowing
-// the birth date turns into a counted dose. x-old (until 2026-01-01) has
-// dose 1 minAge P4W, x-new (from then) P6W, each dose 2 at 4w. Birth
-// 2025-09, r1 2025-10-06, today 2026-02-01:
-//   - month birth date: x-old passes r1 at b_old 09-01 (09-29) and fails it
-//     at b_late 09-30 (10-28), so its worse verdict is definite; x-new fails
-//     it at both (10-13, 11-11). Both step-4 ends give DOSE_INVALID{minAge,
-//     r1, 1}: ⚪ with that reason alone, estimated;
+// TestVersionPassesAtOneBirthEnd (Q107): a version that passes a dose at
+// one birth end only counts like a possible match. x-old (until
+// 2026-01-01) has dose 1 minAge P4W, x-new (from then) P6W, each dose 2 at
+// 4w due previous + 4w. r1 2025-10-06, today 2026-02-01:
+//   - birth 2025-09: today's x-new fails r1 at both ends (6w from 09-01 =
+//     10-13, from 09-30 = 11-11). x-old passes it at b_old 09-01 (09-29) and
+//     fails it at b_late 09-30 (10-28), so it softens the failure: at both
+//     step-4 ends ⚪ [DOSE_POSSIBLY_INVALID{minAge, r1, 1}], est,
+//     seriesUsed [x-new]. Judged by its worse end it would leave a definite
+//     DOSE_INVALID that birth 2025-09-01 contradicts;
 //   - birth 2025-09-01: x-old counts r1, the rule in effect on its date, so
-//     dose 2 is due 4 weeks later and the result is 🔴 for dose 2 with no
-//     DOSE_INVALID.
-//
-// The month result is P1-safe (⚪), but its definite reason does not hold
-// for every birth date in the range, as S4a's meaning of definite asks.
-func TestVersionBirthRangeDefinite(t *testing.T) {
+//     dose 2 is due 4 weeks later: 🔴 {2, 2025-11-03, 2025-11-03,
+//     2025-11-10}.
+func TestVersionPassesAtOneBirthEnd(t *testing.T) {
 	t.Parallel()
 	e := newEngine(t, oneDiseaseSnapshot(nil,
 		ws(t, twoDose(t, "x-old", "", "P4W", "P4W"), "", "2026-01-01", "", ""),
 		ws(t, twoDose(t, "x-new", "", "P6W", "P4W"), "2026-01-01", "", "", "")))
+	used := []string{"x-new"}
 	r1 := qDose("r1", "2025-10-06")
-	wide := assessmentOf(t, e, "q", "2026-02-01", monthDate("2025-09"), r1)
-	if want := []engine.Reason{invalidDose("r1", 1, engine.CheckMinAge)}; wide.Bucket != engine.BucketUnknown || !reflect.DeepEqual(wide.Reasons, want) {
-		t.Errorf("birth 2025-09: %+v\nwant ⚪ %v", wide, want)
-	}
-	narrow := assessmentOf(t, e, "q", "2026-02-01", dayDate("2025-09-01"), r1)
-	if narrow.Bucket != engine.BucketOverdue || narrow.NextDose == nil || narrow.NextDose.Number != 2 || hasCode(narrow, engine.ReasonDoseInvalid) {
-		t.Errorf("birth 2025-09-01: %+v\nwant 🔴 for dose 2, r1 counted", narrow)
-	}
+	checkAssessment(t, assessmentOf(t, e, "q", "2026-02-01", monthDate("2025-09"), r1),
+		unknownWith(used, true, possiblyInvalid("r1", 1, engine.CheckMinAge)))
+	checkAssessment(t, assessmentOf(t, e, "q", "2026-02-01", dayDate("2025-09-01"), r1), engine.Assessment{
+		Disease: "q", Bucket: engine.BucketOverdue, NextDose: nextDose(t, 2, "2025-11-03", "2025-11-03", "2025-11-10"), SeriesUsed: used,
+	})
 }
 
 // TestVersionNoDoseOneCounted (Q106): with no dose 1 counted, dose 1's

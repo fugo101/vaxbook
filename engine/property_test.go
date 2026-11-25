@@ -670,9 +670,23 @@ func visible(a engine.Assessment) string { return string(a.Bucket) + string(a.Bl
 // the birth ends choose different brackets, the latest birth date is calm,
 // the wide result is ⚪ BIRTH_DATE_IMPRECISE and the narrowed day is 🟠 or
 // 🔴) guards against the generator no longer reaching it.
+//
+// Since S4c (issue #29 Q107) a second clause covers the validity of the
+// doses given: narrowing the birth date never counts a record that the
+// wide result does not count. Every uncountedKeys entry of the wide result
+// is in the narrowed one, when the narrowed result has the same seriesUsed
+// and the wide result is not outOfAge (two outOfAge ends agree on the
+// block alone, whatever their masked reasons), has no
+// BIRTH_DATE_IMPRECISE (the ends disagree, so a birth date between may
+// count what one end does not) and no DOSE_POSSIBLY_INVALID (a possible
+// failure may narrow either way). On a windowed fixture this is what keeps
+// a version from making a dose definitely invalid when some birth date of
+// the range counts it, and a counter fails the test when no windowed input
+// reaches the clause.
 func TestPropertyNarrowingBirthDate(t *testing.T) {
 	t.Parallel()
 	calm := map[string]bool{string(engine.BucketComplete): true, string(engine.BucketUpcoming): true, string(engine.BlockNotYetScheduled): true}
+	validity := 0
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(29, uint64(len(fx.name))))
 		maxes := bracketMaxes(fx.snap)
@@ -709,11 +723,28 @@ func TestPropertyNarrowingBirthDate(t *testing.T) {
 					t.Fatalf("%s %s: birth %v gives %s, narrowed to %s gives %s\nwide   %+v\nnarrow %+v\ninput  %+v",
 						fx.name, a.Disease, in.Profile.Birth, visible(a), narrow.Profile.Birth.Value, visible(b), a, b, in)
 				}
+				if hasDose && slices.Equal(a.SeriesUsed, b.SeriesUsed) && a.Block != engine.BlockOutOfAge &&
+					!hasCode(a, engine.ReasonBirthDateImprecise) && !hasCode(a, engine.ReasonDosePossiblyInvalid) {
+					if windowed(fx.snap) {
+						validity++
+					}
+					wideKeys, narrowKeys := uncountedKeys(a, in), uncountedKeys(b, narrow)
+					for _, k := range wideKeys {
+						if !slices.Contains(narrowKeys, k) {
+							t.Fatalf("%s %s: birth %v does not count %s, narrowed to %s counts it\nwide   %+v\nnarrow %+v\ninput  %+v",
+								fx.name, a.Disease, in.Profile.Birth, k, narrow.Profile.Birth.Value, a, b, in)
+						}
+					}
+				}
 			}
 		}
 		if fx.name == "minimal-start-age-gap-late" && f1 == 0 {
 			t.Errorf("%s: no random input reached the F1 shape", fx.name)
 		}
+	}
+	t.Logf("%d windowed inputs reached the validity clause", validity)
+	if validity == 0 {
+		t.Fatal("no windowed input reached the validity clause")
 	}
 }
 

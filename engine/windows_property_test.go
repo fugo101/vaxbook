@@ -178,9 +178,13 @@ func TestPropertySeriesInEffect(t *testing.T) {
 // (from only, to only, or both) and splits another third into two
 // successive versions at a random date: the series ends there and a copy
 // with the same ID and "-v2" starts there, its minimum intervals doubled or
-// halved, so that a dose can meet the rule in effect on its date. Bounds
-// are drawn in [lo, hi]. ok is false when Validate rejects the variant. A
-// variant may leave a disease with no series in effect on some days.
+// halved, so that a dose can meet the rule in effect on its date. Half the
+// time the copy's dose-1 minimum age is also doubled or halved (in every
+// plan alike), and so, each half the time, are its maxAgeComplete and
+// maxAgeStart, so that a version's verdict can depend on the birth date
+// (Q107). A span of 1 is doubled. Bounds are drawn in [lo, hi]. ok is
+// false when Validate rejects the variant. A variant may leave a disease
+// with no series in effect on some days.
 func windowedVariant(rng *rand.Rand, s *ruleset.Snapshot, lo, hi engine.Date) (*ruleset.Snapshot, bool) {
 	out := cloneSnapshot(s)
 	span := daysBetween(lo, hi)
@@ -227,6 +231,28 @@ func windowedVariant(rng *rand.Rand, s *ruleset.Snapshot, lo, hi engine.Date) (*
 					v2.Plans[j].Doses[k].MinInterval = &m
 				}
 			}
+			scale := func(sp *ruleset.Span) *ruleset.Span {
+				if sp == nil || rng.IntN(2) == 0 {
+					return sp
+				}
+				m := *sp
+				if m.N < 2 || rng.IntN(2) == 0 {
+					m.N *= 2
+				} else {
+					m.N /= 2
+				}
+				return &m
+			}
+			if minAge := v2.Plans[0].Doses[0].MinAge; minAge != nil {
+				if m := scale(minAge); m != minAge {
+					for j := range v2.Plans {
+						if v2.Plans[j].Doses[0].MinAge != nil && *v2.Plans[j].Doses[0].MinAge == *minAge {
+							v2.Plans[j].Doses[0].MinAge = m
+						}
+					}
+				}
+			}
+			v2.MaxAgeComplete, v2.MaxAgeStart = scale(v2.MaxAgeComplete), scale(v2.MaxAgeStart)
 			out.Series[i].ValidTo, v2.ValidFrom = date(a), date(a)
 			out.Series = append(out.Series, v2)
 		}

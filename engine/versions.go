@@ -79,11 +79,13 @@ func bracketMatch(v version, b birthEnd, firstBr Range) match {
 //     the part itself for pos 1, else firstBr, else [b_old, x.Hi]: with no
 //     dose 1 counted, dose 1 lies between birth and the dose being judged
 //     (Q106).
-//   - Each version is judged by the worse of its verdicts at the ends. The
-//     part's verdict is the best certain one (the smallest severity; a tie
-//     goes to c, then rule-set order). When it is definite and a possible
-//     version is not, it is demoted: every definite check turns possible,
-//     and a possible version never makes a part OK.
+//   - A certain version that passes at both ends is a certain verdict: the
+//     worse of its two. The part's verdict is the best certain one (the
+//     smallest severity; a tie goes to c, then rule-set order). A version
+//     that passes at one end only, or a possible version that passes at
+//     either, counts as possible (Q93, Q107): when the part's verdict is
+//     definite it is demoted, every definite check turning possible, and a
+//     possible version never makes a part OK.
 //   - The parts combine to OK when all are OK, definite when all are
 //     definite (their checks unioned per kind), else possible (every check
 //     failed in some part). The verdict is the better of that and vc (a tie
@@ -135,16 +137,21 @@ func (s seriesModel) datedVerdict(pos int, b birthEnd, x Range, pd predecessor, 
 			if m == matchNone {
 				continue
 			}
-			var dv doseVerdict
+			// worse is the certain verdict, lenient the better end's.
+			var worse, lenient doseVerdict
 			for i, e := range ends {
-				if ev := v.s.verdictAt(pos, e, part, pd, first); i == 0 || ev.sev() > dv.sev() {
-					dv = ev
+				ev := v.s.verdictAt(pos, e, part, pd, first)
+				if i == 0 || ev.sev() > worse.sev() {
+					worse = ev
+				}
+				if i == 0 || ev.sev() < lenient.sev() {
+					lenient = ev
 				}
 			}
-			switch {
-			case m == matchCertain && dv.sev() < best.sev():
-				best = dv
-			case m == matchPossible && dv.sev() < verdictDefinite:
+			if m == matchCertain && worse.sev() < best.sev() {
+				best = worse
+			}
+			if lenient.sev() < verdictDefinite {
 				softer = true
 			}
 		}

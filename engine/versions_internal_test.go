@@ -17,7 +17,12 @@ import (
 // for product p (10w) and a two-dose k-q-new for q (10w) from then. The
 // lenient older series exercise each rule that keeps a version out: Q93's
 // "possibly" bracket match (k-a), Q94's tiers (k-a under k-p for a dose
-// with no product) and Q96's last dose (k-q-old under k-q-new).
+// with no product) and Q96's last dose (k-q-old under k-q-new). Two more
+// diseases have versions whose verdict depends on the birth date (Q107): x
+// with x-old (dose 1 minAge 4w, dose 2 at 4w) until 2026-01-01, then x-new
+// (6w, 4w); and g with g-2025 (one dose, minAge 9m, maxAgeComplete 2y)
+// until 2026-01-01, then g-2026 (4w, 8m). No series of these timelines is
+// in effect in two segments, so no twin arises (Q109).
 func versionTimelines(t *testing.T) []diseaseTimeline {
 	t.Helper()
 	ed := gapFixture{name: "minimal-effective-dating", disease: "ed"}.diseaseOf(t)
@@ -31,7 +36,16 @@ func versionTimelines(t *testing.T) []diseaseTimeline {
 	series := func(id, extra string, intervals ...string) string {
 		return `{"id": "` + id + `", "disease": "k", "stage": "childhood", ` + extra + `"plans": [{"id": "a", "doses": [` + doses(intervals...) + `]}]}`
 	}
-	doc := `{"version": "v", "illustrative": true, "diseases": [{"id": "k", "name": "K"}],
+	x := func(id, minAge, extra string) string {
+		return `{"id": "` + id + `", "disease": "x", "stage": "childhood", ` + extra + `"plans": [{"id": "a", "doses": [` +
+			`{"minAge": "` + minAge + `", "recommended": {"from": "birth", "offset": "P2M"}}, ` +
+			`{"minInterval": "P4W", "recommended": {"from": "previousDose", "offset": "P4W"}}]}]}`
+	}
+	g := func(id, minAge, complete, extra string) string {
+		return `{"id": "` + id + `", "disease": "g", "stage": "childhood", "maxAgeComplete": "` + complete + `", ` + extra + `"plans": [{"id": "a", "doses": [` +
+			`{"minAge": "` + minAge + `", "recommended": {"from": "birth", "offset": "P9M"}}]}]}`
+	}
+	doc := `{"version": "v", "illustrative": true, "diseases": [{"id": "k", "name": "K"}, {"id": "x", "name": "X"}, {"id": "g", "name": "G"}],
 	  "products": [{"id": "p", "name": "P", "diseases": ["k"], "live": false}, {"id": "q", "name": "Q", "diseases": ["k"], "live": false}], "series": [` + strings.Join([]string{
 		series("k-a", `"startAge": {"min": "P6W", "max": "P9M"}, "maxAgeComplete": "P3Y", "validTo": "2026-01-01", `, "P4W"),
 		series("k-b", `"startAge": {"min": "P9M"}, "maxAgeComplete": "P2Y", "validTo": "2026-01-01", `, "P8W"),
@@ -39,6 +53,10 @@ func versionTimelines(t *testing.T) []diseaseTimeline {
 		series("k-2026", `"maxAgeComplete": "P2Y", "validFrom": "2026-01-01", `, "P8W"),
 		series("k-p", `"product": "p", "validFrom": "2026-01-01", `, "P10W"),
 		series("k-q-new", `"product": "q", "validFrom": "2026-01-01", `, "P10W"),
+		x("x-old", "P4W", `"validTo": "2026-01-01", `),
+		x("x-new", "P6W", `"validFrom": "2026-01-01", `),
+		g("g-2025", "P9M", "P2Y", `"validTo": "2026-01-01", `),
+		g("g-2026", "P4W", "P8M", `"validFrom": "2026-01-01", `),
 	}, ", ") + `]}`
 	s, err := ruleset.Decode([]byte(doc))
 	if err != nil {
@@ -146,6 +164,23 @@ func countsOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd pred
 	return counts
 }
 
+// passesOnDay is the definite oracle of TestPropertyVersionsOnlyHelp: some
+// series that qualifies for a dose on day y, certainly or possibly, passes
+// it at one end of the birth range (at b with no birth date), so the dose
+// is not certainly invalid there (Q93, Q107).
+func passesOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd predecessor, first, firstBr *Range, product string) (string, bool) {
+	day := Range{Lo: y, Hi: y}
+	id, passes := "", false
+	qualifying(tl, i, ci, pos, b, y, firstBr, product, func(d seriesModel, _ bool) {
+		for _, e := range birthEnds(b) {
+			if !passes && d.verdictAt(pos, e, day, pd, first).sev() < verdictDefinite {
+				id, passes = d.id, true
+			}
+		}
+	})
+	return id, passes
+}
+
 // TestPropertyVersionsOnlyHelp (issue #29 In scope 3): for a fixed
 // position, dose range, predecessor (dated or behind a run), dose 1 and
 // dose-1 range, the verdict with versions (datedVerdict)
@@ -159,14 +194,18 @@ func countsOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd pred
 //     engine's rule, and it is the P1 direction: a version that wrongly
 //     applies (Q94), wrongly counts a last dose (Q96) or is matched
 //     certainly where only possibly (Q93) makes a dose count that this
-//     oracle does not.
+//     oracle does not;
+//   - is definite, on a range within one segment, only when no series that
+//     qualifies for the dose, certainly or possibly, passes any day of the
+//     range at either birth end (passesOnDay, Q93, Q107): a version that
+//     passes at one end only must leave the verdict possible.
 //
 // Birth dates, ranges and products are random, and the ranges often cross
 // a boundary. The whole-walk counterexample is
 // TestVersionsNotMonotoneOverWalk.
 func TestPropertyVersionsOnlyHelp(t *testing.T) {
 	t.Parallel()
-	helped, counted := 0, 0
+	helped, counted, definite := 0, 0, 0
 	for _, tl := range versionTimelines(t) {
 		rng := rand.New(rand.NewPCG(83, uint64(len(tl.id))))
 		base := d(t, "2024-01-01")
@@ -221,6 +260,15 @@ func TestPropertyVersionsOnlyHelp(t *testing.T) {
 			if v.sev() < vc.sev() {
 				helped++
 			}
+			if v.sev() == verdictDefinite && segmentOf(tl, x.Lo) == segmentOf(tl, x.Hi) {
+				definite++
+				for y := x.Lo; !y.After(x.Hi); y = y.AddDays(1) {
+					if id, ok := passesOnDay(tl, i, ci, pos, b, y, pd, first, firstBr, product); ok {
+						t.Fatalf("%s %s: pos %d on %v (product %q, birth %+v, first %v, dose-1 range %v) is definite, but %s passes it on %s at a birth end",
+							tl.id, s.id, pos, x, product, b, first, firstBr, id, y)
+					}
+				}
+			}
 			if v.sev() != verdictOK || vc.sev() == verdictOK {
 				continue
 			}
@@ -233,8 +281,8 @@ func TestPropertyVersionsOnlyHelp(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("versions helped %d times, made %d doses count", helped, counted)
-	if helped == 0 || counted == 0 {
-		t.Fatal("no version ever helped or made a dose count; the property is vacuous")
+	t.Logf("versions helped %d times, made %d doses count; %d definite verdicts checked", helped, counted, definite)
+	if helped == 0 || counted == 0 || definite == 0 {
+		t.Fatal("no version ever helped or made a dose count, or no verdict was definite; the property is vacuous")
 	}
 }

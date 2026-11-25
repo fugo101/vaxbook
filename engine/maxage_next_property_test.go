@@ -247,7 +247,8 @@ func remainingFit(sr ruleset.Series, k int, d, late, first, last engine.Date) bo
 //   - F > Lim never comes with an emitted next dose.
 //
 // It also checks P3 (a capped next dose is never 🔴), and that the inputs
-// reach both cap reasons.
+// reach both cap reasons, and a cap reason under CATCH_UP_ASK_DOCTOR (Q92;
+// the catch-up variants of fixtures).
 func TestPropertyCapP1(t *testing.T) {
 	t.Parallel()
 	seen := map[engine.ReasonCode]int{}
@@ -273,6 +274,9 @@ func TestPropertyCapP1(t *testing.T) {
 				for _, c := range []engine.ReasonCode{engine.ReasonDueCappedByMaxAge, engine.ReasonSeriesMayNotComplete} {
 					if hasCode(a, c) {
 						seen[c]++
+						if hasCode(a, engine.ReasonCatchUpAskDoctor) {
+							seen[engine.ReasonCatchUpAskDoctor]++
+						}
 						if a.Bucket == engine.BucketOverdue {
 							t.Fatalf("%s %s: %s with 🔴 (P3): %+v", fx.name, a.Disease, c, a)
 						}
@@ -367,6 +371,9 @@ func TestPropertyCapP1(t *testing.T) {
 		if seen[c] == 0 {
 			t.Errorf("near-limit inputs never reach %s", c)
 		}
+	}
+	if seen[engine.ReasonCatchUpAskDoctor] == 0 {
+		t.Error("near-limit inputs never reach CATCH_UP_ASK_DOCTOR with a cap reason (Q92): the catch-up variant misses the cap")
 	}
 }
 

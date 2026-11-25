@@ -11,16 +11,42 @@ import (
 
 // Property tests of catch-up (issue #29 In scope 5, S4c).
 
-// catchUpVariant gives random series of s a catchUpAfterAge of P1Y–P5Y. ok
-// is false when Validate rejects the variant (a Warn is kept).
+// catchUpVariant gives random series of s a catchUpAfterAge. A series with
+// a maximum age (maxAgeComplete, else maxAgeStart) mostly gets one from
+// half of it up to one unit below it, in its unit (a limit of one unit is
+// first written in the next smaller one: months, weeks or days), so that
+// catch-up meets the cap before the series is out of age; any other gets
+// P1Y–P5Y. ok is false
+// when Validate rejects the variant (a Warn is kept).
 func catchUpVariant(rng *rand.Rand, s *ruleset.Snapshot) (*ruleset.Snapshot, bool) {
 	out := cloneSnapshot(s)
 	for i := range out.Series {
 		if rng.IntN(3) == 0 {
 			continue
 		}
+		sr := &out.Series[i]
 		age := ruleset.Span{N: 1 + rng.IntN(5), Unit: ruleset.Years}
-		out.Series[i].CatchUpAfterAge = &age
+		limit := sr.MaxAgeComplete
+		if limit == nil {
+			limit = sr.MaxAgeStart
+		}
+		if limit != nil && rng.IntN(4) != 0 {
+			age = *limit
+			if age.N < 2 {
+				switch age.Unit {
+				case ruleset.Years:
+					age = ruleset.Span{N: 12 * age.N, Unit: ruleset.Months}
+				case ruleset.Months:
+					age = ruleset.Span{N: 4 * age.N, Unit: ruleset.Weeks}
+				case ruleset.Weeks:
+					age = ruleset.Span{N: 7 * age.N, Unit: ruleset.Days}
+				}
+			}
+			if age.N >= 2 {
+				age.N = (age.N+1)/2 + rng.IntN(age.N/2)
+			}
+		}
+		sr.CatchUpAfterAge = &age
 	}
 	return out, len(ruleset.Rejects(ruleset.Validate(out))) == 0
 }

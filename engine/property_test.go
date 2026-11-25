@@ -35,11 +35,14 @@ func fixtureWindows(t *testing.T) func(*rand.Rand, *ruleset.Snapshot) (*ruleset.
 	}
 }
 
-// fixtures returns every fixture rule set, then seeded S4c variants of two
-// of them (issue #29: the generators gain catch-up ages, tolerances and
-// validity windows), so that every property also runs where the cap meets
-// catch-up and where tolerances lower the minimums. Each variant is named
-// after its fixture with a "~" suffix.
+// fixtures returns every fixture rule set, then seeded S4c variants of
+// three of them (issue #29: the generators gain catch-up ages, tolerances
+// and validity windows), so that every property also runs where the cap
+// meets catch-up and where tolerances lower the minimums. Each variant is
+// named after its fixture with a "~" suffix. Catch-up meets the cap seldom
+// on illustrative-max-age, whose limits lie a few weeks past the due
+// dates, and often on minimal-max-age-complete (TestPropertyCapP1 checks
+// that it is reached).
 func fixtures(t *testing.T) []fixture {
 	t.Helper()
 	var out []fixture
@@ -52,6 +55,7 @@ func fixtures(t *testing.T) []fixture {
 		make         func(*rand.Rand, *ruleset.Snapshot) (*ruleset.Snapshot, bool)
 	}{
 		{"illustrative-max-age", "~catch-up", catchUpVariant},
+		{"minimal-max-age-complete", "~catch-up", catchUpVariant},
 		{"illustrative-vn", "~tolerance", toleranceVariant},
 		{"illustrative-vn", "~windows", fixtureWindows(t)},
 		{"illustrative-max-age", "~windows", fixtureWindows(t)},

@@ -30,14 +30,21 @@ func cloneSnapshot(s *ruleset.Snapshot) *ruleset.Snapshot {
 // toleranceVariant gives random dose rules of s a tolerance of P0D–P6D or
 // P1W. ok is false when Validate rejects the variant.
 func toleranceVariant(rng *rand.Rand, s *ruleset.Snapshot) (*ruleset.Snapshot, bool) {
+	return toleranceVariantOf(rng, s, 3, 0)
+}
+
+// toleranceVariantOf gives each dose rule of s, with probability 1/every,
+// a tolerance of P<least>D–P6D or P1W. ok is false when Validate rejects
+// the variant.
+func toleranceVariantOf(rng *rand.Rand, s *ruleset.Snapshot, every, least int) (*ruleset.Snapshot, bool) {
 	out := cloneSnapshot(s)
 	for i := range out.Series {
 		for j := range out.Series[i].Plans {
 			for k := range out.Series[i].Plans[j].Doses {
-				if rng.IntN(3) != 0 {
+				if rng.IntN(every) != 0 {
 					continue
 				}
-				tol := ruleset.Span{N: rng.IntN(7), Unit: ruleset.Days}
+				tol := ruleset.Span{N: least + rng.IntN(7-least), Unit: ruleset.Days}
 				if rng.IntN(8) == 0 {
 					tol = ruleset.Span{N: 1, Unit: ruleset.Weeks}
 				}
@@ -89,15 +96,29 @@ func capDays(a engine.Assessment) []engine.Reason {
 // overdue dates and its cap reasons with their last days (from C_c,k) are
 // equal. With the same k only, a first-dose-anchored date can differ: a
 // tolerance can make another record dose 1 (TestToleranceNotMonotoneOverWalk).
+//
+// Random ages seldom reach a maximum age, so a fixture with one
+// (ageLimits) also gets len(limits) × propertyRuns inputs drawn near a
+// limit (nearLimitInput), as TestPropertyCapP1 draws them, on variants
+// with a tolerance of P1D–P1W on every rule, and a counter fails the test
+// when no pair of capped next doses (a cap reason in the result with
+// tolerance) is compared: C_c,k and its last days would go unchecked.
 func TestPropertyToleranceNeverChangesDates(t *testing.T) {
 	t.Parallel()
-	compared, differ := 0, 0
+	compared, differ, capped := 0, 0, 0
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(97, uint64(len(fx.name))))
-		for i := range propertyRuns {
+		limits := ageLimits(fx.snap)
+		for i := range propertyRuns + len(limits)*propertyRuns {
 			snap := fx.snap
 			if fx.name != "minimal-tolerance" {
-				v, ok := toleranceVariant(rng, fx.snap)
+				// Near a limit, a tolerance on every rule, so that it would
+				// move C_c,k if it leaked into the chain.
+				every, least := 3, 0
+				if i >= propertyRuns {
+					every, least = 1, 1
+				}
+				v, ok := toleranceVariantOf(rng, fx.snap, every, least)
 				if !ok {
 					continue
 				}
@@ -111,9 +132,14 @@ func TestPropertyToleranceNeverChangesDates(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			in := randomInput(t, rng, fx.snap)
-			if i%2 == 0 {
+			var in engine.Input
+			switch {
+			case i >= propertyRuns:
+				in = nearLimitInput(t, rng, fx.snap, limits)
+			case i%2 == 0:
 				in = randomDayInput(t, rng, fx.snap)
+			default:
+				in = randomInput(t, rng, fx.snap)
 			}
 			outW, _ := evaluate(t, with, in)
 			outO, _ := evaluate(t, without, in)
@@ -140,16 +166,25 @@ func TestPropertyToleranceNeverChangesDates(t *testing.T) {
 							vw.Walked[c].Series, vo.Walked[c].Earliest, vw.Walked[c].Earliest, in)
 					}
 				}
-				if a.NextDose != nil && b.NextDose != nil && (*a.NextDose != *b.NextDose || !slices.EqualFunc(capDays(a), capDays(b), func(x, y engine.Reason) bool {
+				if a.NextDose == nil || b.NextDose == nil {
+					continue
+				}
+				if *a.NextDose != *b.NextDose || !slices.EqualFunc(capDays(a), capDays(b), func(x, y engine.Reason) bool {
 					return x.Code == y.Code && x.Params.LastDay == y.Params.LastDay
-				})) {
+				}) {
 					t.Fatalf("%s %s: a tolerance moved the next dose\nwith    %+v\nwithout %+v\ninput %+v", fx.name, a.Disease, a, b, in)
+				}
+				if len(capDays(a)) > 0 {
+					capped++
 				}
 			}
 		}
 	}
-	t.Logf("%d assessments compared, %d with a different counting", compared, differ)
+	t.Logf("%d assessments compared, %d with a different counting, %d capped next doses compared", compared, differ, capped)
 	if differ == 0 {
 		t.Error("no tolerance changed which records count; the generator is too weak (" + strconv.Itoa(compared) + " compared)")
+	}
+	if capped == 0 {
+		t.Error("no capped next dose compared; C_c,k and its last days go unchecked (" + strconv.Itoa(compared) + " compared)")
 	}
 }

@@ -137,11 +137,22 @@ type version struct {
 	// shared by every version that reads them.
 	sameGroup                   bool
 	inTier, fallsThrough, cTier map[string]bool
+	// twin, when not nil, is the tier table of d's twins in today's segment
+	// (compileVersions, Q109): d does not apply to a dose of a catalog
+	// product in a twin's tier today, nor to a dose with no product or
+	// another product, since today's candidate choice already decides those
+	// doses with the same rules.
+	twin map[string]bool
 }
 
 // applies reports whether the version applies to a dose of product
 // (Q94).
 func (v version) applies(product string) bool {
+	if v.twin != nil {
+		if in, catalog := v.twin[product]; !catalog || in {
+			return false
+		}
+	}
 	in, catalog := v.inTier[product]
 	switch {
 	case !catalog:
@@ -177,18 +188,25 @@ func sameSegmentRules(a, b *seriesModel) bool {
 
 // compileVersions attaches to each series c of each segment i its
 // versions: every series d of every other segment j that applies to some
-// dose under it (version.applies) and has no twin in segment i (twinKey,
-// Q109), and its cuts, the bounds of those segments, ascending. A series
-// in effect in several segments is a version of itself there when its
-// floor, groupMax or tiers differ.
+// dose under it (version.applies), other than through a twin in segment i
+// (twinKey, Q109), and its cuts, the bounds of those segments, ascending. A
+// series in effect in several segments is a version of itself there when
+// its floor, groupMax or lone flag differ, or for the products whose tier
+// held it then but not today.
 //
 // A twin of d is a series of segment i with d's product, compiled rules,
-// reach, lone flag and tiers: d's rule is then still in effect today, in
-// the same place in the catalog, and today's candidate choice (A2, C3)
-// already decides whether it applies, as on the windowless snapshot.
-// Judging a dose by d again would count it by a series that choice did not
-// pick, so an identical re-issue of one series, which leaves the others of
-// its group in effect in both segments, would change the output.
+// reach and lone flag. For a dose of a product in a twin's tier today, or
+// with no product or another product, d's rule is then still in effect
+// today, in the same place, and today's candidate choice (A2, C3) already
+// decides whether it applies, as on the windowless snapshot. Judging such a
+// dose by d again would count it by a series that choice did not pick, so
+// an identical re-issue of one series, which leaves the others of its group
+// in effect in both segments, would change the output. The tiers are
+// compared per product (version.twin), not as whole tables: another
+// product's series starting or ending changes the tables of every series,
+// the fall-through ones included, but not the tier of the dose's product.
+// A d whose every product tier in j holds a twin applies to nothing and is
+// left out.
 //
 // The versions of one d in adjacent segments other than i that compile and
 // apply alike are one version over their run, and the versions are in
@@ -239,10 +257,15 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 	cProducts := make([][][]string, n)
 	byProduct := make([]map[string][]int, n)
 	sets := map[string]tierSet{}
-	// twinKeys[j][d] is series d of segment j's twin key, twins[j] the set
-	// of segment j's keys.
+	// twinKeys[j][d] is series d of segment j's twin key, and twins[j] maps
+	// each key of segment j to its series' tier table there (twins share a
+	// product, so they share a tier table). kinds[j] is the tier kind of
+	// each catalog product in j, and spans caches tierSpan per pair of
+	// segments.
 	twinKeys := make([][]string, n)
-	twins := make([]map[string]bool, n)
+	twins := make([]map[string]tierSet, n)
+	kinds := make([][]tierKind, n)
+	spans := map[[2]int]tierSpan{}
 	intern := func(catalog []string, key []byte) tierSet {
 		if t, ok := sets[string(key)]; ok {
 			return t
@@ -285,11 +308,24 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 			inTier[j][d] = intern(m.catalog, keys[d])
 		}
 		fallsID[j] = intern(m.catalog, falls).id
-		twins[j] = make(map[string]bool, len(m.series))
+		twins[j] = make(map[string]tierSet, len(m.series))
 		twinKeys[j] = make([]string, len(m.series))
 		for d := range m.series {
-			k := twinKey(&orig[j][d], len(m.groups[m.groupOf[d]].series) == 1, inTier[j][d].id, fallsID[j])
-			twinKeys[j][d], twins[j][k] = k, true
+			k := twinKey(&orig[j][d], len(m.groups[m.groupOf[d]].series) == 1)
+			twinKeys[j][d], twins[j][k] = k, inTier[j][d]
+		}
+		kinds[j] = make([]tierKind, len(m.catalog))
+		generic := make(map[string]bool, len(m.genericProducts))
+		for _, p := range m.genericProducts {
+			generic[p] = true
+		}
+		for k, p := range m.catalog {
+			switch {
+			case m.fallsThrough[p]:
+				kinds[j][k] = tierFalls
+			case generic[p]:
+				kinds[j][k] = tierGeneric
+			}
 		}
 	}
 	var found []int
@@ -302,7 +338,7 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 			ci := g.series[0]
 			c := mi.series[ci]
 			var versions, bareVersions []version
-			var ids [][2]int // the tier ids of versions[k]: inTier, fallsThrough
+			var ids [][3]int // the tier ids of versions[k]: inTier, fallsThrough, twin (-1 for none)
 			var cuts []Date
 			last := map[string]int{} // d's id → its latest version in versions
 			for j, mj := range tl.models {
@@ -320,13 +356,21 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 				}
 				slices.Sort(found)
 				for _, di := range slices.Compact(found) {
-					if twins[i][twinKeys[j][di]] {
-						continue
-					}
 					d := &orig[j][di]
 					v := version{s: d, seg: segs[j], lone: len(mj.groups[mj.groupOf[di]].series) == 1, sameGroup: d.product == c.product,
 						inTier: inTier[j][di].set, fallsThrough: mj.fallsThrough, cTier: cTier[i][ci]}
-					id := [2]int{inTier[j][di].id, fallsID[j]}
+					id := [3]int{inTier[j][di].id, fallsID[j], -1}
+					if tw, ok := twins[i][twinKeys[j][di]]; ok {
+						sp, seen := spans[[2]int{j, i}]
+						if !seen {
+							sp = compareTiers(mj.catalog, kinds[j], kinds[i])
+							spans[[2]int{j, i}] = sp
+						}
+						if sp.covers(d.product) {
+							continue
+						}
+						v.twin, id[2] = tw.set, tw.id
+					}
 					if v.seg.hasFrom {
 						cuts = append(cuts, v.seg.from)
 					}
@@ -358,14 +402,65 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 	}
 }
 
+// tierKind is how a catalog product's tier is chosen in a segment
+// (compileDisease): its own series, else the generic ones, else every
+// series (the fall-through).
+type tierKind uint8
+
+const (
+	tierOwn tierKind = iota
+	tierGeneric
+	tierFalls
+)
+
+// tierSpan compares the tier kinds of segment j with those of today's
+// segment i, for compileVersions' twin test. The series of product X lie
+// in the tiers of X (when X has series, as a twin's product does) and of
+// every fall-through product; generic series in the tiers of the generic
+// and fall-through products. A twin in i therefore holds every product
+// tier that holds d in j when the products that fall through in j but not
+// in i are at most d's own (product series), or when no product with a
+// generic or fall-through tier in j has its own series in i (generic
+// series). Each pair of segments is compared once, in catalog time.
+type tierSpan struct {
+	falls   int    // products falling through in j but not in i
+	one     string // one of them, when falls is 1
+	generic bool   // no generic or fall-through product of j is own in i
+}
+
+// compareTiers compares two segments' tier kinds over their catalog.
+func compareTiers(catalog []string, j, i []tierKind) tierSpan {
+	sp := tierSpan{generic: true}
+	for k, p := range catalog {
+		if j[k] == tierFalls && i[k] != tierFalls {
+			sp.falls++
+			sp.one = p
+		}
+		if j[k] != tierOwn && i[k] == tierOwn {
+			sp.generic = false
+		}
+	}
+	return sp
+}
+
+// covers reports whether a twin of product in today's segment holds every
+// product tier that holds the series in j, so the version applies to no
+// dose.
+func (sp tierSpan) covers(product string) bool {
+	if product == "" {
+		return sp.generic
+	}
+	return sp.falls == 0 || sp.falls == 1 && sp.one == product
+}
+
 // twinKey encodes what makes series s of a segment a twin of a series of
 // another segment (compileVersions, Q109): its product, its compiled rules
 // (length, plans with their tolerances, maximum ages, groupMax, catch-up
-// age, retired product and its bracket with the floor, so its reach), its
-// lone flag (C8) and the ids of its tier set and of the segment's
-// fall-through table. The series ID is left out: a re-issue under a new ID
-// is a twin. Every field is a value, so equal keys mean equal rules.
-func twinKey(s *seriesModel, lone bool, tier, falls int) string {
-	return fmt.Sprintf("%q %v %d %+v %+v %+v %+v %+v %+v %v %d %d",
-		s.product, s.retired, s.length, s.start, s.plans, s.maxStart, s.maxComplete, s.groupMax, s.catchUp, lone, tier, falls)
+// age, retired product and its bracket with the floor, so its reach) and
+// its lone flag (C8). The tiers are compared per product (version.twin).
+// The series ID is left out: a re-issue under a new ID is a twin. Every
+// field is a value, so equal keys mean equal rules.
+func twinKey(s *seriesModel, lone bool) string {
+	return fmt.Sprintf("%q %v %d %+v %+v %+v %+v %+v %+v %v",
+		s.product, s.retired, s.length, s.start, s.plans, s.maxStart, s.maxComplete, s.groupMax, s.catchUp, lone)
 }

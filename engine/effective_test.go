@@ -668,3 +668,39 @@ func TestVersionPassesBetweenBirthEnds(t *testing.T) {
 		checkAssessment(t, assessmentOf(t, e, "q", "2026-02-01", c.narrow, r1), completeWith(used, false))
 	}
 }
+
+// TestTwinThroughCatalogChange (Q109): a series in effect, unchanged, in
+// both segments is its own twin even when another product's series starts
+// or ends inside the history and so changes the tiers of products other
+// than the dose's (a product with no series in effect falls through to
+// every series). illustrative-max-age with rota-rotateq starting, or
+// ending, on 2002-03-12; birth year 2002, r0 rotavin 2002-03-05, today
+// 2002-04-01, no rotateq dose. Both give the windowless output: r0 meets
+// the 6-week minimum age at b_old 2002-01-01 (02-12) but not at the later
+// end → ⚪ [BIRTH_DATE_IMPRECISE{birthMonth}, DOSE_INVALID{minAge, r0, 1}],
+// est. As a version of itself, rota-rotavin would pass r0 at b_old and
+// soften the later end's failure to DOSE_POSSIBLY_INVALID (Q107).
+func TestTwinThroughCatalogChange(t *testing.T) {
+	t.Parallel()
+	base := loadSnapshot(t, "illustrative-max-age")
+	rotateq := slices.IndexFunc(base.Series, func(sr ruleset.Series) bool { return sr.ID == "rota-rotateq" })
+	want := engine.Assessment{Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotavin"}, Estimated: true, Reasons: []engine.Reason{
+		{Code: engine.ReasonBirthDateImprecise, Params: engine.ReasonParams{Hint: engine.HintBirthMonth}}, invalidDose("r0", 1, engine.CheckMinAge)}}
+	cut := mustDate(t, "2002-03-12")
+	for _, c := range []struct {
+		name string
+		edit func(sr *ruleset.Series)
+	}{
+		{"windowless", func(*ruleset.Series) {}},
+		{"rotateq starts", func(sr *ruleset.Series) { sr.ValidFrom = rdate(cut) }},
+		{"rotateq ends", func(sr *ruleset.Series) { sr.ValidTo = rdate(cut) }},
+	} {
+		s := cloneSnapshot(base)
+		c.edit(&s.Series[rotateq])
+		got := assessmentOf(t, newEngine(t, s, warnCodes(s)...), "rota", "2002-04-01", engine.RecalledDate{Value: "2002", Precision: engine.Year},
+			doseOf("rota", "r0", dayDate("2002-03-05"), "rotavin"))
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %+v\nwant %+v", c.name, got, want)
+		}
+	}
+}

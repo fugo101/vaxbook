@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"slices"
 	"testing"
@@ -135,5 +136,51 @@ func TestPropertyCatchUp(t *testing.T) {
 	t.Logf("%d caught up, %d clean next doses", asked, clean)
 	if asked == 0 || clean == 0 {
 		t.Fatal("the generator reaches no catch-up or no clean next dose; the property is vacuous")
+	}
+}
+
+// TestPropertyCatchUpBirthRange (Q108): with an imprecise birth date, a
+// shown next dose never lies past the catch-up age of a birth date in the
+// range: F = max(today, earliest) < b_old + catchUpAfterAge. The dates
+// driven by a minimum age come from the latest birth date, so without the
+// guard at b_old the later end could show such a date while it is clean.
+// The fixtures seldom put a minimum age near the catch-up age, so the
+// inputs come from an in-test family of cu-x: one dose with minAge 96 to
+// 111 weeks, due birth + 30m, catchUpAfterAge 2y, a random birth month and
+// today 600 to 799 days after its first day. Counters fail the test when
+// no input shows a next dose or none is guarded (⚪ BIRTH_DATE_IMPRECISE
+// without CATCH_UP_ASK_DOCTOR).
+func TestPropertyCatchUpBirthRange(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewPCG(108, 0))
+	base := mustDate(t, "2020-01-01")
+	shown, guarded := 0, 0
+	for range propertyRuns {
+		w := 96 + rng.IntN(16)
+		sr := qSeries(t, "cu-x", "", "", "", []ruleset.DoseRule{rule(t, fmt.Sprintf("P%dW", w), "", "", ruleset.FromBirth, "P30M")})
+		sr.CatchUpAfterAge = spanOf(t, "P2Y")
+		e := newEngine(t, oneDiseaseSnapshot(nil, sr))
+		y, m, _ := base.AddDays(rng.IntN(6 * 365)).YMD()
+		lo, err := engine.NewDate(y, m, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		today := lo.AddDays(600 + rng.IntN(200))
+		a := assessmentOf(t, e, "q", today.String(), monthDate(lo.String()[:7]))
+		checkAssessmentShape(t, "cu-x", a)
+		switch {
+		case a.NextDose != nil:
+			shown++
+			f := slices.MaxFunc([]engine.Date{today, a.NextDose.Earliest}, engine.Date.Compare)
+			if limit := lo.AddSpan(ruleset.Span{N: 2, Unit: ruleset.Years}); !f.Before(limit) {
+				t.Fatalf("cu-x minAge %dw, birth %s, today %s: shown next dose with F %s at or past b_old + 2y = %s\n%+v", w, lo.String()[:7], today, f, limit, a)
+			}
+		case hasCode(a, engine.ReasonBirthDateImprecise) && !hasCode(a, engine.ReasonCatchUpAskDoctor):
+			guarded++
+		}
+	}
+	t.Logf("%d shown next doses, %d guarded", shown, guarded)
+	if shown == 0 || guarded == 0 {
+		t.Fatal("the family reaches no shown next dose or no guarded result; the property is vacuous")
 	}
 }

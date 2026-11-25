@@ -195,24 +195,43 @@ func (ev evaluation) at(b birthEnd) endResult {
 // conclusions (which carry no next dose) and an as-walked blocking result
 // stay as they are; any bucket, ✅ ON_TRACK or notYetScheduled (Q78). With
 // F = max(today, the merged earliest date), merge's F, the earliest date
-// the result would show (Q91), the result is caught up when some candidate
-// at k has a catch-up age and F ≥ b + catchUpAfterAge, b the evaluated birth
-// date. It becomes ⚪ with its dates kept as masked dates and its step-7
-// reasons as masked reasons, the cap reason included (Q92), and
-// CATCH_UP_ASK_DOCTOR goes before a trailing ON_TRACK, else last.
+// the result would show (Q91), the result is caught up at a birth date
+// when some candidate at k has a catch-up age and F ≥ that date +
+// catchUpAfterAge. Caught up at b, the evaluated birth date, it becomes ⚪
+// with its dates kept as masked dates and its step-7 reasons as masked
+// reasons, the cap reason included (Q92), and CATCH_UP_ASK_DOCTOR goes
+// before a trailing ON_TRACK, else last.
+//
+// Otherwise, caught up at b_old (Q108), it becomes the same ⚪ with
+// BIRTH_DATE_IMPRECISE{fullBirthDate} in place of CATCH_UP_ASK_DOCTOR: the
+// dates driven by a minimum age or interval come from the latest birth
+// date, so F can lie past the catch-up age of an older birth date of the
+// range while this end is clean. Since b_old's own evaluation is never
+// guarded, step 4 then finds the ends disagree and gives ⚪
+// BIRTH_DATE_IMPRECISE{fullBirthDate} (the reason is an age limit); this
+// end's reason has the same key and is listed once. With an exact birth
+// date b_old is b, so nothing changes.
 func (ev evaluation) catchUp(b birthEnd, atK []int, res endResult) endResult {
 	if !b.known || !res.hasNext || res.block == BlockOutOfAge || blocking(res.reasons) {
 		return res
 	}
 	f := maxDate(ev.today, res.next.Earliest)
-	if !slices.ContainsFunc(atK, func(i int) bool {
-		s := ev.dz.series[ev.cands[i]]
-		return s.catchUp.ok && !f.Before(b.date.AddSpan(s.catchUp.span))
-	}) {
+	caught := func(at Date) bool {
+		return slices.ContainsFunc(atK, func(i int) bool {
+			s := ev.dz.series[ev.cands[i]]
+			return s.catchUp.ok && !f.Before(at.AddSpan(s.catchUp.span))
+		})
+	}
+	var ask Reason
+	switch {
+	case caught(b.date):
+		ask = Reason{Code: ReasonCatchUpAskDoctor}
+	case caught(b.older()):
+		ask = Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: HintFullBirthDate}}
+	default:
 		return res
 	}
 	res.bucket, res.block = BucketUnknown, ""
-	ask := Reason{Code: ReasonCatchUpAskDoctor}
 	reasons := slices.Clip(res.reasons)
 	if n := len(reasons); n > 0 && reasons[n-1].Code == ReasonOnTrack {
 		res.reasons = append(reasons[:n-1:n-1], ask, reasons[n-1])

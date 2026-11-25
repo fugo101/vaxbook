@@ -88,3 +88,31 @@ func TestCatchUpReadsShownEarliestDate(t *testing.T) {
 		Reasons: []engine.Reason{{Code: engine.ReasonAlternativePlans, Params: engine.ReasonParams{Series: "cu-2p"}}, askDoctor},
 	})
 }
+
+// TestCatchUpGuardAtOlderBirthEnd (Q108): cu-x, catchUpAfterAge 2y, one
+// dose, minAge P103W (721 days), due birth + 30m.
+//   - Birth month 2024-01, today 2025-12-01. At 01-01: F = E = 2025-12-22 <
+//     2026-01-01 → a clean notYetScheduled. At 01-31: F = E = 2026-01-21, not
+//     caught up at 01-31 (2026-01-31) but past b_old's catch-up age
+//     (2026-01-01), so that end is ⚪ [BIRTH_DATE_IMPRECISE{fullBirthDate}];
+//     the ends differ → ⚪ [BIRTH_DATE_IMPRECISE{fullBirthDate}], est. It no
+//     longer shows 2026-01-21, a date past the catch-up age of a birth date
+//     in the range.
+//   - The same on 2026-01-01: at 01-01 F = today is caught up; at 01-31 the
+//     guard → ⚪ [BIRTH_DATE_IMPRECISE{fullBirthDate}, CATCH_UP_ASK_DOCTOR],
+//     est, as before.
+//   - Birth 2024-01-01, today 2025-12-01: unchanged, notYetScheduled {1,
+//     2025-12-22, 2026-07-01, 2026-07-08}.
+func TestCatchUpGuardAtOlderBirthEnd(t *testing.T) {
+	t.Parallel()
+	sr := qSeries(t, "cu-x", "", "", "", []ruleset.DoseRule{rule(t, "P103W", "", "", ruleset.FromBirth, "P30M")})
+	sr.CatchUpAfterAge = spanOf(t, "P2Y")
+	e := newEngine(t, oneDiseaseSnapshot(nil, sr))
+	used := []string{"cu-x"}
+	month := monthDate("2024-01")
+	checkAssessment(t, assessmentOf(t, e, "q", "2025-12-01", month), unknownWith(used, true, fullBirthDate))
+	checkAssessment(t, assessmentOf(t, e, "q", "2026-01-01", month), unknownWith(used, true, fullBirthDate, askDoctor))
+	checkAssessment(t, assessmentOf(t, e, "q", "2025-12-01", dayDate("2024-01-01")), engine.Assessment{
+		Disease: "q", Block: engine.BlockNotYetScheduled, NextDose: nextDose(t, 1, "2025-12-22", "2026-07-01", "2026-07-08"), SeriesUsed: used,
+	})
+}

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// The engine contract (SAD §5.1), S4b subset. It grows additively: each slice
+// The engine contract (SAD §5.1), S4c subset. It grows additively: each slice
 // adds only the members it uses. Struct field order is the JSON member order
 // of the encoded output.
 
@@ -178,7 +178,9 @@ type Assessment struct {
 	// dose given (issue #28, Q74). With no dose given and different
 	// candidates across the birth-date range, it is the later end's list,
 	// in a ⚪ too (issue #23, Q40), and omitted when the later end has no
-	// candidate left (issue #28 In scope 6). Added in S3a.
+	// candidate left (issue #28 In scope 6). It is also omitted for ⚪
+	// NO_SERIES_IN_EFFECT, where no series is in effect today (issue #29).
+	// Added in S3a.
 	SeriesUsed []string `json:"seriesUsed,omitzero"`
 	// Products are the non-retired catalog products for the next dose, in
 	// snapshot order: the product of each candidate product series at the
@@ -219,7 +221,7 @@ const (
 // Block is a collapsed group outside the buckets.
 type Block string
 
-// Blocks (S4b subset).
+// Blocks (S4c subset).
 const (
 	// BlockNotYetScheduled is "Chưa tới lịch tiêm" ("Not yet scheduled"): no dose
 	// given and dose 1 due more than 6 months after today (EQ2, EQ18).
@@ -341,7 +343,7 @@ const (
 // never does so on its own.
 type ReasonCode string
 
-// Reason codes (S4b subset). Blocking unless the doc says informational.
+// Reason codes (S4c subset). Blocking unless the doc says informational.
 const (
 	// ReasonInvalidDate: a dose record of the disease has an unparseable
 	// date (A9). Params: dose.
@@ -492,4 +494,18 @@ const (
 	// 2026-11-24). Params: numbers (the positions whose exact date would
 	// decide). Added in S4b.
 	ReasonOutOfAgeUncertain ReasonCode = "OUT_OF_AGE_UNCERTAIN"
+	// ReasonNoSeriesInEffect: blocking. No series of the disease is in
+	// effect today (validity windows, or a disease with no series at all),
+	// so there is no rule to judge the history against; the disease is
+	// never dropped from the output (SAD §5.3 step 3, F05.1, EQ26, issue
+	// #29 Q82). It is the only reason of its assessment, after a step-1 or
+	// step-2 ⚪. No params. Added in S4c.
+	ReasonNoSeriesInEffect ReasonCode = "NO_SERIES_IN_EFFECT"
+	// ReasonCatchUpAskDoctor: blocking. The next dose's earliest date that
+	// the result would show is at or after birth + catchUpAfterAge of some
+	// candidate at k, so a doctor decides instead of a schedule (SAD §5.3
+	// step 7 "Catch-up", F05.2, EQ26, issue #29 Q78, Q91, Q92). It replaces
+	// any clean next dose; out of age wins over it, and the step-7 reasons
+	// stay as masked reasons. No params. Added in S4c.
+	ReasonCatchUpAskDoctor ReasonCode = "CATCH_UP_ASK_DOCTOR"
 )

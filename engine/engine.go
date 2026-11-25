@@ -10,10 +10,6 @@ import (
 	"github.com/fugo101/vaxbook/ruleset"
 )
 
-// ErrUnsupported reports a valid rule set shape that this engine slice does
-// not evaluate yet. In S3b: a disease with no series.
-var ErrUnsupported = errors.New("engine: rule set shape not supported yet")
-
 // Engine evaluates inputs against one rule set snapshot. New copies what it
 // needs from the snapshot, so an Engine is immutable and safe for concurrent
 // use.
@@ -232,8 +228,9 @@ type doseRule struct {
 }
 
 // New validates a snapshot and prepares an Engine for it. A snapshot that
-// ruleset.Validate rejects gives a *ruleset.RejectedError; a valid shape this
-// slice cannot evaluate gives an error wrapping ErrUnsupported.
+// ruleset.Validate rejects gives a *ruleset.RejectedError. Every valid
+// snapshot is accepted: since S4c a disease with no series in effect is
+// assessed ⚪ NO_SERIES_IN_EFFECT (issue #29, Q81).
 func New(s *ruleset.Snapshot) (*Engine, error) {
 	if s == nil {
 		return nil, errors.New("engine: nil rule set snapshot")
@@ -246,10 +243,7 @@ func New(s *ruleset.Snapshot) (*Engine, error) {
 		e.products[p.ID] = true
 	}
 	for _, dz := range s.Diseases {
-		m, err := compileDisease(s, dz.ID)
-		if err != nil {
-			return nil, err
-		}
+		m := compileDisease(s, dz.ID)
 		e.known[dz.ID] = true
 		e.diseases = append(e.diseases, m)
 	}
@@ -258,7 +252,7 @@ func New(s *ruleset.Snapshot) (*Engine, error) {
 
 // compileDisease prepares the series of one disease and its candidate
 // tiers (SAD §5.3 step 3).
-func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
+func compileDisease(s *ruleset.Snapshot, disease string) diseaseModel {
 	retired := map[string]bool{}
 	for _, p := range s.Products {
 		retired[p.ID] = p.Retired
@@ -297,9 +291,6 @@ func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
 		}
 		m.groups[g].series = append(m.groups[g].series, i)
 		m.groupOf = append(m.groupOf, g)
-	}
-	if len(m.series) == 0 {
-		return m, fmt.Errorf("%w: disease %q has no series", ErrUnsupported, disease)
 	}
 	for _, g := range m.groups {
 		slices.SortStableFunc(g.series, func(a, b int) int {
@@ -342,7 +333,7 @@ func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
 			m.tier[p.ID] = m.all
 		}
 	}
-	return m, nil
+	return m
 }
 
 func compileSeries(sr ruleset.Series) seriesModel {
@@ -543,6 +534,16 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) (
 	arr := arrange(doses)
 	if arr.blocked() {
 		a.Bucket, a.Reasons = BucketUnknown, arr.reasons
+		return a, endResult{}
+	}
+	// Step 3, effective dating: with no series in effect today the disease
+	// has no rule to judge the history against, even a history complete
+	// under a series that has ended (EQ26, issue #29 Q82). It is never
+	// dropped: ⚪ NO_SERIES_IN_EFFECT is its only reason, decided before the
+	// no-birth-date stop below, with no candidates, so no seriesUsed,
+	// products, next dose or IMPLIED_EARLIER_DOSES.
+	if len(dz.series) == 0 {
+		a.Bucket, a.Reasons = BucketUnknown, []Reason{{Code: ReasonNoSeriesInEffect}}
 		return a, endResult{}
 	}
 	// With no dose and no birth date, step 7 stops with NO_BIRTH_DATE

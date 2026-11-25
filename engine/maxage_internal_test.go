@@ -225,6 +225,7 @@ func TestBirthHintForAgeLimitReasons(t *testing.T) {
 		{"series may not complete", Reason{Code: ReasonSeriesMayNotComplete, Params: ReasonParams{LastDay: d(t, "2026-08-12")}}, HintFullBirthDate},
 		{"age-limit ⚪ at one date", Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: HintFullBirthDate}}, HintFullBirthDate},
 		{"out of age uncertain", Reason{Code: ReasonOutOfAgeUncertain, Params: ReasonParams{Numbers: []int{1}}}, HintFullBirthDate},
+		{"catch-up ask doctor", Reason{Code: ReasonCatchUpAskDoctor}, HintFullBirthDate},
 	}
 	for _, tc := range cases {
 		withReason := endResult{bucket: BucketUnknown, k: 1, reasons: []Reason{tc.reason}}

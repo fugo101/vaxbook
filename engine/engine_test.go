@@ -557,10 +557,11 @@ func TestNewRejectsGoBuiltSnapshotWithBadSpan(t *testing.T) {
 	}
 }
 
-// TestNewRejectsUnsupportedShapes: the only valid shape S3b cannot evaluate
-// is a disease with no series. S3a's limit of one series per product group
-// is gone: S3b tells the series of a group apart by start age (issue #23).
-func TestNewRejectsUnsupportedShapes(t *testing.T) {
+// TestNewProductAndGenericSeriesAreTwoGroups: a product series and a
+// generic series of one disease are two product groups, so neither needs a
+// startAge. Since S4c (issue #29, Q81) no valid shape is unsupported: a
+// disease with no series is TestNoSeriesInEffect's.
+func TestNewProductAndGenericSeriesAreTwoGroups(t *testing.T) {
 	t.Parallel()
 	const products = `"products": [{"id": "generic", "name": "G", "diseases": ["a"], "live": false}],`
 	series := func(id, product string) string {
@@ -569,18 +570,6 @@ func TestNewRejectsUnsupportedShapes(t *testing.T) {
 			p = `"product": "` + product + `", `
 		}
 		return `{"id": "` + id + `", "disease": "a", ` + p + `"stage": "childhood", "plans": [{"id": "p", "doses": [{"minAge": "P0D", "recommended": {"from": "birth", "offset": "P0D"}}]}]}`
-	}
-	for name, c := range map[string]struct{ snap, msg string }{
-		"disease without series": {`{"version": "v", "diseases": [{"id": "a", "name": "A"}], "series": []}`,
-			`disease "a" has no series`},
-	} {
-		s, err := ruleset.Decode([]byte(c.snap))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := New(s); !errors.Is(err, ErrUnsupported) || !strings.HasSuffix(err.Error(), c.msg) {
-			t.Errorf("%s: New error = %v, want ErrUnsupported ending in %s", name, err, c.msg)
-		}
 	}
 	// A product series and a generic series of one disease are two groups.
 	s, err := ruleset.Decode([]byte(`{"version": "v", "diseases": [{"id": "a", "name": "A"}], ` + products + ` "series": [` +
@@ -776,7 +765,8 @@ func TestReasonCodesClassified(t *testing.T) {
 	blockingCodes := []ReasonCode{ReasonInvalidDate, ReasonOutOfRange, ReasonDateInFuture, ReasonDateBeforeBirth,
 		ReasonUnexpectedValue, ReasonUnknownProduct, ReasonOverlappingEstimatedDates, ReasonNumberingConflict, ReasonBirthDateImprecise,
 		ReasonDoseInvalid, ReasonDosePossiblyInvalid, ReasonPreviousDoseDateUnknown, ReasonNoBirthDate,
-		ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts, ReasonOutOfAgeUncertain}
+		ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts, ReasonOutOfAgeUncertain,
+		ReasonNoSeriesInEffect, ReasonCatchUpAskDoctor}
 	for _, c := range informational {
 		if c.blocks() {
 			t.Errorf("%s blocks, want informational", c)

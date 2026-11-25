@@ -90,9 +90,15 @@ func TestBridgeErrors(t *testing.T) {
 	if r := errorKind(t, b.LoadRuleSet(c.Snapshot)); r.Error.Kind != "ruleset" || !jsonEqual(t, r.Error.Problems, c.Problems) {
 		t.Errorf("rejected snapshot: kind %q problems %s, want %s", r.Error.Kind, r.Error.Problems, c.Problems)
 	}
-	unsupported := `{"version": "v", "diseases": [{"id": "a", "name": "A"}], "series": []}`
-	if r := errorKind(t, b.LoadRuleSet([]byte(unsupported))); r.Error.Kind != "unsupported" {
-		t.Errorf("unsupported snapshot: %+v", r)
+	// A disease with no series loads since S4c (issue #29, Q81) and is
+	// assessed ⚪ NO_SERIES_IN_EFFECT.
+	seriesless := `{"version": "v", "diseases": [{"id": "a", "name": "A"}], "series": []}`
+	if res := b.LoadRuleSet([]byte(seriesless)); string(res) != `{"ok":true}` {
+		t.Errorf("series-less snapshot: LoadRuleSet = %s", res)
+	}
+	noSeries := `{"today": "2026-04-01", "profile": {"birth": {"value": "2026-02-01", "precision": "day"}}, "doses": []}`
+	if res := b.Evaluate([]byte(noSeries)); !strings.Contains(string(res), `"reasons":[{"code":"NO_SERIES_IN_EFFECT"}]`) {
+		t.Errorf("series-less snapshot: Evaluate = %s", res)
 	}
 	if res := b.LoadRuleSet(read(t, filepath.Join(testdata, "rulesets", "minimal-single.json"))); string(res) != `{"ok":true}` {
 		t.Fatalf("LoadRuleSet = %s", res)

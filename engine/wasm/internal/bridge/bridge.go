@@ -19,12 +19,11 @@ type Bridge struct {
 
 // Error kinds of a failed call.
 const (
-	kindDecode      = "decode"      // the JSON does not match the contract
-	kindRuleSet     = "ruleset"     // ruleset.Validate rejects the snapshot; problems listed
-	kindUnsupported = "unsupported" // valid, but this engine version cannot evaluate it
-	kindInput       = "input"       // engine.Validate problems stop Evaluate; problems listed
-	kindNotLoaded   = "notLoaded"   // Evaluate before a successful LoadRuleSet
-	kindInternal    = "internal"    // an engine bug; never expected
+	kindDecode    = "decode"    // the JSON does not match the contract
+	kindRuleSet   = "ruleset"   // ruleset.Validate rejects the snapshot; problems listed
+	kindInput     = "input"     // engine.Validate problems stop Evaluate; problems listed
+	kindNotLoaded = "notLoaded" // Evaluate before a successful LoadRuleSet
+	kindInternal  = "internal"  // an engine bug; never expected
 )
 
 type callError struct {
@@ -63,8 +62,6 @@ func (b *Bridge) LoadRuleSet(snapshot []byte) (res []byte) {
 	switch {
 	case errors.As(err, &rejected):
 		return fail(kindRuleSet, "", rejected.Problems)
-	case errors.Is(err, engine.ErrUnsupported):
-		return fail(kindUnsupported, err.Error(), nil)
 	case err != nil:
 		return fail(kindInternal, err.Error(), nil)
 	}

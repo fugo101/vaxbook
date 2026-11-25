@@ -275,6 +275,11 @@ func TestProblemCodeStrings(t *testing.T) {
 		MaxAgeMayNotBeAfterMinAge: "MAX_AGE_MAY_NOT_BE_AFTER_MIN_AGE",
 		MaxAgeStartAfterComplete:  "MAX_AGE_START_AFTER_COMPLETE",
 		SeriesCannotComplete:      "SERIES_CANNOT_COMPLETE",
+		// S4c: two Rejects, two Warns.
+		ToleranceUnit:            "TOLERANCE_UNIT",
+		ValidityEmpty:            "VALIDITY_EMPTY",
+		CatchUpAfterMaxAge:       "CATCH_UP_AFTER_MAX_AGE",
+		ToleranceNotBelowMinimum: "TOLERANCE_NOT_BELOW_MINIMUM",
 	}
 	for c, s := range want {
 		if string(c) != s {
@@ -389,6 +394,13 @@ func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
 				{Code: Required, Severity: Reject, Path: dose + "0/recommended/from"},
 				{Code: Required, Severity: Reject, Path: dose + "0/recommended/offset"},
 			}},
+		// A zero tolerance is INVALID_VALUE, as a zero buffer next to it
+		// (issue #29, Q89); JSON "P0D" is a valid zero tolerance.
+		{"zero tolerance", func(_, d1 *DoseRule) { d1.Tolerance = &Span{} },
+			[]Problem{invalid(dose+"1/tolerance", Span{})}},
+		{"negative tolerance", func(_, d1 *DoseRule) { d1.Tolerance = &Span{N: -1, Unit: Days} },
+			[]Problem{invalid(dose+"1/tolerance", Span{N: -1, Unit: Days})}},
+		{"P0D tolerance", func(_, d1 *DoseRule) { d1.Tolerance = &Span{N: 0, Unit: Days} }, nil},
 		{"spans at the cap", func(d0, d1 *DoseRule) {
 			d0.MinAge = &Span{N: MaxSpanN, Unit: Years}
 			d1.MinInterval = &Span{N: 0, Unit: Days}
@@ -475,6 +487,46 @@ func TestValidateSpansOfGoBuiltSnapshot(t *testing.T) {
 			{Code: Required, Severity: Reject, Path: maxComplete},
 		}, &Span{N: 1, Unit: Months}, &Span{}},
 	}
+	// catchUpAfterAge follows maxAgeComplete (Q89): a zero Span is
+	// REQUIRED. A zero validity bound is REQUIRED, and a Date that is not a
+	// calendar day INVALID_VALUE (issue #29).
+	const catchUp, validFrom, validTo = "/series/0/catchUpAfterAge", "/series/0/validFrom", "/series/0/validTo"
+	seriesCases := []struct {
+		name   string
+		mutate func(sr *Series)
+		want   []Problem
+	}{
+		{"zero catch-up age", func(sr *Series) { sr.CatchUpAfterAge = &Span{} },
+			[]Problem{{Code: Required, Severity: Reject, Path: catchUp}}},
+		{"catch-up age bad unit", func(sr *Series) { sr.CatchUpAfterAge = &Span{N: 2, Unit: 'x'} },
+			[]Problem{invalid(catchUp, Span{N: 2, Unit: 'x'})}},
+		{"zero valid from", func(sr *Series) { sr.ValidFrom = &Date{} },
+			[]Problem{{Code: Required, Severity: Reject, Path: validFrom}}},
+		{"valid to not a day", func(sr *Series) { sr.ValidTo = &Date{Year: 2025, Month: 2, Day: 30} },
+			[]Problem{{Code: InvalidValue, Severity: Reject, Path: validTo, Params: ProblemParams{Value: "Date{Year:2025, Month:2, Day:30}"}}}},
+		{"valid from month 13", func(sr *Series) { sr.ValidFrom = &Date{Year: 2025, Month: 13, Day: 1} },
+			[]Problem{{Code: InvalidValue, Severity: Reject, Path: validFrom, Params: ProblemParams{Value: "Date{Year:2025, Month:13, Day:1}"}}}},
+		// An invalid bound gets only its own problem: no VALIDITY_EMPTY.
+		{"invalid bound, no empty window", func(sr *Series) {
+			sr.ValidFrom, sr.ValidTo = &Date{Year: 2026, Month: 1, Day: 1}, &Date{Year: 2025, Month: 2, Day: 29}
+		}, []Problem{{Code: InvalidValue, Severity: Reject, Path: validTo, Params: ProblemParams{Value: "Date{Year:2025, Month:2, Day:29}"}}}},
+		{"window of one day", func(sr *Series) {
+			sr.ValidFrom, sr.ValidTo = &Date{Year: 2024, Month: 2, Day: 29}, &Date{Year: 2024, Month: 3, Day: 1}
+		}, nil},
+		{"window ends before it starts", func(sr *Series) {
+			sr.ValidFrom, sr.ValidTo = &Date{Year: 2026, Month: 1, Day: 2}, &Date{Year: 2026, Month: 1, Day: 1}
+		}, []Problem{{Code: ValidityEmpty, Severity: Reject, Path: "/series/0"}}},
+	}
+	for _, tc := range seriesCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := mustDecode(t, validCase)
+			tc.mutate(&s.Series[0])
+			if got := Validate(s); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Validate =\n  %v\nwant\n  %v", got, tc.want)
+			}
+		})
+	}
 	for _, tc := range maxCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -520,7 +572,7 @@ func TestValidateTestdata(t *testing.T) {
 				t.Error("illustrative is not set; every validate case is illustrative, not medically verified")
 			}
 			got := Validate(snap)
-			if !reflect.DeepEqual(got, c.Problems) {
+			if (len(got) > 0 || len(c.Problems) > 0) && !reflect.DeepEqual(got, c.Problems) {
 				t.Errorf("Validate =\n  %v\nwant\n  %v", got, c.Problems)
 			}
 			switch name := filepath.Base(f); {
@@ -532,8 +584,12 @@ func TestValidateTestdata(t *testing.T) {
 				if len(c.Problems) == 0 || len(Rejects(c.Problems)) > 0 {
 					t.Errorf("a warn-* case is accepted with at least one Warn, got %v", c.Problems)
 				}
+			case strings.HasPrefix(name, "accept-"):
+				if len(c.Problems) > 0 {
+					t.Errorf("an accept-* case is accepted with no problem, got %v", c.Problems)
+				}
 			default:
-				t.Error("a validate case is named reject-* or warn-*")
+				t.Error("a validate case is named reject-*, warn-* or accept-*")
 			}
 		})
 	}

@@ -1,0 +1,49 @@
+{
+  "snapshot": {
+    "version": "validate-reject-validity-empty",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-1",
+        "disease": "a",
+        "stage": "childhood",
+        "validFrom": "2026-01-01",
+        "validTo": "2026-01-01",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P2M"
+                }
+              },
+              {
+                "minInterval": "P4W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P4M"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "VALIDITY_EMPTY",
+      "severity": "reject",
+      "path": "/series/0"
+    }
+  ]
+}

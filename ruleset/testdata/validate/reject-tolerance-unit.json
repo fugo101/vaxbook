@@ -1,0 +1,51 @@
+{
+  "snapshot": {
+    "version": "validate-reject-tolerance-unit",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-1",
+        "disease": "a",
+        "stage": "childhood",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P2M"
+                }
+              },
+              {
+                "minInterval": "P4W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P4M"
+                },
+                "tolerance": "P1M"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "TOLERANCE_UNIT",
+      "severity": "reject",
+      "path": "/series/0/plans/0/doses/1/tolerance",
+      "params": {
+        "value": "P1M"
+      }
+    }
+  ]
+}

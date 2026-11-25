@@ -1,0 +1,49 @@
+{
+  "snapshot": {
+    "version": "validate-warn-catch-up-after-max-age",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-1",
+        "disease": "a",
+        "stage": "childhood",
+        "maxAgeComplete": "P2Y",
+        "catchUpAfterAge": "P2Y",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P2M"
+                }
+              },
+              {
+                "minInterval": "P4W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P4M"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "CATCH_UP_AFTER_MAX_AGE",
+      "severity": "warn",
+      "path": "/series/0/catchUpAfterAge"
+    }
+  ]
+}

@@ -18,7 +18,7 @@ const (
 // ProblemCode is a code from the closed catalog of rule set problems.
 type ProblemCode string
 
-// The rule set problem catalog (S4a). Renaming a code is a contract change.
+// The rule set problem catalog (S4c). Renaming a code is a contract change.
 const (
 	// PlanDoseCountMismatch: a plan has a different number of doses from
 	// plan 0 of its series (EQ5). Path: the plan.
@@ -58,11 +58,14 @@ const (
 	StartAgeEmpty ProblemCode = "START_AGE_EMPTY"
 	// StartAgeRequired: a product group (the series of one disease with
 	// the same product, or its generic series) has more than one series,
-	// and this one has no startAge (EQ26). Path: the series. Params:
-	// disease, product (absent for the generic group). Added in S3b.
+	// and this one has no startAge (EQ26). Since S4c only the series whose
+	// validity windows overlap count (windowsOverlap). Path: the series.
+	// Params: disease, product (absent for the generic group). Added in
+	// S3b.
 	StartAgeRequired ProblemCode = "START_AGE_REQUIRED"
-	// StartAgeOverlap: two start-age brackets of one product group may
-	// overlap for some month length (EQ26). Path: the later series'
+	// StartAgeOverlap: two start-age brackets of one product group, of
+	// series whose validity windows overlap (since S4c), may overlap for
+	// some month length (EQ26). Path: the later series'
 	// startAge. Params: id (the earlier series), one problem per earlier
 	// series it overlaps, in rule-set order. Added in S3b.
 	StartAgeOverlap ProblemCode = "START_AGE_OVERLAP"
@@ -72,11 +75,15 @@ const (
 	// the plan. Added in S3b.
 	FirstDoseMinAgeAboveStartAge ProblemCode = "FIRST_DOSE_MIN_AGE_ABOVE_START_AGE"
 	// FirstDoseMinAgeDiffers: Warn. In a product group of more than one
-	// series, a plan's dose-1 minimum age differs from that of plan 0 of
-	// the group's first series (issue #23, Q43). Spans are equal within one
-	// unit family (P1Y = P12M, P1W = P7D); spans of different families
-	// differ, except zero. Path: dose 1's minAge in the plan. Params: id
-	// (the group's first series). Added in S3b.
+	// series, a plan's dose-1 minimum age differs from that of plan 0 of an
+	// earlier series of the group, or of its own series (issue #23, Q43).
+	// Since S4c only series whose validity windows overlap are compared,
+	// pairwise: plan 0 of every earlier overlapping series in rule-set
+	// order, then the series' own plan 0, and the first that differs is
+	// named. Spans are equal within one unit family (P1Y = P12M, P1W =
+	// P7D); spans of different families differ, except zero. Path: dose 1's
+	// minAge in the plan. Params: id (the series it differs from). Added in
+	// S3b.
 	FirstDoseMinAgeDiffers ProblemCode = "FIRST_DOSE_MIN_AGE_DIFFERS"
 	// MaxAgeNotAfterMinAge: maxAgeStart or maxAgeComplete is certainly at
 	// or before the dose-1 minAge of some plan, or maxAgeStart is certainly
@@ -99,6 +106,21 @@ const (
 	// maxAgeComplete. Params: id (the plan), one problem per such plan, in
 	// plan order. Added in S4a.
 	SeriesCannotComplete ProblemCode = "SERIES_CANNOT_COMPLETE"
+	// ToleranceUnit: a dose rule's tolerance is not in days or weeks (Q80).
+	// Path: the tolerance. Params: value. Added in S4c.
+	ToleranceUnit ProblemCode = "TOLERANCE_UNIT"
+	// ValidityEmpty: a series' validFrom is not before its validTo, so the
+	// series is never in effect. Path: the series. Added in S4c.
+	ValidityEmpty ProblemCode = "VALIDITY_EMPTY"
+	// CatchUpAfterMaxAge: Warn. catchUpAfterAge may be at or after
+	// maxAgeComplete (SAD §5.2 span comparison), so it may never apply.
+	// Path: the series' catchUpAfterAge. Added in S4c.
+	CatchUpAfterMaxAge ProblemCode = "CATCH_UP_AFTER_MAX_AGE"
+	// ToleranceNotBelowMinimum: Warn. A dose rule's tolerance may be at or
+	// above its minAge, minInterval or minIntervalFromFirst, so the check it
+	// lowers becomes vacuous (two doses on one day count). Path: the
+	// tolerance. Added in S4c.
+	ToleranceNotBelowMinimum ProblemCode = "TOLERANCE_NOT_BELOW_MINIMUM"
 )
 
 // Problem is one finding of Validate. Path is a JSON pointer (RFC 6901)

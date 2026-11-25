@@ -1,0 +1,48 @@
+{
+  "snapshot": {
+    "version": "validate-warn-tolerance-not-below-minimum",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-1",
+        "disease": "a",
+        "stage": "childhood",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P2M"
+                }
+              },
+              {
+                "minInterval": "P3D",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P4M"
+                },
+                "tolerance": "P4D"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "TOLERANCE_NOT_BELOW_MINIMUM",
+      "severity": "warn",
+      "path": "/series/0/plans/0/doses/1/tolerance"
+    }
+  ]
+}

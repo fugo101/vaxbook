@@ -1,0 +1,96 @@
+{
+  "snapshot": {
+    "version": "validate-warn-first-dose-min-age-differs-by-window",
+    "illustrative": true,
+    "diseases": [
+      {
+        "id": "a",
+        "name": "Bệnh minh hoạ"
+      }
+    ],
+    "series": [
+      {
+        "id": "a-z",
+        "disease": "a",
+        "stage": "childhood",
+        "startAge": {
+          "min": "P8W",
+          "max": "P1Y"
+        },
+        "validFrom": "2020-01-01",
+        "validTo": "2022-01-01",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P8W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P8W"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "a-x",
+        "disease": "a",
+        "stage": "childhood",
+        "startAge": {
+          "min": "P6W",
+          "max": "P1Y"
+        },
+        "validFrom": "2022-01-01",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P6W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P6W"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "a-y",
+        "disease": "a",
+        "stage": "childhood",
+        "startAge": {
+          "min": "P1Y"
+        },
+        "validFrom": "2021-01-01",
+        "plans": [
+          {
+            "id": "main",
+            "doses": [
+              {
+                "minAge": "P8W",
+                "recommended": {
+                  "from": "birth",
+                  "offset": "P1Y"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "problems": [
+    {
+      "code": "FIRST_DOSE_MIN_AGE_DIFFERS",
+      "severity": "warn",
+      "path": "/series/2/plans/0/doses/0/minAge",
+      "params": {
+        "id": "a-x"
+      }
+    }
+  ]
+}

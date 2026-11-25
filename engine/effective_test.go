@@ -629,3 +629,42 @@ func TestTwinIsNotAVersion(t *testing.T) {
 		checkAssessment(t, got, c.want)
 	}
 }
+
+// TestVersionPassesBetweenBirthEnds (Q107): a version that fails a dose at
+// both birth ends, its minimum age at b_late and its maximum age at b_old,
+// still passes it for the birth dates between, so it counts like a
+// possible match: judged with its minimums at b_old and its maximum ages at
+// b_late, it passes. One dose each, today 2026-02-01:
+//   - g-old minAge 9m, maxAgeComplete 12m, due 9m, until 2026-01-01; g-new
+//     minAge 2y, due 2y, from then. r1 2025-07-15. Birth year 2024: g-new
+//     fails r1 at both ends (18.5 and 6.5 months old); g-old fails its 12
+//     months at 2024-01-01 and its 9 months at 2024-12-31, so it softens
+//     the failure → ⚪ [DOSE_POSSIBLY_INVALID{minAge, r1, 1}, COMPLETE],
+//     est, seriesUsed [g-new]. Birth 2024-09-01 (10.5 months at r1): g-old
+//     counts r1 → ✅ COMPLETE.
+//   - h-old minAge 38w, maxAgeComplete 40w until 2026-01-01; h-new minAge
+//     1y from then. r1 2025-10-15. Birth month 2025-01: h-old fails its 40
+//     weeks at 01-01 (41 weeks old) and its 38 weeks at 01-31 (36 weeks) →
+//     ⚪ [DOSE_POSSIBLY_INVALID{minAge, r1, 1}, COMPLETE], est. Birth
+//     2025-01-15 (39 weeks) → ✅ COMPLETE.
+func TestVersionPassesBetweenBirthEnds(t *testing.T) {
+	t.Parallel()
+	one := func(id, minAge, complete, due string) ruleset.Series {
+		return qSeries(t, id, "", "", complete, []ruleset.DoseRule{rule(t, minAge, "", "", ruleset.FromBirth, due)})
+	}
+	for _, c := range []struct {
+		prefix, oldMin, oldMax, newMin, r1 string
+		wide, narrow                       engine.RecalledDate
+	}{
+		{"g", "P9M", "P12M", "P2Y", "2025-07-15", engine.RecalledDate{Value: "2024", Precision: engine.Year}, dayDate("2024-09-01")},
+		{"h", "P38W", "P40W", "P1Y", "2025-10-15", monthDate("2025-01"), dayDate("2025-01-15")},
+	} {
+		e := newEngine(t, oneDiseaseSnapshot(nil,
+			ws(t, one(c.prefix+"-old", c.oldMin, c.oldMax, c.oldMin), "", "2026-01-01", "", ""),
+			ws(t, one(c.prefix+"-new", c.newMin, "", c.newMin), "2026-01-01", "", "", "")))
+		used := []string{c.prefix + "-new"}
+		r1 := qDose("r1", c.r1)
+		checkAssessment(t, assessmentOf(t, e, "q", "2026-02-01", c.wide, r1), unknownWith(used, true, possiblyInvalid("r1", 1, engine.CheckMinAge), complete))
+		checkAssessment(t, assessmentOf(t, e, "q", "2026-02-01", c.narrow, r1), completeWith(used, false))
+	}
+}

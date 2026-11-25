@@ -21,9 +21,19 @@ func (d doseVerdict) sev() verdict {
 // birth end b (Q62): the minimum checks by best plan, with s's tolerance,
 // against pd and first, and s's own maximum ages.
 func (s seriesModel) verdictAt(pos int, b birthEnd, x Range, pd predecessor, first *Range) doseVerdict {
-	v, checks := s.checkWith(pos, b, x, pd, first, gapBound{})
+	return s.splitVerdictAt(pos, b, b, x, pd, first)
+}
+
+// splitVerdictAt is verdictAt with the minimum checks read at minB and the
+// maximum ages at maxB. With minB = b_old and maxB = b_late it is the most
+// lenient reading of a birth range: a minimum age is reached first from the
+// oldest birth date and a maximum age passed last from the latest, and the
+// intervals do not read the birth date. A dose that some birth date of the
+// range passes therefore passes it (Q107).
+func (s seriesModel) splitVerdictAt(pos int, minB, maxB birthEnd, x Range, pd predecessor, first *Range) doseVerdict {
+	v, checks := s.checkWith(pos, minB, x, pd, first, gapBound{})
 	dv := doseVerdict{minV: v, minChecks: checks}
-	dv.addMax(s.maxAges(pos, b, x))
+	dv.addMax(s.maxAges(pos, maxB, x))
 	return dv
 }
 
@@ -82,10 +92,14 @@ func bracketMatch(v version, b birthEnd, firstBr Range) match {
 //   - A certain version that passes at both ends is a certain verdict: the
 //     worse of its two. The part's verdict is the best certain one (the
 //     smallest severity; a tie goes to c, then rule-set order). A version
-//     that passes at one end only, or a possible version that passes at
-//     either, counts as possible (Q93, Q107): when the part's verdict is
-//     definite it is demoted, every definite check turning possible, and a
-//     possible version never makes a part OK.
+//     that passes for some birth date of the range but not at both ends, or
+//     a possible version that passes for some, counts as possible (Q93,
+//     Q107): when the part's verdict is definite it is demoted, every
+//     definite check turning possible, and a possible version never makes a
+//     part OK. "Passes for some birth date" is read leniently: at either end,
+//     or with its minimums at b_old and its maximum ages at b_late
+//     (splitVerdictAt), so a version that fails its minimum age at b_late and
+//     its maximum age at b_old, and passes between, softens too.
 //   - The parts combine to OK when all are OK, definite when all are
 //     definite (their checks unioned per kind), else possible (every check
 //     failed in some part). The verdict is the better of that and vc (a tie
@@ -137,7 +151,8 @@ func (s seriesModel) datedVerdict(pos int, b birthEnd, x Range, pd predecessor, 
 			if m == matchNone {
 				continue
 			}
-			// worse is the certain verdict, lenient the better end's.
+			// worse is the certain verdict, lenient the most lenient reading
+			// of the birth range.
 			var worse, lenient doseVerdict
 			for i, e := range ends {
 				ev := v.s.verdictAt(pos, e, part, pd, first)
@@ -145,6 +160,11 @@ func (s seriesModel) datedVerdict(pos int, b birthEnd, x Range, pd predecessor, 
 					worse = ev
 				}
 				if i == 0 || ev.sev() < lenient.sev() {
+					lenient = ev
+				}
+			}
+			if len(ends) == 2 {
+				if ev := v.s.splitVerdictAt(pos, ends[0], ends[1], part, pd, first); ev.sev() < lenient.sev() {
 					lenient = ev
 				}
 			}

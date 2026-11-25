@@ -21,8 +21,12 @@ import (
 // diseases have versions whose verdict depends on the birth date (Q107): x
 // with x-old (dose 1 minAge 4w, dose 2 at 4w) until 2026-01-01, then x-new
 // (6w, 4w); and g with g-2025 (one dose, minAge 9m, maxAgeComplete 2y)
-// until 2026-01-01, then g-2026 (4w, 8m). No series of these timelines is
-// in effect in two segments, so no twin arises (Q109).
+// until 2026-01-01, then g-2026 (4w, 8m). A last disease m has m-old (one
+// dose, minAge 38w, maxAgeComplete 40w) until 2026-01-01, then m-new
+// (minAge 1y): m-old passes a dose for two weeks of birth dates only, so a
+// birth range can fail it at both ends, its minimum age at b_late and its
+// maximum age at b_old, and pass it between (Q107). No series of these
+// timelines is in effect in two segments, so no twin arises (Q109).
 func versionTimelines(t *testing.T) []diseaseTimeline {
 	t.Helper()
 	ed := gapFixture{name: "minimal-effective-dating", disease: "ed"}.diseaseOf(t)
@@ -45,7 +49,10 @@ func versionTimelines(t *testing.T) []diseaseTimeline {
 		return `{"id": "` + id + `", "disease": "g", "stage": "childhood", "maxAgeComplete": "` + complete + `", ` + extra + `"plans": [{"id": "a", "doses": [` +
 			`{"minAge": "` + minAge + `", "recommended": {"from": "birth", "offset": "P9M"}}]}]}`
 	}
-	doc := `{"version": "v", "illustrative": true, "diseases": [{"id": "k", "name": "K"}, {"id": "x", "name": "X"}, {"id": "g", "name": "G"}],
+	m := func(id, minAge, complete, extra string) string {
+		return strings.Replace(g(id, minAge, complete, extra), `"disease": "g"`, `"disease": "m"`, 1)
+	}
+	doc := `{"version": "v", "illustrative": true, "diseases": [{"id": "k", "name": "K"}, {"id": "x", "name": "X"}, {"id": "g", "name": "G"}, {"id": "m", "name": "M"}],
 	  "products": [{"id": "p", "name": "P", "diseases": ["k"], "live": false}, {"id": "q", "name": "Q", "diseases": ["k"], "live": false}], "series": [` + strings.Join([]string{
 		series("k-a", `"startAge": {"min": "P6W", "max": "P9M"}, "maxAgeComplete": "P3Y", "validTo": "2026-01-01", `, "P4W"),
 		series("k-b", `"startAge": {"min": "P9M"}, "maxAgeComplete": "P2Y", "validTo": "2026-01-01", `, "P8W"),
@@ -57,6 +64,8 @@ func versionTimelines(t *testing.T) []diseaseTimeline {
 		x("x-new", "P6W", `"validFrom": "2026-01-01", `),
 		g("g-2025", "P9M", "P2Y", `"validTo": "2026-01-01", `),
 		g("g-2026", "P4W", "P8M", `"validFrom": "2026-01-01", `),
+		m("m-old", "P38W", "P40W", `"validTo": "2026-01-01", `),
+		strings.Replace(m("m-new", "P1Y", "P5Y", `"validFrom": "2026-01-01", `), `"maxAgeComplete": "P5Y", `, "", 1),
 	}, ", ") + `]}`
 	s, err := ruleset.Decode([]byte(doc))
 	if err != nil {
@@ -166,19 +175,26 @@ func countsOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd pred
 
 // passesOnDay is the definite oracle of TestPropertyVersionsOnlyHelp: some
 // series that qualifies for a dose on day y, certainly or possibly, passes
-// it at one end of the birth range (at b with no birth date), so the dose
-// is not certainly invalid there (Q93, Q107).
-func passesOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd predecessor, first, firstBr *Range, product string) (string, bool) {
+// it for some birth date of the range, each day of it tried (at b with no
+// birth date), so the dose is not certainly invalid there (Q93, Q107).
+func passesOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd predecessor, first, firstBr *Range, product string) (string, Date, bool) {
 	day := Range{Lo: y, Hi: y}
-	id, passes := "", false
+	id, at, passes := "", Date{}, false
 	qualifying(tl, i, ci, pos, b, y, firstBr, product, func(d seriesModel, _ bool) {
-		for _, e := range birthEnds(b) {
+		births := []birthEnd{b}
+		if b.known {
+			births = births[:0]
+			for x := b.older(); !x.After(b.later()); x = x.AddDays(1) {
+				births = append(births, birthEnd{date: x, known: true})
+			}
+		}
+		for _, e := range births {
 			if !passes && d.verdictAt(pos, e, day, pd, first).sev() < verdictDefinite {
-				id, passes = d.id, true
+				id, at, passes = d.id, e.date, true
 			}
 		}
 	})
-	return id, passes
+	return id, at, passes
 }
 
 // TestPropertyVersionsOnlyHelp (issue #29 In scope 3): for a fixed
@@ -197,8 +213,9 @@ func passesOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd pred
 //     oracle does not;
 //   - is definite, on a range within one segment, only when no series that
 //     qualifies for the dose, certainly or possibly, passes any day of the
-//     range at either birth end (passesOnDay, Q93, Q107): a version that
-//     passes at one end only must leave the verdict possible.
+//     range for any birth date of the range (passesOnDay, Q93, Q107): a
+//     version that passes at one end only, or only between the ends (m-old),
+//     must leave the verdict possible.
 //
 // Birth dates, ranges and products are random, and the ranges often cross
 // a boundary. The whole-walk counterexample is
@@ -263,9 +280,9 @@ func TestPropertyVersionsOnlyHelp(t *testing.T) {
 			if v.sev() == verdictDefinite && segmentOf(tl, x.Lo) == segmentOf(tl, x.Hi) {
 				definite++
 				for y := x.Lo; !y.After(x.Hi); y = y.AddDays(1) {
-					if id, ok := passesOnDay(tl, i, ci, pos, b, y, pd, first, firstBr, product); ok {
-						t.Fatalf("%s %s: pos %d on %v (product %q, birth %+v, first %v, dose-1 range %v) is definite, but %s passes it on %s at a birth end",
-							tl.id, s.id, pos, x, product, b, first, firstBr, id, y)
+					if id, at, ok := passesOnDay(tl, i, ci, pos, b, y, pd, first, firstBr, product); ok {
+						t.Fatalf("%s %s: pos %d on %v (product %q, birth %+v, first %v, dose-1 range %v) is definite, but %s passes it on %s for birth date %s",
+							tl.id, s.id, pos, x, product, b, first, firstBr, id, y, at)
 					}
 				}
 			}

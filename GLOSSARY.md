@@ -98,6 +98,18 @@ _Avoid_: Start age (the bracket's min), Age limit (ambiguous)
 The age before which every dose of a series must be given (`maxAgeComplete`), an exclusive bound, series-level like the maximum age to start. A dose certainly on or after it is not counted.
 _Avoid_: Last allowed day (the day derived from it for one next dose)
 
+**Validity window** — *Thời gian hiệu lực*:
+The days a series is in effect: a half-open range [`validFrom`, `validTo`), either bound optional (unbounded when absent). A successor that replaces a series starts on the day the old one ends. The engine schedules the next dose with the series in effect today, and accepts a given dose that met the series in effect on its date (a version).
+_Avoid_: Effective period (ambiguous with a dose date range), Validity range
+
+**Validity segment**:
+A stretch of time in which the same series of a disease are in effect: the validity windows of its series cut time at their bounds. The engine compiles each segment once and evaluates on the one that contains today; a series of another segment that may count a given dose is a _version_ of today's series.
+_Avoid_: Period, Era
+
+**Catch-up age** — *Tuổi tiêm bù*:
+The age of a series (`catchUpAfterAge`) from which a late next dose is handed to a doctor instead of being scheduled: when the earliest date the result would show is at or after birth + the catch-up age, the result is ⚪ `CATCH_UP_ASK_DOCTOR`. Not a late start of a series in a start-age bracket.
+_Avoid_: Catch-up series (a series kind not modelled yet), Maximum age (a dose past it is not counted; past the catch-up age it may still count)
+
 **Named product**:
 For choosing between the reasons `CHECK_PRODUCT_NAME` and `MIXED_PRODUCTS` only: a dose with a catalog product that lists the disease (retired or not) or with an off-catalog product, as opposed to a dose with no product, a catalog product that does not list the disease, or an implied dose. Not the same as the products that decide the candidate series, where a retired or off-catalog product counts as unknown.
 _Avoid_: Known product (ambiguous with the candidate rule)
@@ -112,6 +124,10 @@ _Avoid_: Strictest product, Worst case
 
 **Dose rule** — *Quy tắc mũi*:
 The conditions for one dose in a series: recommended milestone, minimum age, minimum intervals, buffer, tolerance. The maximum ages belong to the series, not to a dose rule.
+
+**Tolerance** — *Dung sai*:
+A sourced grace period of a dose rule, in days or weeks: a given dose meets the rule's minimum age and minimum intervals when it is at most the tolerance early. It is used only to validate doses already given, never to compute a next-dose date or limit, and never lowers a maximum age.
+_Avoid_: Grace period (ambiguous with the overdue grace), Buffer (moves only the overdue date)
 
 **Rule** — *Quy tắc đặc biệt*:
 A rule that does not belong to a specific dose: periodic booster, before pregnancy, allowed additional dose, same-product requirement, information-only.

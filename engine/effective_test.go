@@ -2,6 +2,8 @@ package engine_test
 
 import (
 	"fmt"
+	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/fugo101/vaxbook/engine"
@@ -469,4 +471,88 @@ func TestEnvelopeReadsSegmentsFromP(t *testing.T) {
 	))
 	got := assessmentOf(t, e, "q", "2025-08-10", dayDate("2024-06-01"), qDose("r1", "2025-07-01"), numbered(qDose("u", ""), 2))
 	checkAssessment(t, got, unknownWith([]string{"br-b"}, true, invalidDose("u", 2, engine.CheckMinInterval)))
+}
+
+// TestIdenticalCopyInBracketedGroup pins a conflict between two rules of
+// issue #29 In scope 3, open for the owner: Q93 matches a bracketed version
+// "possibly" when no dose 1 is counted, whatever the dose's own date, and
+// the better-of verdict is meant to make an identical re-issue change
+// nothing. On minimal-start-age-gap-late (gap-a [1y, 2y) dose 2 at 8w,
+// gap-b [3y, 5y) dose 2 at 4w, gap-c [5y, —), dose 1 minAge 1y in each),
+// birth 2023-08-06, r1 2023-09-20 (below every minAge), r4 #2 2023-10-29,
+// today 2024-03-09:
+//   - windowless: r1 fails its minimum age, and r4 fails gap-a's 8 weeks
+//     from r1 (11-15): ⚪ [DOSE_INVALID{minAge, r1, 1},
+//     DOSE_INVALID{minInterval, r4, 2}], seriesUsed [gap-a];
+//   - gap-a ending on 2024-02-25 and an identical gap-a-copy starting then:
+//     gap-b, in effect in the older segment, is a version of gap-a-copy;
+//     with no dose 1 counted it matches possibly, its 4 weeks (10-18) pass
+//     r4, so r4 is softened to possible and counted: ⚪
+//     [DOSE_INVALID{minAge, r1, 1}, DOSE_POSSIBLY_INVALID{minInterval, r4,
+//     2}, COMPLETE], seriesUsed [gap-a-copy]. gap-b needs dose 1 at 3 years
+//     or older, and the child is under 3 months at r4.
+//
+// TestPropertyIdenticalCopiesChangeNothing therefore copies only a series
+// alone in its product group. When the owner decides, this test changes
+// with the rule.
+func TestIdenticalCopyInBracketedGroup(t *testing.T) {
+	t.Parallel()
+	base := loadSnapshot(t, "minimal-start-age-gap-late")
+	copied := cloneSnapshot(base)
+	i := slices.IndexFunc(copied.Series, func(sr ruleset.Series) bool { return sr.ID == "gap-a" })
+	cp := copied.Series[i]
+	cp.ID = "gap-a-copy"
+	copied.Series[i] = ws(t, copied.Series[i], "", "2024-02-25", "", "")
+	cp = ws(t, cp, "2024-02-25", "", "", "")
+	copied.Series = slices.Insert(copied.Series, i+1, cp)
+	doses := []engine.DoseRecord{doseOf("gap", "r1", dayDate("2023-09-20"), ""), numbered(doseOf("gap", "r4", dayDate("2023-10-29"), ""), 2)}
+	minAge := invalidDose("r1", 1, engine.CheckMinAge)
+	for _, c := range []struct {
+		name   string
+		snap   *ruleset.Snapshot
+		series string
+		want   []engine.Reason
+	}{
+		{"windowless", base, "gap-a", []engine.Reason{minAge, invalidDose("r4", 2, engine.CheckMinInterval)}},
+		{"identical copy", copied, "gap-a-copy", []engine.Reason{minAge,
+			{Code: engine.ReasonDosePossiblyInvalid, Params: engine.ReasonParams{Checks: []engine.Check{engine.CheckMinInterval}, Dose: "r4", Number: 2}},
+			{Code: engine.ReasonComplete}}},
+	} {
+		a := assessmentOf(t, newEngine(t, c.snap, warnCodes(c.snap)...), "gap", "2024-03-09", dayDate("2023-08-06"), doses...)
+		if a.Bucket != engine.BucketUnknown || !slices.Equal(a.SeriesUsed, []string{c.series}) || !reflect.DeepEqual(a.Reasons, c.want) {
+			t.Errorf("%s: %+v\nwant ⚪ seriesUsed [%s] reasons %v", c.name, a, c.series, c.want)
+		}
+	}
+}
+
+// TestVersionBirthRangeDefinite pins a consequence of #29 In scope 3's
+// birth-range rule (a version is judged by the worse of its verdicts at
+// b_old and b_late), open for the owner: a definite verdict that narrowing
+// the birth date turns into a counted dose. x-old (until 2026-01-01) has
+// dose 1 minAge P4W, x-new (from then) P6W, each dose 2 at 4w. Birth
+// 2025-09, r1 2025-10-06, today 2026-02-01:
+//   - month birth date: x-old passes r1 at b_old 09-01 (09-29) and fails it
+//     at b_late 09-30 (10-28), so its worse verdict is definite; x-new fails
+//     it at both (10-13, 11-11). Both step-4 ends give DOSE_INVALID{minAge,
+//     r1, 1}: ⚪ with that reason alone, estimated;
+//   - birth 2025-09-01: x-old counts r1, the rule in effect on its date, so
+//     dose 2 is due 4 weeks later and the result is 🔴 for dose 2 with no
+//     DOSE_INVALID.
+//
+// The month result is P1-safe (⚪), but its definite reason does not hold
+// for every birth date in the range, as S4a's meaning of definite asks.
+func TestVersionBirthRangeDefinite(t *testing.T) {
+	t.Parallel()
+	e := newEngine(t, oneDiseaseSnapshot(nil,
+		ws(t, twoDose(t, "x-old", "", "P4W", "P4W"), "", "2026-01-01", "", ""),
+		ws(t, twoDose(t, "x-new", "", "P6W", "P4W"), "2026-01-01", "", "", "")))
+	r1 := qDose("r1", "2025-10-06")
+	wide := assessmentOf(t, e, "q", "2026-02-01", monthDate("2025-09"), r1)
+	if want := []engine.Reason{invalidDose("r1", 1, engine.CheckMinAge)}; wide.Bucket != engine.BucketUnknown || !reflect.DeepEqual(wide.Reasons, want) {
+		t.Errorf("birth 2025-09: %+v\nwant ⚪ %v", wide, want)
+	}
+	narrow := assessmentOf(t, e, "q", "2026-02-01", dayDate("2025-09-01"), r1)
+	if narrow.Bucket != engine.BucketOverdue || narrow.NextDose == nil || narrow.NextDose.Number != 2 || hasCode(narrow, engine.ReasonDoseInvalid) {
+		t.Errorf("birth 2025-09-01: %+v\nwant 🔴 for dose 2, r1 counted", narrow)
+	}
 }

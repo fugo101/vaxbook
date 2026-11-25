@@ -331,16 +331,13 @@ func warnCodes(s *ruleset.Snapshot) []ruleset.ProblemCode {
 // buys: without c's own verdict on the whole range, the parts could turn a
 // possible verdict into a definite one.
 //
-// Only a series alone in its product group is copied. Copying one of a
-// bracketed group makes the group's other series versions in the older
-// segment, and with no dose 1 counted #29 In scope 3 matches a bracketed
-// version "possibly" whatever the dose's own date: on
-// minimal-start-age-gap-late (birth 2023-08-06, today 2024-03-09, r1
-// 2023-09-20 below every minAge, r4 #2 2023-10-29, gap-a copied from
-// 2024-02-25) gap-b's 4w then softens r4's DOSE_INVALID{minInterval} under
-// gap-a's 8w, although gap-b's dose 1 (at 3 years at least) cannot precede
-// r4. That conflict with this property is reported on issue #29, not
-// resolved here.
+// Only a series alone in its product group is copied, which narrows #29's
+// property. Copying one of a bracketed group makes the group's other
+// series versions in the older segment, and with no dose 1 counted #29 In
+// scope 3 (Q93) matches a bracketed version "possibly" whatever the dose's
+// own date, so the copy can soften a definite failure
+// (TestIdenticalCopyInBracketedGroup pins the case). The two decided rules
+// conflict there; the narrowing awaits an owner decision.
 func TestPropertyIdenticalCopiesChangeNothing(t *testing.T) {
 	t.Parallel()
 	compared := 0

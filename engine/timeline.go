@@ -104,5 +104,105 @@ func compileTimeline(s *ruleset.Snapshot, disease string) (diseaseTimeline, erro
 		}
 		tl.models = append(tl.models, compileDisease(s, disease, inEffect))
 	}
+	tl.compileVersions()
 	return tl, nil
+}
+
+// version is a series d of another validity segment j that may count a
+// dose of today's series c as the rule in effect on its date (SAD §5.3 step
+// 5, F05.10 "Rule versions", EQ26; issue #29 In scope 3, Q77, Q93–Q96).
+type version struct {
+	// s is d as compiled in segment j: its plans, its maximum ages and its
+	// bracket's reach there (floor, max, groupMax). It has no versions.
+	s seriesModel
+	// seg is segment j, [from, to); a missing bound is unbounded.
+	seg window
+	// lone: d is alone in its product group in segment j, so its bracket
+	// holds every age there (C8, Q95).
+	lone bool
+	// sameGroup: d is in c's product group. tier holds, for each catalog
+	// product P of the disease, whether d applies to a P dose under c
+	// (Q94): d is in P's tier in segment j, and d is in c's group or c is
+	// in P's tier today, neither tier being the every-series fall-through.
+	// A dose with no product or another product has every series as its
+	// tier, so d applies to it iff sameGroup.
+	sameGroup bool
+	tier      map[string]bool
+}
+
+// applies reports whether the version applies to a dose of product
+// (Q94).
+func (v version) applies(product string) bool {
+	if a, ok := v.tier[product]; ok {
+		return a
+	}
+	return v.sameGroup
+}
+
+// lastDose reports whether the version may count a dose at position pos of
+// a series of length n (Q96): it has at least pos doses, and when pos is
+// the series' last dose it is the version's last too.
+func (v version) lastDose(pos, n int) bool {
+	return v.s.length >= pos && (pos != n || v.s.length == pos)
+}
+
+// compileVersions attaches to each series of each segment its versions:
+// every series d of every other segment that applies to some dose under it
+// (version.tier, version.sameGroup), in segment order, then rule-set order.
+// A series in effect in several segments is a version of itself there,
+// since its floor, groupMax or tiers may differ. Nothing in a walk reads
+// another segment's model, so a version carries what it needs.
+func (tl diseaseTimeline) compileVersions() {
+	if len(tl.models) < 2 {
+		return
+	}
+	segs := make([]window, len(tl.models))
+	for j := range segs {
+		segs[j] = window{from: tl.starts[j], hasFrom: j > 0}
+		if j+1 < len(tl.starts) {
+			segs[j].to, segs[j].hasTo = tl.starts[j+1], true
+		}
+	}
+	// orig holds every segment's series before any versions are attached.
+	orig := make([][]seriesModel, len(tl.models))
+	for j, m := range tl.models {
+		orig[j] = slices.Clone(m.series)
+	}
+	for i, mi := range tl.models {
+		for ci := range mi.series {
+			c := &mi.series[ci]
+			for j, mj := range tl.models {
+				if j == i {
+					continue
+				}
+				for di, d := range orig[j] {
+					v := version{s: d, seg: segs[j], lone: len(mj.groups[mj.groupOf[di]].series) == 1, sameGroup: d.product == c.product}
+					useful := v.sameGroup
+					for _, p := range mi.catalog {
+						a := slices.Contains(mj.tier[p], di) &&
+							(v.sameGroup || !mj.fallsThrough[p] && !mi.fallsThrough[p] && slices.Contains(mi.tier[p], ci))
+						if v.tier == nil {
+							v.tier = map[string]bool{}
+						}
+						v.tier[p] = a
+						useful = useful || a
+					}
+					if !useful {
+						continue
+					}
+					c.versions = append(c.versions, v)
+					v.s = v.s.withoutMaxAges()
+					c.bare = append(c.bare, v)
+					if v.seg.hasFrom {
+						c.cuts = append(c.cuts, v.seg.from)
+					}
+					if v.seg.hasTo {
+						c.cuts = append(c.cuts, v.seg.to)
+					}
+				}
+			}
+			slices.SortFunc(c.cuts, Date.Compare)
+			c.cuts = slices.Compact(c.cuts)
+		}
+	}
 }

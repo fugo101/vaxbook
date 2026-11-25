@@ -29,6 +29,11 @@ type diseaseModel struct {
 	// series, else the generic series, else every series. A dose with any
 	// other product, or none, has every series (EQ14, Q36).
 	tier map[string][]int
+	// fallsThrough marks the catalog products whose tier is the every-series
+	// fall-through (no series of their own and no generic series), which a
+	// version of another segment never crosses groups through (issue #29
+	// Q94).
+	fallsThrough map[string]bool
 	// noDose are the candidates when no dose is given: every series but
 	// those of retired products, or every series when none is left (Q38).
 	noDose []int
@@ -76,6 +81,14 @@ type seriesModel struct {
 	// earliest shown date is at or after birth + catchUp is handed to a
 	// doctor (evaluation.catchUp; issue #29 In scope 5).
 	catchUp optSpan
+	// versions are the series of the disease's other validity segments that
+	// may count a dose of this series as the rule in effect on its date
+	// (version, issue #29 In scope 3), and cuts their segment bounds,
+	// ascending. bare are the same versions with no maximum age, for the
+	// walk of the start-age bracket choice (withoutMaxAges). All are nil on
+	// a windowless snapshot.
+	versions, bare []version
+	cuts           []Date
 }
 
 // hasMaxAges reports whether the series has any maximum age. Without one,
@@ -89,6 +102,7 @@ func (s seriesModel) hasMaxAges() bool {
 // item counted at position 1 stay S3b's.
 func (s seriesModel) withoutMaxAges() seriesModel {
 	s.maxStart, s.maxComplete, s.groupMax = optSpan{}, optSpan{}, optSpan{}
+	s.versions = s.bare
 	return s
 }
 
@@ -272,7 +286,7 @@ func compileDisease(s *ruleset.Snapshot, disease string, inEffect func(int) bool
 	for _, p := range s.Products {
 		retired[p.ID] = p.Retired
 	}
-	m := diseaseModel{id: disease, tier: map[string][]int{}, listing: map[string]bool{}}
+	m := diseaseModel{id: disease, tier: map[string][]int{}, fallsThrough: map[string]bool{}, listing: map[string]bool{}}
 	for _, p := range s.Products {
 		if slices.Contains(p.Diseases, disease) {
 			m.listing[p.ID] = true
@@ -346,6 +360,7 @@ func compileDisease(s *ruleset.Snapshot, disease string, inEffect func(int) bool
 			m.genericProducts = append(m.genericProducts, p.ID)
 		default:
 			m.tier[p.ID] = m.all
+			m.fallsThrough[p.ID] = true
 		}
 	}
 	return m

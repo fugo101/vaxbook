@@ -24,6 +24,17 @@ type fixture struct {
 	engine *engine.Engine
 }
 
+// fixtureWindows draws a windowed variant with bounds in 1995–2035, where
+// the random inputs' dates lie, so that their histories meet several
+// segments.
+func fixtureWindows(t *testing.T) func(*rand.Rand, *ruleset.Snapshot) (*ruleset.Snapshot, bool) {
+	t.Helper()
+	lo, hi := mustDate(t, "1995-01-01"), mustDate(t, "2035-01-01")
+	return func(rng *rand.Rand, s *ruleset.Snapshot) (*ruleset.Snapshot, bool) {
+		return windowedVariant(rng, s, lo, hi)
+	}
+}
+
 // fixtures returns every fixture rule set, then seeded S4c variants of two
 // of them (issue #29: the generators gain catch-up ages, tolerances and
 // validity windows), so that every property also runs where the cap meets
@@ -42,6 +53,8 @@ func fixtures(t *testing.T) []fixture {
 	}{
 		{"illustrative-max-age", "~catch-up", catchUpVariant},
 		{"illustrative-vn", "~tolerance", toleranceVariant},
+		{"illustrative-vn", "~windows", fixtureWindows(t)},
+		{"illustrative-max-age", "~windows", fixtureWindows(t)},
 	} {
 		rng := rand.New(rand.NewPCG(29, uint64(len(v.base))))
 		for {

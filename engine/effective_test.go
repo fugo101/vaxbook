@@ -704,3 +704,59 @@ func TestTwinThroughCatalogChange(t *testing.T) {
 		}
 	}
 }
+
+// TestNearTwinIsAVersion (Q109): a series of another segment that differs
+// from a series in effect today in its reach, its lone flag or the tier of
+// the dose's product is not that series' twin, so it stays a version and
+// counts the dose its rule counted then. Today 2026-02-01, two doses each:
+//   - bracket: y-a [6w, 1y) with dose 2 at 8w and y-b [1y, —) at 4w until
+//     2026-01-01; then y-a2 [6w, 2y) at 8w and y-b2 [2y, —) at 4w, the plans
+//     unchanged and only the brackets moved. Birth 2024-01-01, r1
+//     2025-03-01 (14 months), r2 2025-04-01. Today r1 lies in y-a2's
+//     bracket, whose 8 weeks r2 fails, but y-b's reach then, [1y, —),
+//     certainly held dose 1 and its 4 weeks (03-29) pass r2 → ✅ COMPLETE,
+//     seriesUsed [y-a2]. Read as y-b2's twin, y-b would leave
+//     DOSE_INVALID{minInterval, r2, 2};
+//   - lone: l-b [1y, —) at 4w, in effect throughout, was alone in its group
+//     until l-a [6w, 1y) at 8w started on 2026-01-01, so before that it held
+//     every age (C8). Birth 2025-06-01, r1 2025-09-01 (3 months), r2
+//     2025-10-01: today's l-a fails r2 (8 weeks = 10-27), l-b as it was
+//     passes it (09-29) → ✅ COMPLETE, seriesUsed [l-a];
+//   - tier: the generic g (dose 2 at 4w) is in effect throughout and held
+//     product p's tier until p-2026 (8w) started on 2026-01-01. Birth
+//     2025-09-01, p doses r1 2025-11-01 and r2 2025-12-01: today's c for a p
+//     dose is p-2026, whose 8 weeks r2 fails, and g, in p's tier on the
+//     dose dates but not today, passes it → ✅ COMPLETE, seriesUsed
+//     [p-2026], as when g ends where p-2026 starts (TestVersionTiers).
+func TestNearTwinIsAVersion(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name     string
+		products []string
+		series   []ruleset.Series
+		birth    string
+		doses    []engine.DoseRecord
+		used     string
+	}{
+		{"bracket", nil, []ruleset.Series{
+			ws(t, twoDose(t, "y-a", "", "P6W", "P8W"), "", "2026-01-01", "P6W", "P1Y"),
+			ws(t, twoDose(t, "y-b", "", "P6W", "P4W"), "", "2026-01-01", "P1Y", ""),
+			ws(t, twoDose(t, "y-a2", "", "P6W", "P8W"), "2026-01-01", "", "P6W", "P2Y"),
+			ws(t, twoDose(t, "y-b2", "", "P6W", "P4W"), "2026-01-01", "", "P2Y", ""),
+		}, "2024-01-01", []engine.DoseRecord{qDose("r1", "2025-03-01"), qDose("r2", "2025-04-01")}, "y-a2"},
+		{"lone", nil, []ruleset.Series{
+			ws(t, twoDose(t, "l-a", "", "P6W", "P8W"), "2026-01-01", "", "P6W", "P1Y"),
+			ws(t, twoDose(t, "l-b", "", "P6W", "P4W"), "", "", "P1Y", ""),
+		}, "2025-06-01", []engine.DoseRecord{qDose("r1", "2025-09-01"), qDose("r2", "2025-10-01")}, "l-a"},
+		{"tier", []string{"p"}, []ruleset.Series{
+			twoDose(t, "g", "", "P6W", "P4W"),
+			ws(t, twoDose(t, "p-2026", "p", "P6W", "P8W"), "2026-01-01", "", "", ""),
+		}, "2025-09-01", []engine.DoseRecord{pqDose("r1", "2025-11-01", "p"), pqDose("r2", "2025-12-01", "p")}, "p-2026"},
+	} {
+		s := oneDiseaseSnapshot(c.products, c.series...)
+		got := assessmentOf(t, newEngine(t, s, warnCodes(s)...), "q", "2026-02-01", dayDate(c.birth), c.doses...)
+		if want := completeWith([]string{c.used}, false); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %+v\nwant %+v", c.name, got, want)
+		}
+	}
+}

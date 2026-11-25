@@ -372,33 +372,30 @@ func readCopyAsOriginal(a *engine.Assessment, copyID, origID string) {
 	}
 }
 
-// TestPropertyIdenticalCopiesChangeNothing (issue #29 In scope 3): a series
-// re-issued with identical rules changes nothing. Each random input of
-// each windowless fixture is evaluated again on a variant where one random
-// series ends on a date inside the input's history and an identical copy
-// ("<id>-copy") starts that day. The output must equal the windowless one
-// once the copy's ID is read as the original's (in seriesUsed and in the
-// reasons' series and candidates). This is what the better-of dose verdict
+// TestPropertyIdenticalCopiesChangeNothing (issue #29 In scope 3, Q106,
+// Q109): a series re-issued with identical rules changes nothing. Each
+// random input of each windowless fixture is evaluated again on a variant
+// where one random series ends on a date inside the input's history and an
+// identical copy ("<id>-copy") starts that day (identicalCopy). The output
+// must equal the windowless one once the copy's ID is read as the
+// original's (readCopyAsOriginal). This is what the better-of dose verdict
 // buys: without c's own verdict on the whole range, the parts could turn a
-// possible verdict into a definite one.
+// possible verdict into a definite one. And it is what the twin rule buys
+// (Q109): the series of the older segment that have a twin in effect today,
+// the copied one and the others of its group alike, are not versions, so
+// none can count a dose that today's candidate choice does not.
 //
 // That needs a cut inside an imprecise dose range that crosses a maximum
 // age, which random inputs seldom give. So a fixture with maximum ages
 // (ageLimits) also gets len(limits) × propertyRuns / 2 near-limit inputs
 // (nearLimitInput), half the cuts fall inside an imprecise dose range of
 // the disease, and a counter fails the test when no cut falls inside a
-// dose range of a copied series with a maximum age.
-//
-// Only a series alone in its product group is copied, which narrows #29's
-// property. Copying one of a bracketed group makes the group's other
-// series versions in the older segment, and with no dose 1 counted #29 In
-// scope 3 (Q93) matches a bracketed version "possibly" whatever the dose's
-// own date, so the copy can soften a definite failure
-// (TestIdenticalCopyInBracketedGroup pins the case). The two decided rules
-// conflict there; the narrowing awaits an owner decision.
+// dose range of a copied series with a maximum age. Any series is copied,
+// one of a bracketed group included, and a second counter fails the test
+// when no copied series has a start-age bracket.
 func TestPropertyIdenticalCopiesChangeNothing(t *testing.T) {
 	t.Parallel()
-	compared, inside := 0, 0
+	compared, inside, bracketed := 0, 0, 0
 	for _, fx := range fixtures(t) {
 		if windowed(fx.snap) {
 			continue
@@ -413,18 +410,7 @@ func TestPropertyIdenticalCopiesChangeNothing(t *testing.T) {
 				in = nearLimitInput(t, rng, fx.snap, limits)
 			}
 			_, want := evaluate(t, fx.engine, in)
-			var alone []int
-			for i, sr := range fx.snap.Series {
-				if !slices.ContainsFunc(fx.snap.Series, func(o ruleset.Series) bool {
-					return o.ID != sr.ID && o.Disease == sr.Disease && (o.Product == nil) == (sr.Product == nil) && (o.Product == nil || *o.Product == *sr.Product)
-				}) {
-					alone = append(alone, i)
-				}
-			}
-			if len(alone) == 0 {
-				continue
-			}
-			i := alone[rng.IntN(len(alone))]
+			i := rng.IntN(len(fx.snap.Series))
 			orig := fx.snap.Series[i]
 			lower, _ := historySpan(in, orig.Disease)
 			cut := lower.AddDays(1 + rng.IntN(daysBetween(lower, in.Today)+1))
@@ -445,31 +431,14 @@ func TestPropertyIdenticalCopiesChangeNothing(t *testing.T) {
 				slices.ContainsFunc(ranges, func(x [2]engine.Date) bool { return x[0].Before(cut) && !cut.After(x[1]) }) {
 				inside++
 			}
-			v := cloneSnapshot(fx.snap)
-			cp := v.Series[i]
-			cp.ID += "-copy"
-			v.Series[i].ValidTo, cp.ValidFrom = rdate(cut), rdate(cut)
-			v.Series = slices.Insert(v.Series, i+1, cp)
+			if orig.StartAge != nil {
+				bracketed++
+			}
+			v := identicalCopy(fx.snap, i, cut)
 			e := newEngine(t, v, warnCodes(v)...)
 			out, _ := evaluate(t, e, in)
 			for j := range out.Assessments {
-				a := &out.Assessments[j]
-				for k, id := range a.SeriesUsed {
-					if id == cp.ID {
-						a.SeriesUsed[k] = orig.ID
-					}
-				}
-				for k := range a.Reasons {
-					p := &a.Reasons[k].Params
-					if p.Series == cp.ID {
-						p.Series = orig.ID
-					}
-					for c := range p.Candidates {
-						if p.Candidates[c].Series == cp.ID {
-							p.Candidates[c].Series = orig.ID
-						}
-					}
-				}
+				readCopyAsOriginal(&out.Assessments[j], orig.ID+"-copy", orig.ID)
 			}
 			got, err := engine.EncodeOutput(out)
 			if err != nil {
@@ -481,8 +450,8 @@ func TestPropertyIdenticalCopiesChangeNothing(t *testing.T) {
 			compared++
 		}
 	}
-	t.Logf("%d inputs compared, %d cut inside a dose range of a series with a maximum age", compared, inside)
-	if compared == 0 || inside == 0 {
-		t.Fatalf("nothing compared (%d) or no cut inside a dose range of a series with a maximum age (%d)", compared, inside)
+	t.Logf("%d inputs compared, %d cut inside a dose range of a series with a maximum age, %d copies of a bracketed series", compared, inside, bracketed)
+	if compared == 0 || inside == 0 || bracketed == 0 {
+		t.Fatalf("nothing compared (%d), no cut inside a dose range of a series with a maximum age (%d) or no bracketed series copied (%d)", compared, inside, bracketed)
 	}
 }

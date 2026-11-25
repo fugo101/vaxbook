@@ -177,9 +177,18 @@ func sameSegmentRules(a, b *seriesModel) bool {
 
 // compileVersions attaches to each series c of each segment i its
 // versions: every series d of every other segment j that applies to some
-// dose under it (version.applies), and its cuts, the bounds of those
-// segments, ascending. A series in effect in several segments is a version
-// of itself there, since its floor, groupMax or tiers may differ.
+// dose under it (version.applies) and has no twin in segment i (twinKey,
+// Q109), and its cuts, the bounds of those segments, ascending. A series
+// in effect in several segments is a version of itself there when its
+// floor, groupMax or tiers differ.
+//
+// A twin of d is a series of segment i with d's product, compiled rules,
+// reach, lone flag and tiers: d's rule is then still in effect today, in
+// the same place in the catalog, and today's candidate choice (A2, C3)
+// already decides whether it applies, as on the windowless snapshot.
+// Judging a dose by d again would count it by a series that choice did not
+// pick, so an identical re-issue of one series, which leaves the others of
+// its group in effect in both segments, would change the output.
 //
 // The versions of one d in adjacent segments other than i that compile and
 // apply alike are one version over their run, and the versions are in
@@ -198,8 +207,9 @@ func sameSegmentRules(a, b *seriesModel) bool {
 // other segment that apply, found through the tiers, with tier tables
 // compared by interned id, so a snapshot with many series in effect at
 // once compiles in about segments² × series time, not as the product of
-// all pairs and the catalog. Nothing in a walk reads another segment's
-// model, so a version carries what it needs.
+// all pairs and the catalog. The twin test reads one key per series and
+// segment, built once. Nothing in a walk reads another segment's model, so
+// a version carries what it needs.
 func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 	if len(tl.models) < 2 {
 		return
@@ -229,6 +239,10 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 	cProducts := make([][][]string, n)
 	byProduct := make([]map[string][]int, n)
 	sets := map[string]tierSet{}
+	// twinKeys[j][d] is series d of segment j's twin key, twins[j] the set
+	// of segment j's keys.
+	twinKeys := make([][]string, n)
+	twins := make([]map[string]bool, n)
 	intern := func(catalog []string, key []byte) tierSet {
 		if t, ok := sets[string(key)]; ok {
 			return t
@@ -271,6 +285,12 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 			inTier[j][d] = intern(m.catalog, keys[d])
 		}
 		fallsID[j] = intern(m.catalog, falls).id
+		twins[j] = make(map[string]bool, len(m.series))
+		twinKeys[j] = make([]string, len(m.series))
+		for d := range m.series {
+			k := twinKey(&orig[j][d], len(m.groups[m.groupOf[d]].series) == 1, inTier[j][d].id, fallsID[j])
+			twinKeys[j][d], twins[j][k] = k, true
+		}
 	}
 	var found []int
 	for i, mi := range tl.models {
@@ -300,6 +320,9 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 				}
 				slices.Sort(found)
 				for _, di := range slices.Compact(found) {
+					if twins[i][twinKeys[j][di]] {
+						continue
+					}
 					d := &orig[j][di]
 					v := version{s: d, seg: segs[j], lone: len(mj.groups[mj.groupOf[di]].series) == 1, sameGroup: d.product == c.product,
 						inTier: inTier[j][di].set, fallsThrough: mj.fallsThrough, cTier: cTier[i][ci]}
@@ -333,4 +356,16 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 			}
 		}
 	}
+}
+
+// twinKey encodes what makes series s of a segment a twin of a series of
+// another segment (compileVersions, Q109): its product, its compiled rules
+// (length, plans with their tolerances, maximum ages, groupMax, catch-up
+// age, retired product and its bracket with the floor, so its reach), its
+// lone flag (C8) and the ids of its tier set and of the segment's
+// fall-through table. The series ID is left out: a re-issue under a new ID
+// is a twin. Every field is a value, so equal keys mean equal rules.
+func twinKey(s *seriesModel, lone bool, tier, falls int) string {
+	return fmt.Sprintf("%q %v %d %+v %+v %+v %+v %+v %+v %v %d %d",
+		s.product, s.retired, s.length, s.start, s.plans, s.maxStart, s.maxComplete, s.groupMax, s.catchUp, lone, tier, falls)
 }

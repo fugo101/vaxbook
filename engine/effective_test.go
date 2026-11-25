@@ -473,7 +473,7 @@ func TestEnvelopeReadsSegmentsFromP(t *testing.T) {
 	checkAssessment(t, got, unknownWith([]string{"br-b"}, true, invalidDose("u", 2, engine.CheckMinInterval)))
 }
 
-// TestIdenticalCopyInBracketedGroup (Q106): an identical re-issue of
+// TestIdenticalCopyInBracketedGroup (Q106, Q109): an identical re-issue of
 // one series of a bracketed group changes nothing. On
 // minimal-start-age-gap-late (gap-a [1y, 2y) dose 2 at 8w, gap-b [3y, 5y)
 // dose 2 at 4w, gap-c [5y, —), dose 1 minAge 1y in each), birth
@@ -484,10 +484,11 @@ func TestEnvelopeReadsSegmentsFromP(t *testing.T) {
 // [gap-a-copy] once gap-a ends on 2024-02-25 and an identical gap-a-copy
 // starts then.
 //
-// gap-b, in effect in the older segment, is a version of gap-a-copy, but it
-// cannot count r4: with no dose 1 counted, dose 1 lies in [birth, r4] =
-// [2023-08-06, 2023-10-29] (Q106), under 3 months old, which gap-b's reach
-// there, [2y, 5y), cannot hold.
+// Two rules each keep gap-b, in effect in the older segment, from counting
+// r4 under gap-a-copy. With no dose 1 counted, dose 1 lies in [birth, r4]
+// = [2023-08-06, 2023-10-29] (Q106), under 3 months old, which gap-b's
+// reach there, [2y, 5y), cannot hold. And gap-b has a twin in effect today,
+// itself, so it is not a version at all (Q109).
 func TestIdenticalCopyInBracketedGroup(t *testing.T) {
 	t.Parallel()
 	base := loadSnapshot(t, "minimal-start-age-gap-late")
@@ -573,5 +574,57 @@ func TestVersionNoDoseOneCounted(t *testing.T) {
 		))
 		got := assessmentOf(t, e, "q", "2026-02-01", dayDate("2024-05-15"), qDose("r1", "2024-06-01"), numbered(qDose("r2", "2024-07-10"), 2))
 		checkAssessment(t, got, unknownWith([]string{c.prefix + "-2026"}, false, c.want...))
+	}
+}
+
+// TestTwinIsNotAVersion (Q109): a series of another segment with a twin in
+// effect today (the same product, compiled rules, reach and tiers) is not a
+// version, so an identical re-issue changes nothing also where Q106 and
+// Q107 alone would let the original count a dose. Each case copies one
+// series from a cut (identicalCopy) and must give the windowless output,
+// the copy's ID read as the original's.
+//   - illustrative-max-age, rota-rotavin (alone in its group) copied from
+//     2002-03-12; birth year 2002, r0 rotavin 2002-03-05, today 2002-04-01.
+//     Windowless: r0 meets the 6-week minimum age at b_old 2002-01-01
+//     (02-12) but not at the later end → ⚪
+//     [BIRTH_DATE_IMPRECISE{birthMonth}, DOSE_INVALID{minAge, r0, 1}], est.
+//     As a version, the original would pass r0 at b_old only and soften
+//     the later end's definite failure to DOSE_POSSIBLY_INVALID (Q107),
+//     though that failure holds for that birth date.
+//   - minimal-start-age-gap-late, gap-b copied from 1993-06-04; birth year
+//     1991, r0 1993-04-23, r1 1993-05-28, today 1993-06-30. Dose 1 is 1.3
+//     to 2.3 years old, so gap-a and gap-b are both candidates, and r1
+//     fails gap-a's 8 weeks from r0 (06-18) → ⚪
+//     [AGE_AT_START_UNCERTAIN{gap-a, gap-b}, SAFEST_SERIES{gap-a, gap-b},
+//     DOSE_INVALID{minInterval, r1, 2}], est. As a version of gap-a, the
+//     original gap-b (reach [2y, 5y) behind gap-a) possibly holds dose 1
+//     and its 4 weeks (05-21) pass r1, so it would soften r1 to
+//     DOSE_POSSIBLY_INVALID and count it.
+func TestTwinIsNotAVersion(t *testing.T) {
+	t.Parallel()
+	refs := []engine.SeriesRef{{Series: "gap-a"}, {Series: "gap-b"}}
+	for _, c := range []struct {
+		fixture, disease, series, cut, today string
+		birth                                engine.RecalledDate
+		doses                                []engine.DoseRecord
+		want                                 engine.Assessment
+	}{
+		{"illustrative-max-age", "rota", "rota-rotavin", "2002-03-12", "2002-04-01", engine.RecalledDate{Value: "2002", Precision: engine.Year},
+			[]engine.DoseRecord{doseOf("rota", "r0", dayDate("2002-03-05"), "rotavin")},
+			engine.Assessment{Disease: "rota", Bucket: engine.BucketUnknown, SeriesUsed: []string{"rota-rotavin"}, Estimated: true, Reasons: []engine.Reason{
+				{Code: engine.ReasonBirthDateImprecise, Params: engine.ReasonParams{Hint: engine.HintBirthMonth}}, invalidDose("r0", 1, engine.CheckMinAge)}}},
+		{"minimal-start-age-gap-late", "gap", "gap-b", "1993-06-04", "1993-06-30", engine.RecalledDate{Value: "1991", Precision: engine.Year},
+			[]engine.DoseRecord{doseOf("gap", "r0", dayDate("1993-04-23"), ""), doseOf("gap", "r1", dayDate("1993-05-28"), "")},
+			engine.Assessment{Disease: "gap", Bucket: engine.BucketUnknown, SeriesUsed: []string{"gap-a", "gap-b"}, Estimated: true, Reasons: []engine.Reason{
+				{Code: engine.ReasonAgeAtStartUncertain, Params: engine.ReasonParams{Candidates: refs}},
+				{Code: engine.ReasonSafestSeries, Params: engine.ReasonParams{Candidates: refs}},
+				invalidDose("r1", 2, engine.CheckMinInterval)}}},
+	} {
+		base := loadSnapshot(t, c.fixture)
+		checkAssessment(t, assessmentOf(t, newEngine(t, base, warnCodes(base)...), c.disease, c.today, c.birth, c.doses...), c.want)
+		copied := identicalCopy(base, slices.IndexFunc(base.Series, func(sr ruleset.Series) bool { return sr.ID == c.series }), mustDate(t, c.cut))
+		got := assessmentOf(t, newEngine(t, copied, warnCodes(copied)...), c.disease, c.today, c.birth, c.doses...)
+		readCopyAsOriginal(&got, c.series+"-copy", c.series)
+		checkAssessment(t, got, c.want)
 	}
 }

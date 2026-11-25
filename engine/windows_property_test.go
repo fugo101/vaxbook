@@ -339,6 +339,39 @@ func warnCodes(s *ruleset.Snapshot) []ruleset.ProblemCode {
 	return out
 }
 
+// identicalCopy returns a copy of s where series i ends on cut and an
+// identical copy "<id>-copy" starts that day, right after it in rule-set
+// order: a series re-issued with identical rules.
+func identicalCopy(s *ruleset.Snapshot, i int, cut engine.Date) *ruleset.Snapshot {
+	v := cloneSnapshot(s)
+	cp := v.Series[i]
+	cp.ID += "-copy"
+	v.Series[i].ValidTo, cp.ValidFrom = rdate(cut), rdate(cut)
+	v.Series = slices.Insert(v.Series, i+1, cp)
+	return v
+}
+
+// readCopyAsOriginal reads series copyID as origID in a's seriesUsed and
+// in its reasons' series and candidates.
+func readCopyAsOriginal(a *engine.Assessment, copyID, origID string) {
+	for k, id := range a.SeriesUsed {
+		if id == copyID {
+			a.SeriesUsed[k] = origID
+		}
+	}
+	for k := range a.Reasons {
+		p := &a.Reasons[k].Params
+		if p.Series == copyID {
+			p.Series = origID
+		}
+		for c := range p.Candidates {
+			if p.Candidates[c].Series == copyID {
+				p.Candidates[c].Series = origID
+			}
+		}
+	}
+}
+
 // TestPropertyIdenticalCopiesChangeNothing (issue #29 In scope 3): a series
 // re-issued with identical rules changes nothing. Each random input of
 // each windowless fixture is evaluated again on a variant where one random

@@ -48,7 +48,7 @@ func versionTimelines(t *testing.T) []diseaseTimeline {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return []diseaseTimeline{ed, e.diseases[0]}
+	return append([]diseaseTimeline{ed}, e.diseases...)
 }
 
 // segmentOf returns the index of the segment of tl that holds day.
@@ -60,39 +60,37 @@ func segmentOf(tl diseaseTimeline, day Date) int {
 	return i
 }
 
-// countsOnDay is the oracle of TestPropertyVersionsOnlyHelp, read from the
-// segments' models rather than from the compiled versions: a dose of
-// product on day y at position pos, under c (series ci of segment i, today's)
-// with predecessor pd and dose 1 first, meets c at b, or meets at both ends
-// of the birth range (at b with no birth date) a series d of y's segment j
-// ≠ i that certainly qualifies for it there (issue #29 In scope 3):
+// qualifying calls f with each series d of day y's segment j ≠ i that may
+// judge a dose of product on y at position pos under c (series ci of
+// segment i, today's), read from the segments' models rather than from the
+// compiled versions (issue #29 In scope 3), and how its bracket matches:
 //   - Q94: d is in the tier of the dose's catalog product in j, and d is in
 //     c's group or c is in that product's tier today, neither tier the
 //     every-series fall-through; a dose with no product or another product
 //     only meets c's group;
 //   - Q96: d has at least pos doses, and pos is d's last when it is c's;
-//   - Q93, Q95: d has no bracket or is alone in its group in j, or, with a
-//     birth date and a dose-1 range (y itself for pos 1, else firstBr),
-//     every birth date and dose-1 day put the age at dose 1 in d's reach
-//     [floor, max) in j.
-func countsOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd predecessor, first, firstBr *Range, product string) bool {
-	day := Range{Lo: y, Hi: y}
+//   - Q93, Q95, Q106: certain when d has no bracket or is alone in its
+//     group in j, or, with a birth date, every birth date and dose-1 day
+//     put the age at dose 1 in d's reach [floor, max) in j; possible when
+//     some do, or with no birth date. Dose 1's range is y itself for pos 1,
+//     else firstBr, else [b_old, y]: dose 1 cannot come after y. A series
+//     that cannot hold it is skipped.
+//
+// It does nothing when y lies in today's segment.
+func qualifying(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, firstBr *Range, product string, f func(d seriesModel, certain bool)) {
 	c := tl.models[i].series[ci]
-	if c.verdictAt(pos, b, day, pd, first).sev() == verdictOK {
-		return true
-	}
 	j := segmentOf(tl, y)
 	if j == i {
-		return false
+		return
 	}
 	mi, mj := tl.models[i], tl.models[j]
-	ends := []birthEnd{b}
-	if b.known {
-		ends = []birthEnd{{date: b.older(), known: true}, {date: b.later(), known: true}}
-	}
-	doseOne := firstBr
-	if pos == 1 {
-		doseOne = &day
+	doseOne := Range{Lo: y, Hi: y}
+	switch {
+	case pos == 1:
+	case firstBr != nil:
+		doseOne = *firstBr
+	default:
+		doseOne = Range{Lo: b.older(), Hi: y}
 	}
 	for di, d := range mj.series {
 		sameGroup := d.product == c.product
@@ -106,22 +104,46 @@ func countsOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd pred
 		}
 		br := d.start
 		certain := !br.ok || len(mj.groups[mj.groupOf[di]].series) == 1
-		if !certain && b.known && doseOne != nil {
+		if !certain && b.known {
 			certain = (!br.floor.ok || !doseOne.Lo.Before(b.later().AddSpan(br.floor.span))) &&
 				(!br.max.ok || doseOne.Hi.Before(b.older().AddSpan(br.max.span)))
+			if !certain && !br.mayContain(doseOne, Range{Lo: b.older(), Hi: b.later()}) {
+				continue
+			}
 		}
-		if !certain {
-			continue
+		f(d, certain)
+	}
+}
+
+// birthEnds returns b_old and b_late, or b with no birth date.
+func birthEnds(b birthEnd) []birthEnd {
+	if b.known {
+		return []birthEnd{{date: b.older(), known: true}, {date: b.later(), known: true}}
+	}
+	return []birthEnd{b}
+}
+
+// countsOnDay is the counting oracle of TestPropertyVersionsOnlyHelp: a
+// dose on day y meets c at b, or meets at both ends of the birth range (at
+// b with no birth date) a series that certainly qualifies for it
+// (qualifying).
+func countsOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd predecessor, first, firstBr *Range, product string) bool {
+	day := Range{Lo: y, Hi: y}
+	if tl.models[i].series[ci].verdictAt(pos, b, day, pd, first).sev() == verdictOK {
+		return true
+	}
+	counts := false
+	qualifying(tl, i, ci, pos, b, y, firstBr, product, func(d seriesModel, certain bool) {
+		if !certain || counts {
+			return
 		}
 		ok := true
-		for _, e := range ends {
+		for _, e := range birthEnds(b) {
 			ok = ok && d.verdictAt(pos, e, day, pd, first).sev() == verdictOK
 		}
-		if ok {
-			return true
-		}
-	}
-	return false
+		counts = ok
+	})
+	return counts
 }
 
 // TestPropertyVersionsOnlyHelp (issue #29 In scope 3): for a fixed

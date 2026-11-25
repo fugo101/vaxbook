@@ -268,8 +268,9 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 	// (datedVerdict, issue #29 In scope 3, Q93): a counted dated dose 1's
 	// range, or for an undated slot at position 1 [b_old, Hi of the dated
 	// dose it lies before, or today], as doseOneRanges reads an undated dose
-	// 1; nil when no dose 1 is counted. It is never narrower than where dose
-	// 1 can lie, so a wider range can only weaken a match (P1).
+	// 1; nil when no dose 1 is counted, and datedVerdict then reads [b_old,
+	// R.Hi] of the dose it judges (Q106). It is never narrower than where
+	// dose 1 can lie, so a wider range can only weaken a match (P1).
 	var firstBr *Range
 	upTo := today
 	if len(pl.dated) > 0 {

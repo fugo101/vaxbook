@@ -473,54 +473,38 @@ func TestEnvelopeReadsSegmentsFromP(t *testing.T) {
 	checkAssessment(t, got, unknownWith([]string{"br-b"}, true, invalidDose("u", 2, engine.CheckMinInterval)))
 }
 
-// TestIdenticalCopyInBracketedGroup pins a conflict between two rules of
-// issue #29 In scope 3, open for the owner: Q93 matches a bracketed version
-// "possibly" when no dose 1 is counted, whatever the dose's own date, and
-// the better-of verdict is meant to make an identical re-issue change
-// nothing. On minimal-start-age-gap-late (gap-a [1y, 2y) dose 2 at 8w,
-// gap-b [3y, 5y) dose 2 at 4w, gap-c [5y, —), dose 1 minAge 1y in each),
-// birth 2023-08-06, r1 2023-09-20 (below every minAge), r4 #2 2023-10-29,
-// today 2024-03-09:
-//   - windowless: r1 fails its minimum age, and r4 fails gap-a's 8 weeks
-//     from r1 (11-15): ⚪ [DOSE_INVALID{minAge, r1, 1},
-//     DOSE_INVALID{minInterval, r4, 2}], seriesUsed [gap-a];
-//   - gap-a ending on 2024-02-25 and an identical gap-a-copy starting then:
-//     gap-b, in effect in the older segment, is a version of gap-a-copy;
-//     with no dose 1 counted it matches possibly, its 4 weeks (10-18) pass
-//     r4, so r4 is softened to possible and counted: ⚪
-//     [DOSE_INVALID{minAge, r1, 1}, DOSE_POSSIBLY_INVALID{minInterval, r4,
-//     2}, COMPLETE], seriesUsed [gap-a-copy]. gap-b needs dose 1 at 3 years
-//     or older, and the child is under 3 months at r4.
+// TestIdenticalCopyInBracketedGroup (Q106): an identical re-issue of
+// one series of a bracketed group changes nothing. On
+// minimal-start-age-gap-late (gap-a [1y, 2y) dose 2 at 8w, gap-b [3y, 5y)
+// dose 2 at 4w, gap-c [5y, —), dose 1 minAge 1y in each), birth
+// 2023-08-06, r1 2023-09-20 (below every minAge), r4 #2 2023-10-29, today
+// 2024-03-09, both give the windowless output: r1 fails its minimum age,
+// and r4 fails gap-a's 8 weeks from r1 (11-15): ⚪ [DOSE_INVALID{minAge,
+// r1, 1}, DOSE_INVALID{minInterval, r4, 2}], seriesUsed [gap-a], then
+// [gap-a-copy] once gap-a ends on 2024-02-25 and an identical gap-a-copy
+// starts then.
 //
-// TestPropertyIdenticalCopiesChangeNothing therefore copies only a series
-// alone in its product group. When the owner decides, this test changes
-// with the rule.
+// gap-b, in effect in the older segment, is a version of gap-a-copy, but it
+// cannot count r4: with no dose 1 counted, dose 1 lies in [birth, r4] =
+// [2023-08-06, 2023-10-29] (Q106), under 3 months old, which gap-b's reach
+// there, [2y, 5y), cannot hold.
 func TestIdenticalCopyInBracketedGroup(t *testing.T) {
 	t.Parallel()
 	base := loadSnapshot(t, "minimal-start-age-gap-late")
-	copied := cloneSnapshot(base)
-	i := slices.IndexFunc(copied.Series, func(sr ruleset.Series) bool { return sr.ID == "gap-a" })
-	cp := copied.Series[i]
-	cp.ID = "gap-a-copy"
-	copied.Series[i] = ws(t, copied.Series[i], "", "2024-02-25", "", "")
-	cp = ws(t, cp, "2024-02-25", "", "", "")
-	copied.Series = slices.Insert(copied.Series, i+1, cp)
+	copied := identicalCopy(base, slices.IndexFunc(base.Series, func(sr ruleset.Series) bool { return sr.ID == "gap-a" }), mustDate(t, "2024-02-25"))
 	doses := []engine.DoseRecord{doseOf("gap", "r1", dayDate("2023-09-20"), ""), numbered(doseOf("gap", "r4", dayDate("2023-10-29"), ""), 2)}
-	minAge := invalidDose("r1", 1, engine.CheckMinAge)
+	want := []engine.Reason{invalidDose("r1", 1, engine.CheckMinAge), invalidDose("r4", 2, engine.CheckMinInterval)}
 	for _, c := range []struct {
 		name   string
 		snap   *ruleset.Snapshot
 		series string
-		want   []engine.Reason
 	}{
-		{"windowless", base, "gap-a", []engine.Reason{minAge, invalidDose("r4", 2, engine.CheckMinInterval)}},
-		{"identical copy", copied, "gap-a-copy", []engine.Reason{minAge,
-			{Code: engine.ReasonDosePossiblyInvalid, Params: engine.ReasonParams{Checks: []engine.Check{engine.CheckMinInterval}, Dose: "r4", Number: 2}},
-			{Code: engine.ReasonComplete}}},
+		{"windowless", base, "gap-a"},
+		{"identical copy", copied, "gap-a-copy"},
 	} {
 		a := assessmentOf(t, newEngine(t, c.snap, warnCodes(c.snap)...), "gap", "2024-03-09", dayDate("2023-08-06"), doses...)
-		if a.Bucket != engine.BucketUnknown || !slices.Equal(a.SeriesUsed, []string{c.series}) || !reflect.DeepEqual(a.Reasons, c.want) {
-			t.Errorf("%s: %+v\nwant ⚪ seriesUsed [%s] reasons %v", c.name, a, c.series, c.want)
+		if a.Bucket != engine.BucketUnknown || !slices.Equal(a.SeriesUsed, []string{c.series}) || !reflect.DeepEqual(a.Reasons, want) {
+			t.Errorf("%s: %+v\nwant ⚪ seriesUsed [%s] reasons %v", c.name, a, c.series, want)
 		}
 	}
 }
@@ -554,5 +538,40 @@ func TestVersionBirthRangeDefinite(t *testing.T) {
 	narrow := assessmentOf(t, e, "q", "2026-02-01", dayDate("2025-09-01"), r1)
 	if narrow.Bucket != engine.BucketOverdue || narrow.NextDose == nil || narrow.NextDose.Number != 2 || hasCode(narrow, engine.ReasonDoseInvalid) {
 		t.Errorf("birth 2025-09-01: %+v\nwant 🔴 for dose 2, r1 counted", narrow)
+	}
+}
+
+// TestVersionNoDoseOneCounted (Q106): with no dose 1 counted, dose 1's
+// range for the bracket match is [b_old, R.Hi of the dose being judged].
+// Birth 2024-05-15, r1 2024-06-01 (below 6 weeks in every series:
+// DOSE_INVALID{minAge, r1, 1}), r2 #2 2024-07-10, today 2026-02-01. Dose 1
+// lies in [05-15, 07-10], at most 8 weeks old.
+//   - k-a [6w, 9m) with dose 2 at 4w and k-b [9m, —) at 8w until
+//     2026-01-01, k-2026 (no bracket) at 8w from then. k-a is first in its
+//     group, so its reach is (—, 9m): it certainly holds dose 1, and its 4
+//     weeks from r1 (06-29) pass r2 → ⚪ [DOSE_INVALID{minAge, r1, 1},
+//     COMPLETE], seriesUsed [k-2026]. Read as "possible", k-a would only
+//     soften k-2026's failure (07-27) to DOSE_POSSIBLY_INVALID.
+//   - The same with the intervals swapped (k2-a at 8w, k2-b at 4w, k2-2026
+//     at 8w): k2-b's reach [9m, —) cannot hold dose 1, so it is not a
+//     version, and k2-a fails r2 → ⚪ [DOSE_INVALID{minAge, r1, 1},
+//     DOSE_INVALID{minInterval, r2, 2}], seriesUsed [k2-2026]. Read as
+//     "possible", k2-b would soften r2 and count it.
+func TestVersionNoDoseOneCounted(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		prefix, aIv, bIv string
+		want             []engine.Reason
+	}{
+		{"k", "P4W", "P8W", []engine.Reason{invalidDose("r1", 1, engine.CheckMinAge), complete}},
+		{"k2", "P8W", "P4W", []engine.Reason{invalidDose("r1", 1, engine.CheckMinAge), invalidDose("r2", 2, engine.CheckMinInterval)}},
+	} {
+		e := newEngine(t, oneDiseaseSnapshot(nil,
+			ws(t, twoDose(t, c.prefix+"-a", "", "P6W", c.aIv), "", "2026-01-01", "P6W", "P9M"),
+			ws(t, twoDose(t, c.prefix+"-b", "", "P6W", c.bIv), "", "2026-01-01", "P9M", ""),
+			ws(t, twoDose(t, c.prefix+"-2026", "", "P6W", "P8W"), "2026-01-01", "", "", ""),
+		))
+		got := assessmentOf(t, e, "q", "2026-02-01", dayDate("2024-05-15"), qDose("r1", "2024-06-01"), numbered(qDose("r2", "2024-07-10"), 2))
+		checkAssessment(t, got, unknownWith([]string{c.prefix + "-2026"}, false, c.want...))
 	}
 }

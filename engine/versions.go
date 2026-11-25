@@ -42,20 +42,21 @@ const (
 // its group there covers every age (C8). It certainly contains the age when
 // every birth date of the range and every day of dose 1's range firstBr
 // lie in the reach, and possibly when some do (bracket.mayContain). With no
-// birth date or no dose 1 (firstBr nil) a bracketed version is possible.
-func bracketMatch(v version, b birthEnd, firstBr *Range) match {
+// birth date a bracketed version is possible. datedVerdict always passes a
+// dose-1 range (Q106).
+func bracketMatch(v version, b birthEnd, firstBr Range) match {
 	br := v.s.start
 	switch {
 	case !br.ok || v.lone:
 		return matchCertain
-	case !b.known || firstBr == nil:
+	case !b.known:
 		return matchPossible
 	}
 	old, late := b.older(), b.later()
 	if (!br.floor.ok || !firstBr.Lo.Before(late.AddSpan(br.floor.span))) && (!br.max.ok || firstBr.Hi.Before(old.AddSpan(br.max.span))) {
 		return matchCertain
 	}
-	if br.mayContain(*firstBr, Range{Lo: old, Hi: late}) {
+	if br.mayContain(firstBr, Range{Lo: old, Hi: late}) {
 		return matchPossible
 	}
 	return matchNone
@@ -72,14 +73,17 @@ func bracketMatch(v version, b birthEnd, firstBr *Range) match {
 //   - x is split at the versions' segment bounds. On each part, c is judged
 //     on the part at b, and each version d whose segment holds the part,
 //     that applies to the dose's product (Q94) and to position pos (Q96),
-//     and whose bracket matches (Q93, Q95; dose 1's range is the part itself
-//     for pos 1) is judged on the part by the worse of its verdicts at b_old
+//     and whose bracket matches (Q93, Q95) is judged on the part at b_old
 //     and b_late (at b with no birth date), with d's rule, tolerance and
-//     maximum ages from its own segment. The part's verdict is the best
-//     certain one (the smallest severity; a tie goes to c, then rule-set
-//     order). When it is definite and a possible version is not, it is
-//     demoted: every definite check turns possible, and a possible version
-//     never makes a part OK.
+//     maximum ages from its own segment. Dose 1's range for the match is
+//     the part itself for pos 1, else firstBr, else [b_old, x.Hi]: with no
+//     dose 1 counted, dose 1 lies between birth and the dose being judged
+//     (Q106).
+//   - Each version is judged by the worse of its verdicts at the ends. The
+//     part's verdict is the best certain one (the smallest severity; a tie
+//     goes to c, then rule-set order). When it is definite and a possible
+//     version is not, it is demoted: every definite check turns possible,
+//     and a possible version never makes a part OK.
 //   - The parts combine to OK when all are OK, definite when all are
 //     definite (their checks unioned per kind), else possible (every check
 //     failed in some part). The verdict is the better of that and vc (a tie
@@ -118,9 +122,14 @@ func (s seriesModel) datedVerdict(pos int, b birthEnd, x Range, pd predecessor, 
 			if !v.seg.contains(part.Lo) || !v.applies(product) || !v.lastDose(pos, s.length) {
 				continue
 			}
-			doseOne := firstBr
-			if pos == 1 {
-				doseOne = &part
+			var doseOne Range
+			switch {
+			case pos == 1:
+				doseOne = part
+			case firstBr != nil:
+				doseOne = *firstBr
+			default:
+				doseOne = Range{Lo: b.older(), Hi: x.Hi}
 			}
 			m := bracketMatch(v, b, doseOne)
 			if m == matchNone {

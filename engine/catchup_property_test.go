@@ -140,10 +140,12 @@ func TestPropertyCatchUp(t *testing.T) {
 }
 
 // TestPropertyCatchUpBirthRange (Q108): with an imprecise birth date, a
-// shown next dose never lies past the catch-up age of a birth date in the
-// range: F = max(today, earliest) < b_old + catchUpAfterAge. The dates
-// driven by a minimum age come from the latest birth date, so without the
-// guard at b_old the later end could show such a date while it is clean.
+// shown next dose's F = max(today, earliest) never lies past the catch-up
+// age of a birth date in the range: F < b_old + catchUpAfterAge. Its due
+// and overdue dates may, as with an exact birth date (only F decides
+// catch-up, Q91). The dates driven by a minimum age come from the latest
+// birth date, so without the guard at b_old the later end could show such
+// an F while it is clean.
 // The fixtures seldom put a minimum age near the catch-up age, so the
 // inputs come from an in-test family of cu-x: one dose with minAge 96 to
 // 111 weeks, due birth + 30m, catchUpAfterAge 2y, a random birth month and

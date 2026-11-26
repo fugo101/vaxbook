@@ -264,21 +264,35 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 	// (chain), so that minIntervalFromFirst is checked against the most
 	// favourable placement of dose 1 (EQ20b).
 	var first *Range
+	// firstBr is dose 1's range for the bracket match of the versions
+	// (datedVerdict, issue #29 In scope 3, Q93): a counted dated dose 1's
+	// range, or for an undated slot at position 1 [b_old, Hi of the dated
+	// dose it lies before, or today], as doseOneRanges reads an undated dose
+	// 1; nil when no dose 1 is counted, and datedVerdict then reads [b_old,
+	// R.Hi] of the dose it judges (Q106). It is never narrower than where
+	// dose 1 can lie, so a wider range can only weaken a match (P1).
+	var firstBr *Range
+	upTo := today
+	if len(pl.dated) > 0 {
+		upTo = pl.dated[0].date.Hi
+	}
 	//
 	// Every slot is also checked against the maximum ages at the earliest
 	// dates the chain gives it, from the dated dose before its run: best
 	// from that dose's Lo, worst from its Hi (issue #15 In scope 4, Q56).
 	// first stays the slot's chain dates even when its own maximum age makes
-	// it not counted.
-	appendSlot := func(it item) {
+	// it not counted. before is the Hi of the dated dose the slot lies
+	// before (today after every dated dose).
+	appendSlot := func(it item, before Date) {
 		from, run := w.tail()
 		if it.pos == 1 {
-			if lo, hi, bounded := s.chain(b, from, []item{it}, nil); bounded {
+			if lo, hi, bounded := s.chain(b, from, []item{it}, nil, true); bounded {
 				first = &Range{Lo: lo, Hi: hi}
 			}
+			firstBr = &Range{Lo: b.older(), Hi: before}
 		}
 		if b.known && s.hasMaxAges() {
-			if best, worst, bounded := s.chain(b, from, append(slices.Clip(run), it), first); bounded {
+			if best, worst, bounded := s.chain(b, from, append(slices.Clip(run), it), first, true); bounded {
 				it.best, it.worst, it.bounded = best, worst, true
 				if fb, ok, skipped := w.chainSkipping(s, b, it, first); skipped && ok {
 					it.best = minDate(it.best, fb)
@@ -293,13 +307,17 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 	insertSlots := func(below int) {
 		for q := last + 1; q < below && q <= s.length; q++ {
 			if g, ok := pl.fixed[q]; ok {
-				appendSlot(item{pos: q, dose: g, counted: true})
+				appendSlot(item{pos: q, dose: g, counted: true}, upTo)
 			}
 		}
 	}
 	insertFloating := func(i int) {
 		if ins == nil {
 			return
+		}
+		before := today
+		if i < len(pl.dated) {
+			before = pl.dated[i].date.Hi
 		}
 		for _, g := range ins[i] {
 			q := nextFree(last, taken)
@@ -308,7 +326,7 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 				last = q
 				continue
 			}
-			appendSlot(item{pos: q, dose: g, counted: true})
+			appendSlot(item{pos: q, dose: g, counted: true}, before)
 		}
 	}
 	for i, g := range pl.dated {
@@ -327,16 +345,15 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 		if i < len(pl.steps) {
 			it.step = pl.steps[i]
 		}
-		if len(run) > 0 {
-			it.runBest, _, it.hasRun = s.chain(b, from, run, first)
-		}
+		pd := s.predecessor(b, from, run, first)
+		it.runBest, it.hasRun = pd.chainBest, pd.run && pd.chained
 		if pos > s.length {
 			// Not checked itself, but the undated slots before it must fit
 			// on or before it; when they do not, it carries the chain
 			// failure, as a dated dose after the run in the series does,
 			// and so the maximum ages of the implied slots before it.
 			if len(run) > 0 {
-				if best, worst, bounded := s.chain(b, from, run, first); bounded {
+				if best, worst, bounded := s.chain(b, from, run, first, true); bounded {
 					if carry.minV = against(g.date, best, worst); carry.minV != verdictOK {
 						carry.minChecks = []Check{CheckMinInterval}
 					}
@@ -349,9 +366,7 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 			}
 			continue
 		}
-		v, checks := s.check(pos, b, g.date, from, run, first, gapBound{})
-		dv := doseVerdict{minV: v, minChecks: checks}
-		dv.addMax(s.maxAges(pos, b, g.date))
+		dv := s.datedVerdict(pos, b, g.date, pd, first, firstBr, g.product)
 		dv.addMax(carry.maxDef, carry.maxPos)
 		if pl.forced(g.id, pos) {
 			dv = dv.demoted()
@@ -368,12 +383,12 @@ func (s seriesModel) walkWith(b birthEnd, today Date, pl placement, ins [][]give
 			last = max(last, pos)
 		}
 		if it.counted && pos == 1 {
-			first = &g.date
+			first, firstBr = &g.date, &g.date
 		}
 		// The guard of a floating dose inserted in front of an uncounted
 		// unnumbered dose: it takes the dose's position, after the same run.
 		if !it.counted && g.number == 0 {
-			best, _, bounded := s.chain(b, from, append(slices.Clip(run), item{pos: pos}), first)
+			best, _, bounded := s.chain(b, from, append(slices.Clip(run), item{pos: pos}), first, true)
 			it.guardOK = !bounded || !g.date.Hi.Before(best)
 		}
 		w.seq = append(w.seq, it)
@@ -957,7 +972,7 @@ func (w *walkResult) chainSkipping(s seriesModel, b birthEnd, it item, first *Ra
 		from = &w.seq[j-1].dose.date
 	}
 	slices.Reverse(run)
-	best, _, ok = s.chain(b, from, append(run, it), first)
+	best, _, ok = s.chain(b, from, append(run, it), first, true)
 	return best, ok, true
 }
 
@@ -972,9 +987,10 @@ type gapBound struct {
 }
 
 // lower returns the definite minimum-interval threshold def of a dose on x,
-// lowered to best + minInterval (best alone without one). An open bound
-// never fails x definitely.
-func (gb gapBound) lower(x Range, def Date, minInterval optSpan) Date {
+// lowered to max(best, best + minInterval − tol) (best alone without a
+// minimum interval), tol the dose rule's tolerance in days (issue #29 In
+// scope 6). An open bound never fails x definitely.
+func (gb gapBound) lower(x Range, def Date, minInterval optSpan, tol int) Date {
 	switch {
 	case !gb.set:
 		return def
@@ -983,7 +999,7 @@ func (gb gapBound) lower(x Range, def Date, minInterval optSpan) Date {
 	}
 	end := gb.best
 	if minInterval.ok {
-		end = end.AddSpan(minInterval.span)
+		end = maxDate(end, end.AddSpan(minInterval.span).AddDays(-tol))
 	}
 	return minDate(def, end)
 }
@@ -1012,28 +1028,15 @@ func (gb gapBound) lower(x Range, def Date, minInterval optSpan) Date {
 // result is unset when no gap fits or m = 0. It reads only the walk, two
 // chains per gap, and q_k grows with k, so at most n − 1 gaps are chained.
 func (w *walkResult) gapBound(s seriesModel, b birthEnd, first *Range, last item, order int) gapBound {
-	seq := w.seq[:len(w.seq)-1]
-	j := len(seq)
-	var us []item
-	for ; j > 0; j-- {
-		x := seq[j-1]
-		if !x.dose.dated {
-			continue
-		}
-		if x.counted || x.dose.number > 0 {
-			break
-		}
-		us = append(us, x)
-	}
+	p, us := w.beforeTrailing()
 	var gb gapBound
 	if len(us) == 0 {
 		return gb
 	}
-	slices.Reverse(us)
 	var from *Range
 	q := 0
-	if j > 0 {
-		from, q = &seq[j-1].dose.date, seq[j-1].step
+	if p != nil {
+		from, q = &p.dose.date, p.step
 	}
 	for k, next := range us {
 		if k > 0 {
@@ -1051,15 +1054,15 @@ func (w *walkResult) gapBound(s seriesModel, b birthEnd, first *Range, last item
 		f := first
 		if q == 0 {
 			f = nil
-			if lo, hi, ok := s.chain(b, nil, []item{{pos: 1}}, nil); ok {
+			if lo, hi, ok := s.chain(b, nil, []item{{pos: 1}}, nil, true); ok {
 				f = &Range{Lo: lo, Hi: hi}
 			}
 		}
-		if end, _, ok := s.chain(b, from, append(slices.Clip(run), last), f); ok &&
+		if end, _, ok := s.chain(b, from, append(slices.Clip(run), last), f, true); ok &&
 			(end.After(next.dose.date.Hi) || end == next.dose.date.Hi && order > 0 && next.step < order) {
 			continue
 		}
-		pred, _, ok := s.chain(b, from, run, f)
+		pred, _, ok := s.chain(b, from, run, f, true)
 		switch {
 		case !ok:
 			gb.set, gb.open = true, true
@@ -1068,6 +1071,71 @@ func (w *walkResult) gapBound(s seriesModel, b birthEnd, first *Range, last item
 		}
 	}
 	return gb
+}
+
+// beforeTrailing scans back from the last item of the walk (the last
+// trailing undated slot) over the undated slots and the uncounted
+// unnumbered dated doses to P, the latest dated dose that is counted or
+// numbered (nil when there is none). It returns P and those uncounted
+// dated doses U1 < … < Um, in time order.
+func (w *walkResult) beforeTrailing() (p *item, us []item) {
+	seq := w.seq[:len(w.seq)-1]
+	j := len(seq)
+	for ; j > 0; j-- {
+		x := seq[j-1]
+		if !x.dose.dated {
+			continue
+		}
+		if x.counted || x.dose.number > 0 {
+			break
+		}
+		us = append(us, x)
+	}
+	slices.Reverse(us)
+	if j > 0 {
+		p = &seq[j-1]
+	}
+	return p, us
+}
+
+// envelope returns, for the last trailing fixed slot last, a copy of s
+// whose plans are s's plus those of every version of s that could apply to
+// it (issue #29 In scope 3, Q105 (b), F05.10): the version applies to
+// last's product (an implied slot has none, so c's group only, Q94) and to
+// its position (Q96), and its segment meets [P.Lo, today], P the latest
+// counted or numbered dated dose before the run (beforeTrailing), else
+// [b_old, today], else (−∞, today]. Every placement of last lies after P,
+// since the gap search searches only the gaps after P. There is no bracket
+// test: last has no date to take an age from, and leaving it out only adds
+// plans. ok is false when no version is added.
+func (w *walkResult) envelope(s seriesModel, b birthEnd, today Date, last item) (env seriesModel, ok bool) {
+	if len(s.versions) == 0 {
+		return s, false
+	}
+	var lo Date
+	bounded := true
+	switch p, _ := w.beforeTrailing(); {
+	case p != nil:
+		lo = p.dose.date.Lo
+	case b.known:
+		lo = b.older()
+	default:
+		bounded = false
+	}
+	env = s
+	for _, v := range s.versions {
+		if !v.applies(last.dose.product) || !v.lastDose(last.pos, s.length) {
+			continue
+		}
+		if v.seg.hasFrom && v.seg.from.After(today) || bounded && v.seg.hasTo && !lo.Before(v.seg.to) {
+			continue
+		}
+		if !ok {
+			env.plans, ok = slices.Clip(s.plans), true
+		}
+		env.plans = append(env.plans, v.s.plans...)
+	}
+	return env, ok
 }
 
 // forced reports whether the walk counts dated dose or level-4 slot id at
@@ -1128,6 +1196,13 @@ func (d doseVerdict) demoted() doseVerdict {
 // (walkResult.lowered). Its minimum age, maximum ages and carrier are
 // unchanged. A forced slot and the counted view skip the search.
 //
+// Since S4c, a last fixed slot that is still definite is checked again on
+// the envelope of its series' versions (envelope, issue #29 Q105 (b)), the
+// check and the gap search alike: a day in an older segment may clear it
+// although today's rule fails it on every day (F05.10). When the envelope
+// does not fail it definitely, it is DOSE_POSSIBLY_INVALID and counted
+// like a slot the gap search demoted. noGapSearch turns this off too.
+//
 // When the last trailing slot is an implied dose, the record whose number
 // implies it is a level-4 dose beyond the series (an in-series or dated
 // record would follow it). The lowest such record carries the reason, with
@@ -1163,17 +1238,36 @@ func (w *walkResult) checkTrailing(s seriesModel, b birthEnd, today Date, first 
 			if lastSlot.dose.id == "" {
 				order = number // the carrier beyond the series
 			}
+			// demote takes the slot's verdict once it is not definite. Only
+			// a slot that now counts is demoted for 0b (Q103): one that a
+			// maximum age still fails definitely keeps that verdict, in the
+			// rescue too.
+			demote := func(v verdict, checks []Check) {
+				carry.minV, carry.minChecks = v, checks
+				if carry.counted() {
+					if w.lowered == nil {
+						w.lowered = map[string]bool{}
+					}
+					w.lowered[carrier] = true
+				}
+			}
 			if gb := w.gapBound(s, b, first, *lastSlot, order); gb.set {
 				if v, checks := s.check(lastSlot.pos, b, u, from, run[:len(run)-1], first, gb); v != verdictDefinite {
-					carry.minV, carry.minChecks = v, checks
-					// Only a slot that now counts is demoted for 0b (Q103):
-					// one that a maximum age still fails definitely keeps
-					// that verdict, in the rescue too.
-					if carry.counted() {
-						if w.lowered == nil {
-							w.lowered = map[string]bool{}
+					demote(v, checks)
+				}
+			}
+			// The envelope (Q105 (b)): still definite, the check and the gap
+			// search are rerun with the versions' plans added. Not definite
+			// there, the slot is possible, with the envelope's checks (c's
+			// when the envelope passes it): never OK, and no date moves.
+			if carry.minV == verdictDefinite {
+				if env, ok := w.envelope(s, b, today, *lastSlot); ok {
+					gb := w.gapBound(env, b, first, *lastSlot, order)
+					if v, checks := env.check(lastSlot.pos, b, u, from, run[:len(run)-1], first, gb); v != verdictDefinite {
+						if v == verdictOK {
+							checks = carry.minChecks
 						}
-						w.lowered[carrier] = true
+						demote(verdictPossible, checks)
 					}
 				}
 			}
@@ -1203,38 +1297,67 @@ func (s seriesModel) hasInterval(pos int) bool {
 // doses that it may lie in (gapBound, issue #35); the possible end stays
 // the one from from. A dated dose passes the zero gapBound.
 //
+// Each minimum threshold is (anchor + span) − tol, tol the plan's dose rule
+// tolerance in days, at the definite and the possible end alike; behind
+// undated slots it is never before the tolerant chain date itself (issue
+// #29 In scope 6, Q79). With no tolerance this is S4a's check.
+//
 // A plan's verdict is the worst of its checks; the dose's verdict is the
 // best over plans (A7). The checks reported are those that reach that
 // verdict in the plans that have it, merged in catalog order: a
 // DOSE_INVALID lists the checks failed at every end, not one failed at one
 // end only. For exact dates this is the S1 check.
 func (s seriesModel) check(pos int, b birthEnd, x Range, from *Range, run []item, first *Range, gb gapBound) (verdict, []Check) {
-	var chainBest, chainWorst Date
-	chained := false
-	if len(run) > 0 {
-		chainBest, chainWorst, chained = s.chain(b, from, run, first)
+	return s.checkWith(pos, b, x, s.predecessor(b, from, run, first), first, gb)
+}
+
+// predecessor is what a dose's minimum interval is measured from: the dated
+// dose before it in time (from, nil if none) and, behind a run of undated
+// slots, the chain's earliest dates for the last of them (best from from.Lo,
+// worst from from.Hi; chained false when the chain is unbounded).
+type predecessor struct {
+	from                  *Range
+	run, chained          bool
+	chainBest, chainWorst Date
+}
+
+// predecessor returns the predecessor of a dose behind run under s, with
+// the tolerant chain (issue #29 Q90).
+func (s seriesModel) predecessor(b birthEnd, from *Range, run []item, first *Range) predecessor {
+	p := predecessor{from: from, run: len(run) > 0}
+	if p.run {
+		p.chainBest, p.chainWorst, p.chained = s.chain(b, from, run, first, true)
 	}
+	return p
+}
+
+// checkWith is check with the predecessor given: a version of another
+// segment is judged against today's chain dates (issue #29 In scope 3,
+// P1).
+func (s seriesModel) checkWith(pos int, b birthEnd, x Range, pd predecessor, first *Range, gb gapBound) (verdict, []Check) {
+	from, chainBest, chainWorst, chained := pd.from, pd.chainBest, pd.chainWorst, pd.chained
 	best := verdictDefinite + 1
 	var failed [3]bool // minAge, minInterval, minIntervalFromFirst
 	for _, p := range s.plans {
 		r := p.doses[pos-1]
+		t := r.tol
 		var vs [3]verdict
 		if b.known && r.minAge.ok {
-			lim := b.date.AddSpan(r.minAge.span)
+			lim := b.date.AddSpan(r.minAge.span).AddDays(-t)
 			vs[0] = against(x, lim, lim)
 		}
 		switch {
-		case len(run) == 0 && from != nil && r.minInterval.ok:
-			vs[1] = against(x, gb.lower(x, from.Lo.AddSpan(r.minInterval.span), r.minInterval), from.Hi.AddSpan(r.minInterval.span))
+		case !pd.run && from != nil && r.minInterval.ok:
+			vs[1] = against(x, gb.lower(x, from.Lo.AddSpan(r.minInterval.span).AddDays(-t), r.minInterval, t), from.Hi.AddSpan(r.minInterval.span).AddDays(-t))
 		case chained:
 			lo, hi := chainBest, chainWorst
 			if r.minInterval.ok {
-				lo, hi = lo.AddSpan(r.minInterval.span), hi.AddSpan(r.minInterval.span)
+				lo, hi = maxDate(lo, lo.AddSpan(r.minInterval.span).AddDays(-t)), maxDate(hi, hi.AddSpan(r.minInterval.span).AddDays(-t))
 			}
-			vs[1] = against(x, gb.lower(x, lo, r.minInterval), hi)
+			vs[1] = against(x, gb.lower(x, lo, r.minInterval, t), hi)
 		}
 		if first != nil && r.minFromFirst.ok {
-			vs[2] = against(x, first.Lo.AddSpan(r.minFromFirst.span), first.Hi.AddSpan(r.minFromFirst.span))
+			vs[2] = against(x, first.Lo.AddSpan(r.minFromFirst.span).AddDays(-t), first.Hi.AddSpan(r.minFromFirst.span).AddDays(-t))
 		}
 		v := max(vs[0], vs[1], vs[2])
 		if v < best {
@@ -1266,7 +1389,15 @@ func (s seriesModel) check(pos int, b birthEnd, x Range, from *Range, run []item
 // that slot. A run at the start of the series has no lower bound but the
 // birth date. bounded is false when nothing bounds the last slot (no birth
 // date and no dated dose before the run), so any placement is feasible.
-func (s seriesModel) chain(b birthEnd, from *Range, run []item, first *Range) (best, worst Date, bounded bool) {
+//
+// With tolerant set, each slot's minInterval, minAge and
+// minIntervalFromFirst terms are lowered by that slot's tolerance, as a
+// dated dose's checks are (check): the chain then says where a recorded
+// dose could lie, so every step-5 use passes true (issue #29 In scope 6,
+// Q79, Q90). Being on or after the slot before is an order, not a minimum,
+// and stays. C_c,k (lastAllowed) computes the next dose's last day and
+// passes false (EQ27).
+func (s seriesModel) chain(b birthEnd, from *Range, run []item, first *Range, tolerant bool) (best, worst Date, bounded bool) {
 	if from != nil {
 		best, worst, bounded = from.Lo, from.Hi, true
 	}
@@ -1275,17 +1406,21 @@ func (s seriesModel) chain(b birthEnd, from *Range, run []item, first *Range) (b
 		set, unbounded := false, false
 		for _, p := range s.plans {
 			r := p.doses[it.pos-1]
+			t := 0
+			if tolerant {
+				t = r.tol
+			}
 			lo, hi, ok := best, worst, bounded
 			if ok && r.minInterval.ok {
-				lo, hi = lo.AddSpan(r.minInterval.span), hi.AddSpan(r.minInterval.span)
+				lo, hi = maxDate(lo, lo.AddSpan(r.minInterval.span).AddDays(-t)), maxDate(hi, hi.AddSpan(r.minInterval.span).AddDays(-t))
 			}
 			if b.known && r.minAge.ok {
-				a := b.date.AddSpan(r.minAge.span)
+				a := b.date.AddSpan(r.minAge.span).AddDays(-t)
 				lo, hi = later(lo, a, ok), later(hi, a, ok)
 				ok = true
 			}
 			if first != nil && r.minFromFirst.ok {
-				f1, f2 := first.Lo.AddSpan(r.minFromFirst.span), first.Hi.AddSpan(r.minFromFirst.span)
+				f1, f2 := first.Lo.AddSpan(r.minFromFirst.span).AddDays(-t), first.Hi.AddSpan(r.minFromFirst.span).AddDays(-t)
 				lo, hi = later(lo, f1, ok), later(hi, f2, ok)
 				ok = true
 			}

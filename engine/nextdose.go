@@ -65,7 +65,8 @@ type planTerms struct {
 //     dose: PREVIOUS_DOSE_DATE_UNKNOWN for each such record (F04.2);
 //   - there is no birth date and no dose is counted, or dose k's minimum
 //     age is not implied by the intervals in some plan, or the series has
-//     a maximum age to complete (A6, issue #15 Q59), or a needed dose
+//     a maximum age to complete (A6, issue #15 Q59) or a catch-up age
+//     (issue #29 In scope 5: no age to compare F with), or a needed dose
 //     anchor is missing: NO_BIRTH_DATE (EQ19). The maximum age to start
 //     and the bracket limit do not stop it: they apply to dose 1 only, and
 //     with no birth date and doses given dose 1 is always counted (no age
@@ -112,7 +113,7 @@ func (s seriesModel) next(b birthEnd, w walkResult) nextResult {
 		return r
 	}
 	noBirth := nextResult{reasons: []Reason{{Code: ReasonNoBirthDate}}, stop: true}
-	if !b.known && (prevSlot == nil || s.maxComplete.ok || slices.ContainsFunc(s.plans, func(p planModel) bool { return !p.doses[k-1].minAgeImplied })) {
+	if !b.known && (prevSlot == nil || s.maxComplete.ok || s.catchUp.ok || slices.ContainsFunc(s.plans, func(p planModel) bool { return !p.doses[k-1].minAgeImplied })) {
 		return noBirth
 	}
 

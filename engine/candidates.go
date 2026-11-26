@@ -88,6 +88,10 @@ type evaluation struct {
 	// safest is SAFEST_SERIES as a bucket reason of each birth date, set
 	// when no dose is given and two or more candidates remain.
 	safest *Reason
+	// doubt are the no-dose candidates removed as out of age only from
+	// b_old's limits (filterOutOfAge): catchUp reads their catch-up ages at
+	// b_old (Q108).
+	doubt []removed
 	// unknownProduct: some dose of the disease, implied doses included, has
 	// an unknown product (anyUnknownProduct). It chooses CHECK_PRODUCT_NAME
 	// over MIXED_PRODUCTS when the candidates disagree on a maximum age.
@@ -157,13 +161,16 @@ func (s seriesModel) run(b birthEnd, today Date, pl placement) candidateResult {
 // the result is the outOfAge block with OUT_OF_AGE, k 0 and no series
 // (issue #23, Q24).
 //
+// Last, a clean next dose past a candidate's catch-up age becomes ⚪
+// CATCH_UP_ASK_DOCTOR (catchUp, issue #29 In scope 5).
+//
 // Reasons of one end, in order: SAFEST_SERIES (no dose given); the walk
 // reasons by dose in walk order, then by candidate; CHECK_PRODUCT_NAME or
 // MIXED_PRODUCTS; COMPLETE and
 // PRODUCT_NOT_IN_CATALOG; or OUT_OF_AGE; or PREVIOUS_DOSE_DATE_UNKNOWN,
 // NO_BIRTH_DATE, FIRST_DOSE_DATE_ASSUMED, ALTERNATIVE_PLANS,
-// DUE_CAPPED_BY_MAX_AGE or SERIES_MAY_NOT_COMPLETE, and ON_TRACK. For a
-// single candidate this is the S2 result.
+// DUE_CAPPED_BY_MAX_AGE or SERIES_MAY_NOT_COMPLETE, CATCH_UP_ASK_DOCTOR and
+// ON_TRACK. For a single candidate this is the S2 result.
 func (ev evaluation) at(b birthEnd) endResult {
 	if len(ev.cands) == 0 {
 		return endResult{block: BlockOutOfAge, reasons: []Reason{{Code: ReasonOutOfAge}}}
@@ -176,7 +183,76 @@ func (ev evaluation) at(b birthEnd) endResult {
 	if res.complete {
 		return res
 	}
-	return ev.conclude(b, rs, res, step7At, atK)
+	return ev.catchUp(b, atK, ev.conclude(b, rs, res, step7At, atK))
+}
+
+// catchUp hands a clean next dose to a doctor when it is past a catch-up
+// age (SAD §5.3 step 7 "Catch-up", F05.2, EQ26; issue #29 In scope 5, Q78,
+// Q91, Q92). It is a post-step of conclude, so it sees each of conclude's
+// results (the !limited shortcut, which a series with catchUpAfterAge and
+// no maximum age always takes, and the capped merge) and the no-dose path,
+// but never the as-walked merge, whose step-7 reasons layer 5 appends to an
+// outOfAge.
+//
+// It applies at a known birth date to a clean scheduled next dose: hasNext,
+// no outOfAge block (layer 5 wins) and no blocking reason, so S4b's ⚪
+// conclusions (which carry no next dose) and an as-walked blocking result
+// stay as they are; any bucket, ✅ ON_TRACK or notYetScheduled (Q78). With
+// F = max(today, the merged earliest date), merge's F, the earliest date
+// the result would show (Q91), the result is caught up at a birth date
+// when some candidate at k has a catch-up age and F ≥ that date +
+// catchUpAfterAge. Caught up at b, the evaluated birth date, it becomes ⚪
+// with its dates kept as masked dates and its step-7 reasons as masked
+// reasons, the cap reason included (Q92), and CATCH_UP_ASK_DOCTOR goes
+// before a trailing ON_TRACK, else last.
+//
+// Otherwise, caught up at b_old (Q108), it becomes the same ⚪ with
+// BIRTH_DATE_IMPRECISE{fullBirthDate} in place of CATCH_UP_ASK_DOCTOR: the
+// dates driven by a minimum age or interval come from the latest birth
+// date, so F can lie past the catch-up age of an older birth date of the
+// range while this end is clean. Since b_old's own evaluation is never
+// guarded, step 4 then finds the ends disagree and gives ⚪
+// BIRTH_DATE_IMPRECISE{fullBirthDate} (the reason is an age limit); this
+// end's reason has the same key and is listed once. With an exact birth
+// date b_old is b, so nothing changes.
+//
+// The same holds when a no-dose candidate removed only from b_old's limits
+// (ev.doubt) has a catch-up age and F, raised to that candidate's latest
+// earliest date, is at or past b_old + catchUpAfterAge: for the birth
+// dates of the range where it is still a candidate, the result there could
+// be caught up. With an exact birth date nothing is removed that way.
+func (ev evaluation) catchUp(b birthEnd, atK []int, res endResult) endResult {
+	if !b.known || !res.hasNext || res.block == BlockOutOfAge || blocking(res.reasons) {
+		return res
+	}
+	f := maxDate(ev.today, res.next.Earliest)
+	caught := func(at Date) bool {
+		return slices.ContainsFunc(atK, func(i int) bool {
+			s := ev.dz.series[ev.cands[i]]
+			return s.catchUp.ok && !f.Before(at.AddSpan(s.catchUp.span))
+		})
+	}
+	doubted := slices.ContainsFunc(ev.doubt, func(r removed) bool {
+		s := ev.dz.series[r.series]
+		return s.catchUp.ok && !maxDate(f, r.earliest).Before(b.older().AddSpan(s.catchUp.span))
+	})
+	var ask Reason
+	switch {
+	case caught(b.date):
+		ask = Reason{Code: ReasonCatchUpAskDoctor}
+	case caught(b.older()) || doubted:
+		ask = Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: HintFullBirthDate}}
+	default:
+		return res
+	}
+	res.bucket, res.block = BucketUnknown, ""
+	reasons := slices.Clip(res.reasons)
+	if n := len(reasons); n > 0 && reasons[n-1].Code == ReasonOnTrack {
+		res.reasons = append(reasons[:n-1:n-1], ask, reasons[n-1])
+	} else {
+		res.reasons = append(reasons, ask)
+	}
+	return res
 }
 
 // asWalked is the S3a/S4a result of the walks (the as-walked view, issue
@@ -381,8 +457,9 @@ func (ev evaluation) productCode() ReasonCode {
 //     merged-out and the cap use F from the latest possible dose dates, so
 //     a next dose is never drawn from the earliest ones (P1).
 //
-// S5 (issue #16) adds the other layers around this; its layer 6 compares
-// the capped due date with historyStatusAt.
+// evaluation.at then runs the catch-up post-step on the result (catchUp,
+// issue #29 In scope 5). S5 (issue #16) adds the other layers around this;
+// its layer 6 compares the capped due date with historyStatusAt.
 func (ev evaluation) conclude(b birthEnd, rs []candidateResult, res endResult, step7At int, atK []int) endResult {
 	cv := rs
 	if ev.questioned(rs) {

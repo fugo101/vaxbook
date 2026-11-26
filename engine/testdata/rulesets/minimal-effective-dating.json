@@ -1,0 +1,94 @@
+{
+  "version": "minimal-effective-dating-s4c",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "ed",
+      "name": "Bệnh minh hoạ đổi quy tắc theo ngày hiệu lực"
+    },
+    {
+      "id": "gone",
+      "name": "Bệnh minh hoạ hết quy tắc hiệu lực"
+    },
+    {
+      "id": "bare",
+      "name": "Bệnh minh hoạ chưa có phác đồ"
+    }
+  ],
+  "series": [
+    {
+      "id": "ed-2025",
+      "disease": "ed",
+      "stage": "childhood",
+      "validTo": "2026-01-01",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P4W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ed-2026",
+      "disease": "ed",
+      "stage": "childhood",
+      "validFrom": "2026-01-01",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            },
+            {
+              "minInterval": "P8W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P4M"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gone-1",
+      "disease": "gone",
+      "stage": "childhood",
+      "validTo": "2026-01-01",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P6W",
+              "recommended": {
+                "from": "birth",
+                "offset": "P2M"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -10,16 +10,12 @@ import (
 	"github.com/fugo101/vaxbook/ruleset"
 )
 
-// ErrUnsupported reports a valid rule set shape that this engine slice does
-// not evaluate yet. In S3b: a disease with no series.
-var ErrUnsupported = errors.New("engine: rule set shape not supported yet")
-
 // Engine evaluates inputs against one rule set snapshot. New copies what it
 // needs from the snapshot, so an Engine is immutable and safe for concurrent
 // use.
 type Engine struct {
 	version  string
-	diseases []diseaseModel
+	diseases []diseaseTimeline // per validity segment (issue #29)
 	known    map[string]bool
 	products map[string]bool // every catalog product ID, retired ones included
 }
@@ -33,6 +29,11 @@ type diseaseModel struct {
 	// series, else the generic series, else every series. A dose with any
 	// other product, or none, has every series (EQ14, Q36).
 	tier map[string][]int
+	// fallsThrough marks the catalog products whose tier is the every-series
+	// fall-through (no series of their own and no generic series), which a
+	// version of another segment never crosses groups through (issue #29
+	// Q94).
+	fallsThrough map[string]bool
 	// noDose are the candidates when no dose is given: every series but
 	// those of retired products, or every series when none is left (Q38).
 	noDose []int
@@ -76,6 +77,18 @@ type seriesModel struct {
 	// it has one: a maximum age to start for dose 1 of every series of the
 	// group (A5, Q55). All three are series-level, not per plan.
 	maxStart, maxComplete, groupMax optSpan
+	// catchUp is catchUpAfterAge, absent for none: a clean next dose whose
+	// earliest shown date is at or after birth + catchUp is handed to a
+	// doctor (evaluation.catchUp; issue #29 In scope 5).
+	catchUp optSpan
+	// versions are the series of the disease's other validity segments that
+	// may count a dose of this series as the rule in effect on its date
+	// (version, issue #29 In scope 3), and cuts their segment bounds,
+	// ascending. bare are the same versions with no maximum age, for the
+	// walk of the start-age bracket choice (withoutMaxAges). All are nil on
+	// a windowless snapshot.
+	versions, bare []version
+	cuts           []Date
 }
 
 // hasMaxAges reports whether the series has any maximum age. Without one,
@@ -89,6 +102,7 @@ func (s seriesModel) hasMaxAges() bool {
 // item counted at position 1 stay S3b's.
 func (s seriesModel) withoutMaxAges() seriesModel {
 	s.maxStart, s.maxComplete, s.groupMax = optSpan{}, optSpan{}, optSpan{}
+	s.versions = s.bare
 	return s
 }
 
@@ -220,6 +234,12 @@ func optional(s *ruleset.Span) optSpan {
 
 type doseRule struct {
 	minAge, minInterval, minFromFirst, buffer optSpan
+	// tol is the rule's tolerance in days (weeks × 7; 0 without one): its
+	// minimum thresholds are (anchor + span) − tol when a given dose is
+	// validated (check, the step-5 chain), never for a next-dose date or
+	// limit (F05.10, EQ27; issue #29 In scope 6). Validate allows only days
+	// and weeks (Q80).
+	tol int
 	// minAgeImplied: minAge is absent or implied by dose 1's minimum age and
 	// the intervals (ruleset.MinAgeImplied), so it needs no birth date.
 	minAgeImplied bool
@@ -232,8 +252,9 @@ type doseRule struct {
 }
 
 // New validates a snapshot and prepares an Engine for it. A snapshot that
-// ruleset.Validate rejects gives a *ruleset.RejectedError; a valid shape this
-// slice cannot evaluate gives an error wrapping ErrUnsupported.
+// ruleset.Validate rejects gives a *ruleset.RejectedError. Every valid
+// snapshot is accepted: since S4c a disease with no series in effect is
+// assessed ⚪ NO_SERIES_IN_EFFECT (issue #29, Q81).
 func New(s *ruleset.Snapshot) (*Engine, error) {
 	if s == nil {
 		return nil, errors.New("engine: nil rule set snapshot")
@@ -246,24 +267,26 @@ func New(s *ruleset.Snapshot) (*Engine, error) {
 		e.products[p.ID] = true
 	}
 	for _, dz := range s.Diseases {
-		m, err := compileDisease(s, dz.ID)
+		tl, err := compileTimeline(s, dz.ID)
 		if err != nil {
 			return nil, err
 		}
 		e.known[dz.ID] = true
-		e.diseases = append(e.diseases, m)
+		e.diseases = append(e.diseases, tl)
 	}
 	return e, nil
 }
 
 // compileDisease prepares the series of one disease and its candidate
-// tiers (SAD §5.3 step 3).
-func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
+// tiers (SAD §5.3 step 3), from the series of the snapshot for which
+// inEffect (an index into s.Series) holds: those of one validity segment
+// (compileTimeline).
+func compileDisease(s *ruleset.Snapshot, disease string, inEffect func(int) bool) diseaseModel {
 	retired := map[string]bool{}
 	for _, p := range s.Products {
 		retired[p.ID] = p.Retired
 	}
-	m := diseaseModel{id: disease, tier: map[string][]int{}, listing: map[string]bool{}}
+	m := diseaseModel{id: disease, tier: map[string][]int{}, fallsThrough: map[string]bool{}, listing: map[string]bool{}}
 	for _, p := range s.Products {
 		if slices.Contains(p.Diseases, disease) {
 			m.listing[p.ID] = true
@@ -272,8 +295,8 @@ func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
 	own := map[string][]int{} // product → its series for the disease
 	var generic []int
 	group := map[string]int{} // product ("" generic) → index into m.groups
-	for _, sr := range s.Series {
-		if sr.Disease != disease {
+	for j, sr := range s.Series {
+		if sr.Disease != disease || !inEffect(j) {
 			continue
 		}
 		sm := compileSeries(sr)
@@ -297,9 +320,6 @@ func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
 		}
 		m.groups[g].series = append(m.groups[g].series, i)
 		m.groupOf = append(m.groupOf, g)
-	}
-	if len(m.series) == 0 {
-		return m, fmt.Errorf("%w: disease %q has no series", ErrUnsupported, disease)
 	}
 	for _, g := range m.groups {
 		slices.SortStableFunc(g.series, func(a, b int) int {
@@ -340,13 +360,15 @@ func compileDisease(s *ruleset.Snapshot, disease string) (diseaseModel, error) {
 			m.genericProducts = append(m.genericProducts, p.ID)
 		default:
 			m.tier[p.ID] = m.all
+			m.fallsThrough[p.ID] = true
 		}
 	}
-	return m, nil
+	return m
 }
 
 func compileSeries(sr ruleset.Series) seriesModel {
-	m := seriesModel{id: sr.ID, length: len(sr.Plans[0].Doses), maxStart: optional(sr.MaxAgeStart), maxComplete: optional(sr.MaxAgeComplete)}
+	m := seriesModel{id: sr.ID, length: len(sr.Plans[0].Doses), maxStart: optional(sr.MaxAgeStart), maxComplete: optional(sr.MaxAgeComplete),
+		catchUp: optional(sr.CatchUpAfterAge)}
 	if sr.Product != nil {
 		m.product = *sr.Product
 	}
@@ -361,6 +383,7 @@ func compileSeries(sr ruleset.Series) seriesModel {
 				minInterval:   optional(r.MinInterval),
 				minFromFirst:  optional(r.MinIntervalFromFirst),
 				buffer:        optional(r.Buffer),
+				tol:           toleranceDays(r.Tolerance),
 				minAgeImplied: ruleset.MinAgeImplied(p, k+1),
 				from:          r.Recommended.From,
 				offset:        r.Recommended.Offset,
@@ -373,6 +396,18 @@ func compileSeries(sr ruleset.Series) seriesModel {
 		m.plans = append(m.plans, pm)
 	}
 	return m
+}
+
+// toleranceDays returns a tolerance in days: n for P<n>D, 7n for P<n>W, 0
+// when absent. ruleset.Validate rejects any other unit (TOLERANCE_UNIT).
+func toleranceDays(s *ruleset.Span) int {
+	switch {
+	case s == nil:
+		return 0
+	case s.Unit == ruleset.Weeks:
+		return 7 * s.N
+	}
+	return s.N
 }
 
 // spanGap returns b − a when both spans are in the same unit family (months
@@ -446,7 +481,8 @@ func (e *Engine) Evaluate(in Input) (Output, error) {
 		return Output{}, err
 	}
 	out := Output{RuleSetVersion: e.version, Today: in.Today, Assessments: make([]Assessment, 0, len(e.diseases))}
-	for _, dz := range e.diseases {
+	for _, tl := range e.diseases {
+		dz := tl.at(in.Today)
 		a, _ := dz.assess(birth, in.Today, byDisease[dz.id])
 		out.Assessments = append(out.Assessments, a)
 	}
@@ -543,6 +579,16 @@ func (dz diseaseModel) assess(birth birthRange, today Date, doses []givenDose) (
 	arr := arrange(doses)
 	if arr.blocked() {
 		a.Bucket, a.Reasons = BucketUnknown, arr.reasons
+		return a, endResult{}
+	}
+	// Step 3, effective dating: with no series in effect today the disease
+	// has no rule to judge the history against, even a history complete
+	// under a series that has ended (EQ26, issue #29 Q82). It is never
+	// dropped: ⚪ NO_SERIES_IN_EFFECT is its only reason, decided before the
+	// no-birth-date stop below, with no candidates, so no seriesUsed,
+	// products, next dose or IMPLIED_EARLIER_DOSES.
+	if len(dz.series) == 0 {
+		a.Bucket, a.Reasons = BucketUnknown, []Reason{{Code: ReasonNoSeriesInEffect}}
 		return a, endResult{}
 	}
 	// With no dose and no birth date, step 7 stops with NO_BIRTH_DATE

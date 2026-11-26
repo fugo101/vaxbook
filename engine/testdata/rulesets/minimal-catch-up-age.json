@@ -1,0 +1,39 @@
+{
+  "version": "minimal-catch-up-age-s4c",
+  "illustrative": true,
+  "diseases": [
+    {
+      "id": "cu",
+      "name": "Bệnh minh hoạ tuổi cần hỏi bác sĩ"
+    }
+  ],
+  "series": [
+    {
+      "id": "cu-1",
+      "disease": "cu",
+      "stage": "childhood",
+      "catchUpAfterAge": "P2Y",
+      "plans": [
+        {
+          "id": "main",
+          "doses": [
+            {
+              "minAge": "P12M",
+              "recommended": {
+                "from": "birth",
+                "offset": "P12M"
+              }
+            },
+            {
+              "minInterval": "P6M",
+              "recommended": {
+                "from": "birth",
+                "offset": "P18M"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

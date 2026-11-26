@@ -35,7 +35,7 @@ func splitModel(t *testing.T, retiredFirst bool, maxes ...string) diseaseModel {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return e.diseases[0]
+	return onlySegment(t, e, 0)
 }
 
 // TestNoDoseSplitPoints checks the birth dates noDosePoints evaluates (SAD

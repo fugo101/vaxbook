@@ -229,11 +229,13 @@ func TestStartAgeDiffersNoMatchUsesEarliestCandidate(t *testing.T) {
 //
 // Nothing matches; a is r1 at 8m, before gap-a's max 2y → gap-a, not the
 // last bracket gap-c. Under gap-a r1 is DOSE_INVALID{minAge, r1, 1} (⚪).
+// Since S4c FIRST_DOSE_MIN_AGE_DIFFERS compares pairwise (issue #29), so
+// gap-c (1y, as gap-a) also warns, naming gap-b.
 func TestStartAgeDiffersNoMatchBelowGap(t *testing.T) {
 	t.Parallel()
 	s := loadSnapshot(t, "minimal-start-age-gap")
 	s.Series[1].Plans[0].Doses[0].MinAge = spanOf(t, "P6M")
-	e := newEngine(t, s, ruleset.FirstDoseMinAgeDiffers)
+	e := newEngine(t, s, ruleset.FirstDoseMinAgeDiffers, ruleset.FirstDoseMinAgeDiffers)
 	gap := func(id, date string) engine.DoseRecord {
 		return engine.DoseRecord{ID: id, Diseases: []string{"gap"}, Date: engine.RecalledDate{Value: date, Precision: engine.Day}}
 	}

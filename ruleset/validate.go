@@ -41,6 +41,9 @@ func Validate(s *Snapshot) []Problem {
 			}
 			v.reject(StartAgeRequired, p, params)
 		}
+		if from, to := usableDate(sr.ValidFrom), usableDate(sr.ValidTo); from != nil && to != nil && from.compare(*to) >= 0 {
+			v.reject(ValidityEmpty, p, ProblemParams{})
+		}
 		if v.id(p+"/id", sr.ID) {
 			if series[sr.ID] {
 				v.reject(DuplicateID, p+"/id", ProblemParams{ID: sr.ID})
@@ -74,6 +77,9 @@ func Validate(s *Snapshot) []Problem {
 			v.startAge(p+"/startAge", *sa, f.overlaps[i])
 		}
 		v.maxAges(p, sr)
+		v.catchUp(p, sr)
+		v.date(p+"/validFrom", sr.ValidFrom)
+		v.date(p+"/validTo", sr.ValidTo)
 		v.plans(p, sr.Plans, f.warnings(sr, i))
 	}
 	return v.problems
@@ -110,23 +116,34 @@ func validBracket(sa *StartAge) bool {
 
 // startAgeFinding holds the cross-series start-age checks of a snapshot
 // (EQ26, issue #23), by series index; Validate reports them in document
-// order of their paths.
+// order of their paths. Since S4c every check is between series of one
+// product group whose validity windows overlap (windowsOverlap): series that
+// are never in effect on the same day never compete for a dose. Intervals
+// that overlap pairwise share a day, so the pairwise checks validate the
+// group in effect on every day.
 type startAgeFinding struct {
-	// required: the series has no startAge and its product group has more
-	// than one series.
+	// required: the series has no startAge and another series of its
+	// product group overlaps its window.
 	required []bool
 	// overlaps are the IDs of the earlier series of the same group whose
-	// brackets may overlap this one's, in rule-set order.
+	// windows overlap this one's and whose brackets may overlap, in
+	// rule-set order.
 	overlaps [][]string
-	// reference is, per series, the dose-1 minimum age of plan 0 of the
-	// group's first series, which every plan of the group is compared with
-	// (FIRST_DOSE_MIN_AGE_DIFFERS), and refID that series' ID. It is nil
-	// when the group has one series, or when that minimum age is absent or
-	// invalid: a Reject is reported then. The first series' bracket does not
-	// matter: the comparison never reads a bracket, so an invalid one skips
-	// only that series' own Warns (warnings).
-	reference []*Span
-	refID     []string
+	// refs are, per series, the dose-1 minimum ages every plan of it is
+	// compared with (FIRST_DOSE_MIN_AGE_DIFFERS), in order: plan 0 of every
+	// earlier series of the group whose window overlaps, then its own plan
+	// 0. A series with an absent or invalid plan-0 dose-1 minAge is left
+	// out (a Reject is reported then). It is empty when no other series of
+	// the group overlaps the window. Brackets do not matter: the
+	// comparison never reads one, so an invalid one skips only that
+	// series' own Warns (warnings).
+	refs [][]minAgeRef
+}
+
+// minAgeRef is a dose-1 minimum age to compare with, and its series' ID.
+type minAgeRef struct {
+	span Span
+	id   string
 }
 
 // startAgeFindings groups the series by product group: the series of one
@@ -148,23 +165,34 @@ func startAgeFindings(series []Series) startAgeFinding {
 		groups[k] = append(groups[k], i)
 	}
 	n := len(series)
-	f := startAgeFinding{required: make([]bool, n), overlaps: make([][]string, n), reference: make([]*Span, n), refID: make([]string, n)}
+	f := startAgeFinding{required: make([]bool, n), overlaps: make([][]string, n), refs: make([][]minAgeRef, n)}
 	for i, sr := range series {
-		g := groups[keys[i]]
-		if len(g) < 2 {
+		var others []int // the other series of the group whose windows overlap i's
+		for _, e := range groups[keys[i]] {
+			if e != i && windowsOverlap(series[e], sr) {
+				others = append(others, e)
+			}
+		}
+		if len(others) == 0 {
 			continue
 		}
 		f.required[i] = sr.StartAge == nil
-		if first := series[g[0]]; len(first.Plans) > 0 && len(first.Plans[0].Doses) > 0 {
-			if a := first.Plans[0].Doses[0].MinAge; a != nil && a.valid() {
-				f.reference[i], f.refID[i] = a, first.ID
+		for _, e := range others {
+			if e > i {
+				break
 			}
+			if a, ok := firstMinAge(series[e]); ok {
+				f.refs[i] = append(f.refs[i], minAgeRef{span: a, id: series[e].ID})
+			}
+		}
+		if a, ok := firstMinAge(sr); ok {
+			f.refs[i] = append(f.refs[i], minAgeRef{span: a, id: sr.ID})
 		}
 		if !validBracket(sr.StartAge) {
 			continue
 		}
-		for _, e := range g {
-			if e >= i {
+		for _, e := range others {
+			if e > i {
 				break
 			}
 			if validBracket(series[e].StartAge) && mayOverlap(*series[e].StartAge, *sr.StartAge) {
@@ -173,6 +201,38 @@ func startAgeFindings(series []Series) startAgeFinding {
 		}
 	}
 	return f
+}
+
+// firstMinAge returns the dose-1 minimum age of plan 0 of a series, when it
+// is present and valid.
+func firstMinAge(sr Series) (Span, bool) {
+	if len(sr.Plans) == 0 || len(sr.Plans[0].Doses) == 0 {
+		return Span{}, false
+	}
+	if a := sr.Plans[0].Doses[0].MinAge; a != nil && a.valid() {
+		return *a, true
+	}
+	return Span{}, false
+}
+
+// windowsOverlap reports whether two series' validity windows share a day:
+// a.validFrom < b.validTo and b.validFrom < a.validTo, an absent bound
+// being unbounded. A zero or invalid bound counts as absent too: it has its
+// own Reject, and an unbounded window only adds overlaps.
+func windowsOverlap(a, b Series) bool {
+	before := func(from, to *Date) bool {
+		f, t := usableDate(from), usableDate(to)
+		return f == nil || t == nil || f.compare(*t) < 0
+	}
+	return before(a.ValidFrom, b.ValidTo) && before(b.ValidFrom, a.ValidTo)
+}
+
+// usableDate returns d when it is present and a valid date, else nil.
+func usableDate(d *Date) *Date {
+	if d == nil || !d.valid() {
+		return nil
+	}
+	return d
 }
 
 // mayOverlap reports whether two brackets may share an age for some month
@@ -187,9 +247,8 @@ func mayOverlap(a, b StartAge) bool {
 // which is present and valid whenever they apply, so no other problem of
 // that dose comes before them in document order.
 type firstDoseWarnings struct {
-	bracket   *StartAge // nil: no valid bracket, no FIRST_DOSE_MIN_AGE_ABOVE_START_AGE
-	reference *Span     // nil: no FIRST_DOSE_MIN_AGE_DIFFERS
-	refID     string
+	bracket *StartAge   // nil: no valid bracket, no FIRST_DOSE_MIN_AGE_ABOVE_START_AGE
+	refs    []minAgeRef // empty: no FIRST_DOSE_MIN_AGE_DIFFERS
 }
 
 // warnings returns the dose-1 Warns that apply to series i. A series with
@@ -198,7 +257,7 @@ func (f startAgeFinding) warnings(sr Series, i int) firstDoseWarnings {
 	if sr.StartAge != nil && !validBracket(sr.StartAge) {
 		return firstDoseWarnings{}
 	}
-	return firstDoseWarnings{bracket: sr.StartAge, reference: f.reference[i], refID: f.refID[i]}
+	return firstDoseWarnings{bracket: sr.StartAge, refs: f.refs[i]}
 }
 
 // dose1 emits the dose-1 Warns of plan pl at path p (dose 1's minAge).
@@ -213,8 +272,11 @@ func (v *validator) dose1(p string, pl Plan, w firstDoseWarnings) {
 	if w.bracket != nil && !SpanAtMost(*a, w.bracket.Min) {
 		v.warn(FirstDoseMinAgeAboveStartAge, p, ProblemParams{})
 	}
-	if w.reference != nil && !spanEqual(*a, *w.reference) {
-		v.warn(FirstDoseMinAgeDiffers, p, ProblemParams{ID: w.refID})
+	for _, r := range w.refs {
+		if !spanEqual(*a, r.span) {
+			v.warn(FirstDoseMinAgeDiffers, p, ProblemParams{ID: r.id})
+			break
+		}
 	}
 }
 
@@ -359,6 +421,60 @@ func (v *validator) dose(p string, first bool, d DoseRule) {
 		v.reject(InvalidValue, p+"/recommended/offset", ProblemParams{Value: o.String()})
 	}
 	v.optionalSpan(p+"/buffer", d.Buffer)
+	v.tolerance(p+"/tolerance", d)
+}
+
+// tolerance checks a dose rule's tolerance (issue #29, Q80, Q89): a zero
+// Span (Go-built only; JSON "P0D" is a valid zero tolerance) or an invalid
+// one is INVALID_VALUE, as for buffer, and a valid one in months or years
+// is TOLERANCE_UNIT. A usable tolerance that is not certainly below a
+// present, valid minAge, minInterval or minIntervalFromFirst of the same
+// rule gets one TOLERANCE_NOT_BELOW_MINIMUM Warn: the check it lowers would
+// accept two doses on one day.
+func (v *validator) tolerance(path string, d DoseRule) {
+	t := d.Tolerance
+	switch {
+	case t == nil:
+		return
+	case !t.valid():
+		v.reject(InvalidValue, path, ProblemParams{Value: t.String()})
+		return
+	case t.Unit != Days && t.Unit != Weeks:
+		v.reject(ToleranceUnit, path, ProblemParams{Value: t.String()})
+		return
+	}
+	for _, m := range []*Span{d.MinAge, d.MinInterval, d.MinIntervalFromFirst} {
+		if m != nil && m.valid() && !spanLess(*t, *m) {
+			v.warn(ToleranceNotBelowMinimum, path, ProblemParams{})
+			return
+		}
+	}
+}
+
+// catchUp checks a series' catchUpAfterAge (issue #29, Q89): a zero Span
+// (Go-built only) is REQUIRED and an invalid one INVALID_VALUE, as for
+// maxAgeComplete. A usable one that is not certainly before a usable
+// maxAgeComplete gets the CATCH_UP_AFTER_MAX_AGE Warn: the series would be
+// out of age before the catch-up age is reached.
+func (v *validator) catchUp(p string, sr Series) {
+	cu, ok := v.maxAgeSpan(p+"/catchUpAfterAge", sr.CatchUpAfterAge)
+	if !ok {
+		return
+	}
+	if complete, ok := usableMaxAge(sr.MaxAgeComplete); ok && !spanLess(cu, complete) {
+		v.warn(CatchUpAfterMaxAge, p+"/catchUpAfterAge", ProblemParams{})
+	}
+}
+
+// date reports a zero (Go-built only) or invalid validity bound.
+func (v *validator) date(path string, d *Date) {
+	switch {
+	case d == nil:
+	case *d == Date{}:
+		v.reject(Required, path, ProblemParams{})
+	case !d.valid():
+		v.reject(InvalidValue, path, ProblemParams{Value: d.String()})
+	}
 }
 
 // optionalSpan reports a present span that is not valid.

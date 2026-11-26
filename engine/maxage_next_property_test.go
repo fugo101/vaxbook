@@ -247,7 +247,11 @@ func remainingFit(sr ruleset.Series, k int, d, late, first, last engine.Date) bo
 //   - F > Lim never comes with an emitted next dose.
 //
 // It also checks P3 (a capped next dose is never 🔴), and that the inputs
-// reach both cap reasons.
+// reach both cap reasons, and a cap reason under CATCH_UP_ASK_DOCTOR (Q92;
+// the catch-up variants of fixtures). On a windowed fixture the oracle
+// reads the series in effect today (fixture.on), and checks a disease only
+// when its history lies in today's segment (issue #29 Property tests,
+// Amended).
 func TestPropertyCapP1(t *testing.T) {
 	t.Parallel()
 	seen := map[engine.ReasonCode]int{}
@@ -268,18 +272,22 @@ func TestPropertyCapP1(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			fxo, clean := fx.on(in)
 			for _, a := range out.Assessments {
 				checkAssessmentShape(t, fx.name, a)
 				for _, c := range []engine.ReasonCode{engine.ReasonDueCappedByMaxAge, engine.ReasonSeriesMayNotComplete} {
 					if hasCode(a, c) {
 						seen[c]++
+						if hasCode(a, engine.ReasonCatchUpAskDoctor) {
+							seen[engine.ReasonCatchUpAskDoctor]++
+						}
 						if a.Bucket == engine.BucketOverdue {
 							t.Fatalf("%s %s: %s with 🔴 (P3): %+v", fx.name, a.Disease, c, a)
 						}
 					}
 				}
 				nd := a.NextDose
-				if nd == nil {
+				if nd == nil || !clean(a.Disease) {
 					continue
 				}
 				bs := lo
@@ -290,7 +298,7 @@ func TestPropertyCapP1(t *testing.T) {
 					}
 				}
 				if !slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) }) {
-					bs = noDoseOracle{s: fx.snap, disease: a.Disease, lo: lo, today: in.Today}.subStart(hi)
+					bs = noDoseOracle{s: fxo.snap, disease: a.Disease, lo: lo, today: in.Today}.subStart(hi)
 				}
 				// Dose 1's R.Hi (step 7's first anchor): with no blocking
 				// reason every in-series record counts, so it is the
@@ -308,11 +316,11 @@ func TestPropertyCapP1(t *testing.T) {
 					if cv.Complete || cv.K != nd.Number {
 						continue
 					}
-					sr := seriesByID(fx.snap, cv.Series)
+					sr := seriesByID(fxo.snap, cv.Series)
 					lc := spanLimit(lo, sr.MaxAgeComplete)
 					var sc lastDayLimit
 					if nd.Number == 1 {
-						sc = startLimitOf(fx.snap, sr, lo, bs)
+						sc = startLimitOf(fxo.snap, sr, lo, bs)
 					}
 					l := lc.min(sc)
 					if !l.ok {
@@ -368,6 +376,9 @@ func TestPropertyCapP1(t *testing.T) {
 			t.Errorf("near-limit inputs never reach %s", c)
 		}
 	}
+	if seen[engine.ReasonCatchUpAskDoctor] == 0 {
+		t.Error("near-limit inputs never reach CATCH_UP_ASK_DOCTOR with a cap reason (Q92): the catch-up variant misses the cap")
+	}
 }
 
 // s4bInputs draws the inputs of the S4b properties for one fixture: the
@@ -394,7 +405,10 @@ func s4bInputs(t *testing.T, fx fixture, seed uint64, each func(in engine.Input)
 // MIXED_PRODUCTS: the candidates already out of age, or past the merged F,
 // are removed before step 7. The no-dose inputs must reach A3's removal
 // (a SAFEST_SERIES-free result on a fixture whose no-dose choice has
-// several series) and outOfAge.
+// several series) and outOfAge. With no dose of the disease neither a
+// version nor the envelope arises, so on a windowed fixture the oracle
+// reads the series in effect today (snapshotOn) for every input (issue
+// #29): the series of other segments would add choices A3 never sees.
 func TestPropertyNoDoseNoProductDisagreement(t *testing.T) {
 	t.Parallel()
 	removed, outOfAge := 0, 0
@@ -402,6 +416,10 @@ func TestPropertyNoDoseNoProductDisagreement(t *testing.T) {
 		s4bInputs(t, fx, 89, func(in engine.Input) {
 			lo, hi, ok := testPeriod(in.Profile.Birth, in.Today)
 			out, _ := evaluate(t, fx.engine, in)
+			// With no dose of the disease neither versions nor the
+			// envelope arise, so the series in effect today are all the
+			// oracle needs, whatever the windows.
+			snap := snapshotOn(fx.snap, in.Today)
 			for _, a := range out.Assessments {
 				if slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) }) {
 					continue
@@ -412,8 +430,8 @@ func TestPropertyNoDoseNoProductDisagreement(t *testing.T) {
 				if a.Block == engine.BlockOutOfAge {
 					outOfAge++
 				}
-				if ok && len(noDoseChoice(fx.snap, a.Disease, hi, in.Today)) > len(a.SeriesUsed) && a.Block != engine.BlockOutOfAge {
-					o := noDoseOracle{s: fx.snap, disease: a.Disease, lo: lo, today: in.Today}
+				if ok && len(noDoseChoice(snap, a.Disease, hi, in.Today)) > len(a.SeriesUsed) && a.Block != engine.BlockOutOfAge {
+					o := noDoseOracle{s: snap, disease: a.Disease, lo: lo, today: in.Today}
 					if kept, _ := o.choice(hi); len(kept) > 0 {
 						removed++
 					}
@@ -442,7 +460,7 @@ func TestPropertyOutOfAgeNoCompleteCandidate(t *testing.T) {
 			if e, ok := alone[id]; ok {
 				return e
 			}
-			s := loadSnapshot(t, fx.name)
+			s := cloneSnapshot(fx.snap)
 			disease := seriesByID(s, id).Disease
 			s.Series = slices.DeleteFunc(s.Series, func(sr ruleset.Series) bool { return sr.Disease == disease && sr.ID != id })
 			e, err := engine.New(s)
@@ -493,6 +511,9 @@ func TestPropertyOutOfAgeNoCompleteCandidate(t *testing.T) {
 // limit, so the property also runs on impreciseNearLimitInputs, which must
 // reach ⚪ OUT_OF_AGE_UNCERTAIN at least once: those are the inputs that
 // certainty judged from R.Hi called outOfAge, on which this check fails.
+// On a windowed fixture the limits come from the series in effect today
+// (fixture.on), and a disease is checked only when its history lies in
+// today's segment, where no version can count a dose (issue #29).
 func TestPropertyOutOfAgeFromCountedView(t *testing.T) {
 	t.Parallel()
 	checked, uncertain := 0, 0
@@ -529,15 +550,16 @@ func checkOutOfAgeFromCountedView(t *testing.T, fx fixture, in engine.Input) int
 	if err != nil {
 		t.Fatal(err)
 	}
+	fxo, clean := fx.on(in)
 	checked := 0
 	for _, a := range out.Assessments {
-		if a.Block != engine.BlockOutOfAge || a.SeriesUsed == nil {
+		if a.Block != engine.BlockOutOfAge || a.SeriesUsed == nil || !clean(a.Disease) {
 			continue
 		}
 		checked++
 		latest, first := doseRangeEnds(in, a.Disease)
 		for _, cv := range views[a.Disease].Counted {
-			sr := seriesByID(fx.snap, cv.Series)
+			sr := seriesByID(fxo.snap, cv.Series)
 			limit := spanLimit(b, sr.MaxAgeComplete)
 			certain := false
 			switch {
@@ -546,7 +568,7 @@ func checkOutOfAgeFromCountedView(t *testing.T, fx fixture, in engine.Input) int
 				certain = limit.exceededBy(in.Today)
 			case len(cv.Earliest) > 0:
 				if cv.K == 1 {
-					limit = limit.min(startLimitOf(fx.snap, sr, b, b))
+					limit = limit.min(startLimitOf(fxo.snap, sr, b, b))
 				}
 				var firstLo *engine.Date
 				if cv.FirstDated {

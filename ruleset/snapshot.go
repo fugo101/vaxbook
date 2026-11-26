@@ -1,6 +1,6 @@
 package ruleset
 
-// Snapshot is an immutable rule set version: the S4a subset of SAD §5.2.
+// Snapshot is an immutable rule set version: the S4c subset of SAD §5.2.
 // Fields are added additively by later slices.
 type Snapshot struct {
 	Version string `json:"version"`
@@ -76,8 +76,19 @@ type Series struct {
 	// MaxAgeComplete is the exclusive maximum age for every dose of the
 	// series: each dose must be given before birth + MaxAgeComplete. Added
 	// in S4a.
-	MaxAgeComplete *Span  `json:"maxAgeComplete,omitzero"`
-	Plans          []Plan `json:"plans"`
+	MaxAgeComplete *Span `json:"maxAgeComplete,omitzero"`
+	// CatchUpAfterAge is the catch-up age: when the next dose's first
+	// possible day F (the earliest date the result would show) is at or
+	// after birth + CatchUpAfterAge, the engine asks for a doctor instead of
+	// scheduling it (SAD §5.2, EQ26). Added in S4c.
+	CatchUpAfterAge *Span `json:"catchUpAfterAge,omitzero"`
+	// ValidFrom and ValidTo are the series' validity window: it is in effect
+	// on day d iff (ValidFrom absent or d ≥ ValidFrom) and (ValidTo absent or
+	// d < ValidTo), a half-open window like StartAge (EQ26). Validate rejects
+	// an empty window. Added in S4c.
+	ValidFrom *Date  `json:"validFrom,omitzero"`
+	ValidTo   *Date  `json:"validTo,omitzero"`
+	Plans     []Plan `json:"plans"`
 }
 
 // StartAge is a start-age bracket: the half-open range [Min, Max) of the age
@@ -109,6 +120,12 @@ type DoseRule struct {
 	Recommended          Milestone `json:"recommended"`
 	// Buffer only moves the overdue date: overdue = due + max(buffer, 7 days).
 	Buffer *Span `json:"buffer,omitzero"`
+	// Tolerance is a sourced grace period, in days or weeks only: a given
+	// dose meets this rule's minimums when it is at most Tolerance early
+	// ((anchor + span) − tolerance). It applies only when given doses are
+	// validated, never to a next-dose date or limit (F05.10, EQ27). P0D means
+	// no tolerance. Added in S4c.
+	Tolerance *Span `json:"tolerance,omitzero"`
 }
 
 // Anchor is the date a recommended milestone counts from.

@@ -1,0 +1,32 @@
+{
+  "ruleset": "minimal-catch-up-age",
+  "input": {
+    "today": "2025-06-20",
+    "profile": {
+      "birth": {
+        "value": "2024-06-10",
+        "precision": "day"
+      }
+    },
+    "doses": []
+  },
+  "output": {
+    "ruleSetVersion": "minimal-catch-up-age-s4c",
+    "today": "2025-06-20",
+    "assessments": [
+      {
+        "disease": "cu",
+        "bucket": "overdue",
+        "nextDose": {
+          "number": 1,
+          "earliest": "2025-06-10",
+          "due": "2025-06-10",
+          "overdue": "2025-06-17"
+        },
+        "seriesUsed": [
+          "cu-1"
+        ]
+      }
+    ]
+  }
+}

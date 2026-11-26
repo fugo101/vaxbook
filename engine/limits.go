@@ -122,6 +122,9 @@ func (s seriesModel) limitsAt(k int, b birthEnd, first *Range, stopped bool) lim
 // step 7's first-dose anchor at its R.Hi. It is absent when L_c is, and L_c
 // when k is the last dose.
 //
+// The chain is the tolerance-free one (EQ27: a tolerance never moves a
+// next-dose date or limit; issue #29 In scope 6, Q90).
+//
 // The chain end never decreases as d grows (AddSpan is monotone, month-end
 // clamping included), so d is found by bisection over [b_old, L_c]. When
 // even b_old fails, C_c,k is impossible: any day before b_old is before
@@ -145,7 +148,7 @@ func (s seriesModel) lastAllowed(k int, b birthEnd, first *Range, lc bound) boun
 		if k == 1 {
 			f = &dk
 		}
-		best, _, bounded := s.chain(late, &dk, run, f)
+		best, _, bounded := s.chain(late, &dk, run, f, false)
 		return !bounded || !best.After(lc.day)
 	}
 	lo, hi := b.older(), lc.day
@@ -176,6 +179,17 @@ func (r candidateResult) ownF(today Date) Date {
 		}
 	}
 	return maxDate(today, f)
+}
+
+// lastF is today, or the latest earliest date of the candidate's plans when
+// later: no merge that keeps the candidate gives an F above it from its
+// own dates.
+func (r candidateResult) lastF(today Date) Date {
+	f := today
+	for _, p := range r.next.plans {
+		f = maxDate(f, p.earliest)
+	}
+	return f
 }
 
 // ownFLo is the candidate's own F_c^lo (owner 2026-11-24): today, or the

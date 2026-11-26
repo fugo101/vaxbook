@@ -46,7 +46,7 @@ func maxAgeTestEngine(t *testing.T, retired bool) *Engine {
 // dose.
 func TestAnyUnknownProduct(t *testing.T) {
 	t.Parallel()
-	dz := maxAgeTestEngine(t, true).diseases[0]
+	dz := onlySegment(t, maxAgeTestEngine(t, true), 0)
 	named := givenDose{id: "n", product: "rotarix"}
 	cases := []struct {
 		name    string
@@ -90,7 +90,7 @@ func TestPropertyMaxAgeDisagreement(t *testing.T) {
 	base := d(t, "2026-01-01")
 	agreed, disagreed := 0, 0
 	for _, retired := range []bool{false, true} {
-		dz := maxAgeTestEngine(t, retired).diseases[0]
+		dz := onlySegment(t, maxAgeTestEngine(t, retired), 0)
 		rng := rand.New(rand.NewPCG(43, map[bool]uint64{false: 1, true: 2}[retired]))
 		for range 3000 {
 			today := base.AddDays(60 + rng.IntN(240))
@@ -225,6 +225,7 @@ func TestBirthHintForAgeLimitReasons(t *testing.T) {
 		{"series may not complete", Reason{Code: ReasonSeriesMayNotComplete, Params: ReasonParams{LastDay: d(t, "2026-08-12")}}, HintFullBirthDate},
 		{"age-limit ⚪ at one date", Reason{Code: ReasonBirthDateImprecise, Params: ReasonParams{Hint: HintFullBirthDate}}, HintFullBirthDate},
 		{"out of age uncertain", Reason{Code: ReasonOutOfAgeUncertain, Params: ReasonParams{Numbers: []int{1}}}, HintFullBirthDate},
+		{"catch-up ask doctor", Reason{Code: ReasonCatchUpAskDoctor}, HintFullBirthDate},
 	}
 	for _, tc := range cases {
 		withReason := endResult{bucket: BucketUnknown, k: 1, reasons: []Reason{tc.reason}}
@@ -293,7 +294,7 @@ func TestPropertyUndatedDefiniteMaxAge(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		dz := e.diseases[0]
+		dz := onlySegment(t, e, 0)
 		birthDay, base := d(t, fx.birth), d(t, fx.base)
 		birth := birthRange{r: Exact(birthDay), known: true, precision: Day}
 		dose := func(id string, date *Date, rng *rand.Rand, numberOdds int) givenDose {
@@ -398,7 +399,7 @@ func TestLastAllowedByForwardChain(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return e.diseases[0].series[0]
+		return onlySegment(t, e, 0).series[0]
 	}
 	dose := func(fields string) string {
 		return `{` + fields + `"recommended": {"from": "birth", "offset": "P9Y"}}`

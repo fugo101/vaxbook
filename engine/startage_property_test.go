@@ -99,32 +99,33 @@ func TestPropertyNoDoseBrackets(t *testing.T) {
 				continue
 			}
 			out, _ := evaluate(t, fx.engine, in)
+			fxo, clean := fx.on(in)
 			for _, a := range out.Assessments {
-				if slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) }) {
+				if slices.ContainsFunc(in.Doses, func(r engine.DoseRecord) bool { return slices.Contains(r.Diseases, a.Disease) }) || !clean(a.Disease) {
 					continue
 				}
 				fail := func(format string, args ...any) {
 					t.Helper()
 					t.Fatalf("%s %s: "+format+"\nassessment %+v\ninput %+v", append(append([]any{fx.name, a.Disease}, args...), a, in)...)
 				}
-				checkCandidates(t, fx, in, a)
+				checkCandidates(t, fxo, in, a)
 				var series []ruleset.Series
-				for _, sr := range fx.snap.Series {
+				for _, sr := range fxo.snap.Series {
 					if sr.Disease == a.Disease {
 						series = append(series, sr)
 					}
 				}
-				o := noDoseOracle{s: fx.snap, disease: a.Disease, lo: lo, today: in.Today}
+				o := noDoseOracle{s: fxo.snap, disease: a.Disease, lo: lo, today: in.Today}
 				noneOpen := func(b engine.Date) bool {
 					kept, certain := o.choice(b)
 					return len(kept) == 0 && certain
 				}
-				for _, sr := range seriesUsed(t, fx.snap, a) {
+				for _, sr := range seriesUsed(t, fxo.snap, a) {
 					if !bracketOpen(sr, hi, in.Today) {
 						fail("seriesUsed has %s, whose start age is past at the later end %s", sr.ID, hi)
 					}
 					for _, o := range series {
-						if o.ID != sr.ID && productGroup(t, fx.snap, a.Disease, o.ID) == productGroup(t, fx.snap, a.Disease, sr.ID) &&
+						if o.ID != sr.ID && productGroup(t, fxo.snap, a.Disease, o.ID) == productGroup(t, fxo.snap, a.Disease, sr.ID) &&
 							o.StartAge != nil && o.StartAge.Max != nil && ruleset.SpanAtMost(*o.StartAge.Max, sr.StartAge.Min) &&
 							bracketOpen(o, hi, in.Today) {
 							fail("seriesUsed has %s, but %s of its group comes before it and is still open at %s", sr.ID, o.ID, hi)
@@ -145,7 +146,7 @@ func TestPropertyNoDoseBrackets(t *testing.T) {
 				case hasCode(a, engine.ReasonBirthDateImprecise):
 					reached["two-end ⚪"]++
 				}
-				if differ := !slices.Equal(noDoseChoice(fx.snap, a.Disease, lo, in.Today), noDoseChoice(fx.snap, a.Disease, hi, in.Today)); differ {
+				if differ := !slices.Equal(noDoseChoice(fxo.snap, a.Disease, lo, in.Today), noDoseChoice(fxo.snap, a.Disease, hi, in.Today)); differ {
 					switch {
 					case a.Block == engine.BlockOutOfAge || hasCode(a, engine.ReasonOutOfAge):
 					case hasCode(a, engine.ReasonBirthDateImprecise):
@@ -315,7 +316,9 @@ func distanceOnlyClass(c string) bool {
 // Half the inputs move today to 0–199 days after a bracket's max is reached
 // at the older birth end (noDoseImprecise), where the start-age choice
 // changes inside the range. Every fixture with a bracketed disease must
-// reach an input whose days choose different seriesUsed.
+// reach an input whose days choose different seriesUsed. The inputs have
+// no dose, so on a windowed fixture the series guards read the series in
+// effect today (snapshotOn; issue #29).
 func TestPropertyNoDoseBirthRangeOracle(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
@@ -332,6 +335,8 @@ func TestPropertyNoDoseBirthRangeOracle(t *testing.T) {
 				continue
 			}
 			wide, _ := evaluate(t, fx.engine, in)
+			// No dose: the series in effect today are all that matter.
+			snap := snapshotOn(fx.snap, in.Today)
 			var days []engine.Output // one per birth day, oldest first
 			for b := lo; !b.After(hi); b = b.AddDays(1) {
 				exact := cloneInput(in)
@@ -345,7 +350,7 @@ func TestPropertyNoDoseBirthRangeOracle(t *testing.T) {
 					t.Fatalf("%s %s: "+format+"\nwide  %+v\ninput %+v", append(append([]any{fx.name, a.Disease}, args...), a, in)...)
 				}
 				latest := days[len(days)-1].Assessments[i]
-				if slices.ContainsFunc(fx.snap.Series, func(sr ruleset.Series) bool {
+				if slices.ContainsFunc(snap.Series, func(sr ruleset.Series) bool {
 					return sr.Disease == a.Disease && (sr.MaxAgeStart != nil || sr.MaxAgeComplete != nil)
 				}) {
 					for _, out := range days {
@@ -373,7 +378,7 @@ func TestPropertyNoDoseBirthRangeOracle(t *testing.T) {
 					startable = startable || d.Block != engine.BlockOutOfAge
 					differ = differ || !slices.Equal(d.SeriesUsed, latest.SeriesUsed)
 				}
-				if differ && bracketed(fx.snap, a.Disease) {
+				if differ && bracketed(snap, a.Disease) {
 					varied++
 				}
 				if imprecise := hasCode(a, engine.ReasonBirthDateImprecise); imprecise == agree {

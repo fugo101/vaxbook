@@ -24,12 +24,55 @@ type fixture struct {
 	engine *engine.Engine
 }
 
+// fixtureWindows draws a windowed variant with bounds in 1995–2035, where
+// the random inputs' dates lie, so that their histories meet several
+// segments.
+func fixtureWindows(t *testing.T) func(*rand.Rand, *ruleset.Snapshot) (*ruleset.Snapshot, bool) {
+	t.Helper()
+	lo, hi := mustDate(t, "1995-01-01"), mustDate(t, "2035-01-01")
+	return func(rng *rand.Rand, s *ruleset.Snapshot) (*ruleset.Snapshot, bool) {
+		return windowedVariant(rng, s, lo, hi)
+	}
+}
+
+// fixtures returns every fixture rule set, then seeded S4c variants of
+// three of them (issue #29: the generators gain catch-up ages, tolerances
+// and validity windows), so that every property also runs where the cap
+// meets catch-up and where tolerances lower the minimums. Each variant is
+// named after its fixture with a "~" suffix. Catch-up meets the cap seldom
+// on illustrative-max-age, whose limits lie a few weeks past the due
+// dates, and often on minimal-max-age-complete (TestPropertyCapP1 checks
+// that it is reached).
 func fixtures(t *testing.T) []fixture {
 	t.Helper()
 	var out []fixture
 	for _, path := range fixtureFiles(t) {
 		name := fixtureName(path)
 		out = append(out, fixture{name: name, snap: loadSnapshot(t, name), engine: loadEngine(t, name)})
+	}
+	for _, v := range []struct {
+		base, suffix string
+		make         func(*rand.Rand, *ruleset.Snapshot) (*ruleset.Snapshot, bool)
+	}{
+		{"illustrative-max-age", "~catch-up", catchUpVariant},
+		{"minimal-max-age-complete", "~catch-up", catchUpVariant},
+		{"illustrative-vn", "~tolerance", toleranceVariant},
+		{"illustrative-vn", "~windows", fixtureWindows(t)},
+		{"illustrative-max-age", "~windows", fixtureWindows(t)},
+	} {
+		rng := rand.New(rand.NewPCG(29, uint64(len(v.base))))
+		for {
+			snap, ok := v.make(rng, loadSnapshot(t, v.base))
+			if !ok {
+				continue
+			}
+			e, err := engine.New(snap)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, fixture{name: v.base + v.suffix, snap: snap, engine: e})
+			break
+		}
 	}
 	return out
 }
@@ -277,7 +320,7 @@ var blockingCodes = map[engine.ReasonCode]bool{
 	engine.ReasonNumberingConflict:         true, engine.ReasonBirthDateImprecise: true, engine.ReasonDoseInvalid: true,
 	engine.ReasonDosePossiblyInvalid: true, engine.ReasonPreviousDoseDateUnknown: true, engine.ReasonNoBirthDate: true,
 	engine.ReasonDoseAfterMaxAge: true, engine.ReasonCheckProductName: true, engine.ReasonMixedProducts: true,
-	engine.ReasonOutOfAgeUncertain: true,
+	engine.ReasonOutOfAgeUncertain: true, engine.ReasonNoSeriesInEffect: true, engine.ReasonCatchUpAskDoctor: true,
 }
 
 func reasonsWith(a engine.Assessment, code engine.ReasonCode) []engine.Reason {
@@ -306,8 +349,10 @@ func reasonsWith(a engine.Assessment, code engine.ReasonCode) []engine.Reason {
 //     (DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE) lowered them: then
 //     due ≤ overdue ≤ its lastDay;
 //   - a cap reason comes with a next dose that is never 🔴 (P3), or in a ⚪
-//     from step 4's comparison (with BIRTH_DATE_IMPRECISE); never under
-//     outOfAge and never in a ⚪ from steps 5–7 alone;
+//     from step 4's comparison (with BIRTH_DATE_IMPRECISE), or in the ⚪ of
+//     CATCH_UP_ASK_DOCTOR, which keeps the capped result's reasons as
+//     masked reasons (issue #29 Q92); never under outOfAge and never in
+//     another ⚪ from steps 5–7 alone;
 //   - OUT_OF_AGE_UNCERTAIN comes only in a ⚪ (so with no next dose), never
 //     under outOfAge, only in an estimated assessment (it rests on an
 //     imprecise or missing dose date), with its numbers strictly ascending.
@@ -334,7 +379,7 @@ func checkAssessmentShape(t testing.TB, name string, a engine.Assessment) {
 	switch {
 	case len(caps) == 0:
 	case outOfAge || a.Bucket == engine.BucketOverdue ||
-		a.NextDose == nil && !hasCode(a, engine.ReasonBirthDateImprecise) ||
+		a.NextDose == nil && !hasCode(a, engine.ReasonBirthDateImprecise) && !hasCode(a, engine.ReasonCatchUpAskDoctor) ||
 		a.NextDose != nil && len(caps) > 1:
 		t.Fatalf("%s %s: cap reasons %v with bucket %q, block %q, nextDose %v and reasons %v", name, a.Disease, caps, a.Bucket, a.Block, a.NextDose, a.Reasons)
 	}
@@ -379,9 +424,10 @@ func TestPropertyNextDoseBounds(t *testing.T) {
 			}
 			out, _ := evaluate(t, fx.engine, in)
 			_, birthHi, birthKnown := testPeriod(in.Profile.Birth, in.Today)
+			fxo, clean := fx.on(in)
 			for _, a := range out.Assessments {
 				checkAssessmentShape(t, fx.name, a)
-				if a.NextDose == nil {
+				if a.NextDose == nil || !clean(a.Disease) {
 					continue
 				}
 				nd := *a.NextDose
@@ -396,7 +442,7 @@ func TestPropertyNextDoseBounds(t *testing.T) {
 						latest, haveLatest = hi, true
 					}
 				}
-				for _, sr := range seriesUsed(t, fx.snap, a) {
+				for _, sr := range seriesUsed(t, fxo.snap, a) {
 					if len(sr.Plans[0].Doses) < nd.Number {
 						continue
 					}
@@ -624,9 +670,23 @@ func visible(a engine.Assessment) string { return string(a.Bucket) + string(a.Bl
 // the birth ends choose different brackets, the latest birth date is calm,
 // the wide result is ⚪ BIRTH_DATE_IMPRECISE and the narrowed day is 🟠 or
 // 🔴) guards against the generator no longer reaching it.
+//
+// Since S4c (issue #29 Q107) a second clause covers the validity of the
+// doses given: narrowing the birth date never counts a record that the
+// wide result does not count. Every uncountedKeys entry of the wide result
+// is in the narrowed one, when the narrowed result has the same seriesUsed
+// and the wide result is not outOfAge (two outOfAge ends agree on the
+// block alone, whatever their masked reasons), has no
+// BIRTH_DATE_IMPRECISE (the ends disagree, so a birth date between may
+// count what one end does not) and no DOSE_POSSIBLY_INVALID (a possible
+// failure may narrow either way). On a windowed fixture this is what keeps
+// a version from making a dose definitely invalid when some birth date of
+// the range counts it, and a counter fails the test when no windowed input
+// reaches the clause.
 func TestPropertyNarrowingBirthDate(t *testing.T) {
 	t.Parallel()
 	calm := map[string]bool{string(engine.BucketComplete): true, string(engine.BucketUpcoming): true, string(engine.BlockNotYetScheduled): true}
+	validity := 0
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(29, uint64(len(fx.name))))
 		maxes := bracketMaxes(fx.snap)
@@ -663,11 +723,28 @@ func TestPropertyNarrowingBirthDate(t *testing.T) {
 					t.Fatalf("%s %s: birth %v gives %s, narrowed to %s gives %s\nwide   %+v\nnarrow %+v\ninput  %+v",
 						fx.name, a.Disease, in.Profile.Birth, visible(a), narrow.Profile.Birth.Value, visible(b), a, b, in)
 				}
+				if hasDose && slices.Equal(a.SeriesUsed, b.SeriesUsed) && a.Block != engine.BlockOutOfAge &&
+					!hasCode(a, engine.ReasonBirthDateImprecise) && !hasCode(a, engine.ReasonDosePossiblyInvalid) {
+					if windowed(fx.snap) {
+						validity++
+					}
+					wideKeys, narrowKeys := uncountedKeys(a, in), uncountedKeys(b, narrow)
+					for _, k := range wideKeys {
+						if !slices.Contains(narrowKeys, k) {
+							t.Fatalf("%s %s: birth %v does not count %s, narrowed to %s counts it\nwide   %+v\nnarrow %+v\ninput  %+v",
+								fx.name, a.Disease, in.Profile.Birth, k, narrow.Profile.Birth.Value, a, b, in)
+						}
+					}
+				}
 			}
 		}
 		if fx.name == "minimal-start-age-gap-late" && f1 == 0 {
 			t.Errorf("%s: no random input reached the F1 shape", fx.name)
 		}
+	}
+	t.Logf("%d windowed inputs reached the validity clause", validity)
+	if validity == 0 {
+		t.Fatal("no windowed input reached the validity clause")
 	}
 }
 
@@ -1047,7 +1124,11 @@ func minDateOf(a, b engine.Date) engine.Date {
 // on day-precise near-limit inputs (nearLimitDayInput), and some of their
 // next doses must be capped (DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE)
 // or take the maximum-age skip, or the clauses are never tried at a
-// maximum age.
+// maximum age. Since S4c (issue #29) a result with the new dose that is
+// caught up (CATCH_UP_ASK_DOCTOR its only blocking reason) counts it, and
+// an input is skipped for a disease with a validity boundary in (today,
+// earliest]: S4c does not check the shown dates against later segments
+// (S4d, #36, removes the skip).
 func TestPropertyDoseOnEarliestDateCounts(t *testing.T) {
 	t.Parallel()
 	atMaxAge := 0 // results that reach a maximum age, from the near-limit inputs
@@ -1076,6 +1157,15 @@ func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (atMaxAg
 	out, _ := evaluate(t, fx.engine, in)
 	for i, a := range out.Assessments {
 		if a.NextDose == nil {
+			continue
+		}
+		// S4c applies EQ26 literally: a dose on the shown date can fall under
+		// a series that takes effect after today, which S4c does not check
+		// (issue #29 Out of scope, the gap S4d #36 closes, and removes this
+		// skip).
+		if slices.ContainsFunc(boundaries(fx.snap, a.Disease), func(b engine.Date) bool {
+			return in.Today.Before(b) && !b.After(a.NextDose.Earliest)
+		}) {
 			continue
 		}
 		next := cloneInput(in)
@@ -1126,6 +1216,10 @@ func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (atMaxAg
 			}
 			return productGroup(t, fx.snap, a.Disease, id)
 		}
+		// S4c: a caught-up result has no next dose; the dose counted when
+		// its only blocking reason is CATCH_UP_ASK_DOCTOR (issue #29).
+		caughtUp := hasCode(b, engine.ReasonCatchUpAskDoctor) &&
+			!slices.ContainsFunc(b.Reasons, func(r engine.Reason) bool { return blockingCodes[r.Code] && r.Code != engine.ReasonCatchUpAskDoctor })
 		var before []string
 		for _, id := range a.SeriesUsed {
 			before = append(before, key(id))
@@ -1137,7 +1231,7 @@ func checkDoseOnEarliestDate(t *testing.T, fx fixture, in engine.Input) (atMaxAg
 			}
 		}
 		completed := len(reasonsWith(b, engine.ReasonComplete)) > 0
-		if !completed && (b.NextDose == nil || b.NextDose.Number != a.NextDose.Number+1) {
+		if !completed && !caughtUp && (b.NextDose == nil || b.NextDose.Number != a.NextDose.Number+1) {
 			t.Fatalf("%s %s: a dose on the earliest date %s was not counted: before %+v, after %+v",
 				fx.name, a.Disease, a.NextDose.Earliest, a, b)
 		}
@@ -1178,7 +1272,7 @@ func TestPropertyDeterministic(t *testing.T) {
 	t.Parallel()
 	for _, fx := range fixtures(t) {
 		rng := rand.New(rand.NewPCG(17, uint64(len(fx.name))))
-		snapBefore := loadSnapshot(t, fx.name)
+		snapBefore := cloneSnapshot(fx.snap)
 		for range propertyRuns {
 			in := randomInput(t, rng, fx.snap)
 			orig := cloneInput(in)
@@ -1427,8 +1521,11 @@ func TestPropertyCandidates(t *testing.T) {
 				in = randomDayInput(t, rng, fx.snap)
 			}
 			out, _ := evaluate(t, fx.engine, in)
+			fxo, clean := fx.on(in)
 			for _, a := range out.Assessments {
-				checkCandidates(t, fx, in, a)
+				if clean(a.Disease) {
+					checkCandidates(t, fxo, in, a)
+				}
 			}
 		}
 	}
@@ -1503,7 +1600,7 @@ func TestPropertyMergeCoversCandidates(t *testing.T) {
 			if e, ok := alone[id]; ok {
 				return e
 			}
-			s := loadSnapshot(t, fx.name)
+			s := cloneSnapshot(fx.snap)
 			disease := s.Series[slices.IndexFunc(s.Series, func(sr ruleset.Series) bool { return sr.ID == id })].Disease
 			s.Series = slices.DeleteFunc(s.Series, func(sr ruleset.Series) bool { return sr.Disease == disease && sr.ID != id })
 			e, err := engine.New(s)

@@ -1,0 +1,77 @@
+{
+  "ruleset": "minimal-effective-dating",
+  "input": {
+    "today": "2026-02-10",
+    "profile": {
+      "birth": {
+        "value": "2025-09-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "ed"
+        ],
+        "date": {
+          "value": "2025-11-01",
+          "precision": "day"
+        }
+      },
+      {
+        "id": "r2",
+        "diseases": [
+          "ed"
+        ],
+        "date": {
+          "value": "2025-11-20",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-effective-dating-s4c",
+    "today": "2026-02-10",
+    "assessments": [
+      {
+        "disease": "ed",
+        "bucket": "unknown",
+        "seriesUsed": [
+          "ed-2026"
+        ],
+        "reasons": [
+          {
+            "code": "DOSE_INVALID",
+            "params": {
+              "checks": [
+                "minInterval"
+              ],
+              "dose": "r2",
+              "number": 2
+            }
+          }
+        ]
+      },
+      {
+        "disease": "gone",
+        "bucket": "unknown",
+        "reasons": [
+          {
+            "code": "NO_SERIES_IN_EFFECT"
+          }
+        ]
+      },
+      {
+        "disease": "bare",
+        "bucket": "unknown",
+        "reasons": [
+          {
+            "code": "NO_SERIES_IN_EFFECT"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -362,6 +362,8 @@ var reasonParams = map[engine.ReasonCode][]string{
 	engine.ReasonDueCappedByMaxAge:         {"lastDay"},
 	engine.ReasonSeriesMayNotComplete:      {"lastDay"},
 	engine.ReasonOutOfAgeUncertain:         {"numbers"},
+	engine.ReasonNoSeriesInEffect:          nil,
+	engine.ReasonCatchUpAskDoctor:          nil,
 }
 
 // checkReasonParams fails when a reason of a carries params other than

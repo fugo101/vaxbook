@@ -121,6 +121,10 @@ func (dz diseaseModel) noDoseSubRanges(r Range, today Date) []Range {
 // result is outOfAge with OUT_OF_AGE if every removed candidate is
 // certainly out at b, otherwise ⚪ BIRTH_DATE_IMPRECISE{fullBirthDate}; both
 // with no candidates. S3b's outOfAge (no bracket open at b) is unchanged.
+//
+// A candidate removed only from b_old's limits is still a candidate for
+// some birth date of the range, so catchUp reads its catch-up age too
+// (evaluation.doubt, Q108).
 func (dz diseaseModel) noDoseResult(arr placement, b birthEnd, today Date) endResult {
 	primary, all := dz.openAt(dz.noDose, b.date, today), dz.openAt(dz.all, b.date, today)
 	cands := primary
@@ -130,13 +134,15 @@ func (dz diseaseModel) noDoseResult(arr placement, b birthEnd, today Date) endRe
 	if len(cands) == 0 {
 		return dz.evaluate(arr, nil, today, nil, true).at(b)
 	}
-	kept, certain := dz.filterOutOfAge(arr, cands, b, today)
+	kept, certain, doubt := dz.filterOutOfAge(arr, cands, b, today)
 	if len(kept) == 0 && len(primary) > 0 && !slices.Equal(primary, all) {
-		kept, certain = dz.filterOutOfAge(arr, all, b, today)
+		kept, certain, doubt = dz.filterOutOfAge(arr, all, b, today)
 	}
 	switch {
 	case len(kept) > 0:
-		return dz.evaluate(arr, kept, today, nil, true).at(b)
+		ev := dz.evaluate(arr, kept, today, nil, true)
+		ev.doubt = doubt
+		return ev.at(b)
 	case certain:
 		return endResult{block: BlockOutOfAge, reasons: []Reason{{Code: ReasonOutOfAge}}}
 	}
@@ -151,8 +157,10 @@ func (dz diseaseModel) noDoseResult(arr placement, b birthEnd, today Date) endRe
 // only before the date the others need. The candidate with the latest
 // earliest date is never removed that way, so the list empties only
 // through the first rule. certain reports whether every candidate removed
-// is past its limit at b itself (Limit^b).
-func (dz diseaseModel) filterOutOfAge(arr placement, cands []int, b birthEnd, today Date) (kept []int, certain bool) {
+// by the first rule is past its limit at b itself (Limit^b), and doubt
+// lists the candidates removed by either rule that are not past Limit^b
+// there, so not out at b (Q108).
+func (dz diseaseModel) filterOutOfAge(arr placement, cands []int, b birthEnd, today Date) (kept []int, certain bool, doubt []removed) {
 	ev := dz.evaluate(arr, cands, today, nil, false)
 	rs := make([]candidateResult, len(cands))
 	certain = true
@@ -165,6 +173,9 @@ func (dz diseaseModel) filterOutOfAge(arr placement, cands []int, b birthEnd, to
 			continue
 		}
 		certain = certain && sure
+		if !sure {
+			doubt = append(doubt, removed{series: c, earliest: rs[i].lastF(today)})
+		}
 	}
 	for {
 		f := today
@@ -173,7 +184,15 @@ func (dz diseaseModel) filterOutOfAge(arr placement, cands []int, b birthEnd, to
 			f = maxDate(f, nd.Earliest)
 		}
 		n := len(left)
-		left = slices.DeleteFunc(left, func(i int) bool { return rs[i].limits.lim.exceededBy(f) })
+		left = slices.DeleteFunc(left, func(i int) bool {
+			if !rs[i].limits.lim.exceededBy(f) {
+				return false
+			}
+			if !rs[i].limits.limOwn.exceededBy(f) {
+				doubt = append(doubt, removed{series: cands[i], earliest: rs[i].lastF(today)})
+			}
+			return true
+		})
 		if len(left) == n {
 			break
 		}
@@ -181,7 +200,15 @@ func (dz diseaseModel) filterOutOfAge(arr placement, cands []int, b birthEnd, to
 	for _, i := range left {
 		kept = append(kept, cands[i])
 	}
-	return kept, certain
+	return kept, certain, doubt
+}
+
+// removed is a no-dose candidate filterOutOfAge removed although it is not
+// out at the evaluated birth date: its series, and the latest earliest
+// date of its plans (lastF), at or after any F it adds where it is kept.
+type removed struct {
+	series   int
+	earliest Date
 }
 
 func (dz diseaseModel) openAt(cands []int, b, today Date) []int {

@@ -1,0 +1,61 @@
+{
+  "ruleset": "minimal-effective-dating",
+  "input": {
+    "today": "2026-01-01",
+    "profile": {
+      "birth": {
+        "value": "2025-09-01",
+        "precision": "day"
+      }
+    },
+    "doses": [
+      {
+        "id": "r1",
+        "diseases": [
+          "ed"
+        ],
+        "date": {
+          "value": "2025-11-01",
+          "precision": "day"
+        }
+      }
+    ]
+  },
+  "output": {
+    "ruleSetVersion": "minimal-effective-dating-s4c",
+    "today": "2026-01-01",
+    "assessments": [
+      {
+        "disease": "ed",
+        "bucket": "due",
+        "nextDose": {
+          "number": 2,
+          "earliest": "2025-12-27",
+          "due": "2026-01-01",
+          "overdue": "2026-01-08"
+        },
+        "seriesUsed": [
+          "ed-2026"
+        ]
+      },
+      {
+        "disease": "gone",
+        "bucket": "unknown",
+        "reasons": [
+          {
+            "code": "NO_SERIES_IN_EFFECT"
+          }
+        ]
+      },
+      {
+        "disease": "bare",
+        "bucket": "unknown",
+        "reasons": [
+          {
+            "code": "NO_SERIES_IN_EFFECT"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -13,7 +13,8 @@ func (c ReasonCode) blocks() bool {
 	case ReasonInvalidDate, ReasonOutOfRange, ReasonDateInFuture, ReasonDateBeforeBirth, ReasonUnexpectedValue,
 		ReasonUnknownProduct, ReasonOverlappingEstimatedDates, ReasonNumberingConflict, ReasonBirthDateImprecise,
 		ReasonDoseInvalid, ReasonDosePossiblyInvalid, ReasonPreviousDoseDateUnknown, ReasonNoBirthDate,
-		ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts, ReasonOutOfAgeUncertain:
+		ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts, ReasonOutOfAgeUncertain,
+		ReasonNoSeriesInEffect, ReasonCatchUpAskDoctor:
 		return true
 	case ReasonImpliedEarlierDoses, ReasonSafestSeries, ReasonIntervalUnverifiable, ReasonFirstDoseDateAssumed,
 		ReasonAlternativePlans, ReasonComplete, ReasonProductNotInCatalog, ReasonOnTrack, ReasonAgeAtStartUncertain, ReasonOutOfAge,

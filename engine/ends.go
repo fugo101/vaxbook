@@ -150,7 +150,9 @@ func compareResults(rs []endResult, hint Hint) endResult {
 // Q58): OUT_OF_AGE, DOSE_AFTER_MAX_AGE, CHECK_PRODUCT_NAME, MIXED_PRODUCTS,
 // a DOSE_POSSIBLY_INVALID listing a maximum age, and since S4b (issue #28
 // In scope 6) DUE_CAPPED_BY_MAX_AGE, SERIES_MAY_NOT_COMPLETE,
-// OUT_OF_AGE_UNCERTAIN and BIRTH_DATE_IMPRECISE{fullBirthDate}. An end's own reasons hold
+// OUT_OF_AGE_UNCERTAIN and BIRTH_DATE_IMPRECISE{fullBirthDate}, and since
+// S4c CATCH_UP_ASK_DOCTOR (issue #29 In scope 5: an end at or past the
+// catch-up age). An end's own reasons hold
 // BIRTH_DATE_IMPRECISE only when it is an age-limit ⚪ (not certainly out
 // of age at that date), so that result's reason then has the same key as
 // the comparison's and is listed once.
@@ -158,7 +160,7 @@ func ageLimit(reasons []Reason) bool {
 	for _, r := range reasons {
 		switch r.Code {
 		case ReasonOutOfAge, ReasonDoseAfterMaxAge, ReasonCheckProductName, ReasonMixedProducts,
-			ReasonDueCappedByMaxAge, ReasonSeriesMayNotComplete, ReasonOutOfAgeUncertain:
+			ReasonDueCappedByMaxAge, ReasonSeriesMayNotComplete, ReasonOutOfAgeUncertain, ReasonCatchUpAskDoctor:
 			return true
 		case ReasonBirthDateImprecise:
 			if r.Params.Hint == HintFullBirthDate {
@@ -232,8 +234,10 @@ func reasonRank(c ReasonCode) int {
 		return 11
 	case ReasonDueCappedByMaxAge, ReasonSeriesMayNotComplete:
 		return 12
-	case ReasonOnTrack:
+	case ReasonCatchUpAskDoctor:
 		return 13
+	case ReasonOnTrack:
+		return 14
 	}
 	return 0
 }

@@ -402,15 +402,24 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 				}
 			}
 			slices.SortStableFunc(versions, func(a, b version) int { return cmp.Compare(rank[a.s.id], rank[b.s.id]) })
+			strict := true // every version applies to a dose outside the catalog
 			for _, v := range versions {
 				v.s = bare[v.s]
 				bareVersions = append(bareVersions, v)
+				strict = strict && v.applies("")
+			}
+			if !strict {
+				lenient = make([]version, len(bareVersions))
+				for k, v := range bareVersions {
+					v.lenient = true
+					lenient[k] = v
+				}
 			}
 			slices.SortFunc(cuts, Date.Compare)
 			versions, bareVersions, cuts = slices.Clip(versions), slices.Clip(bareVersions), slices.Clip(slices.Compact(cuts))
 			for _, si := range g.series {
 				s := &mi.series[si]
-				s.versions, s.bare, s.cuts = versions, bareVersions, cuts
+				s.versions, s.bare, s.lenient, s.cuts = versions, bareVersions, lenient, cuts
 			}
 		}
 	}

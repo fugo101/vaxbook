@@ -256,6 +256,15 @@ func (dz diseaseModel) openAt(cands []int, b, today Date) []int {
 // The candidates are in rule-set order; the reasons are one per group with
 // several matches, in group order.
 func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRange, today Date) (cands []int, uncertain []Reason) {
+	// unknown: a dose record, dated or level 4, has no product or another
+	// product, so the walk also runs leniently (doseOneRanges, Q119). An
+	// implied dose is no record and has no reading as a catalog product.
+	outside := func(g givenDose) bool {
+		_, ok := dz.tier[g.product]
+		return !ok
+	}
+	unknown := slices.ContainsFunc(arr.dated, outside) || slices.ContainsFunc(arr.numbered, outside) ||
+		slices.ContainsFunc(arr.unnumbered, outside)
 	for _, g := range dz.groupsIn(union) {
 		members := dz.members(g, union)
 		if len(members) == 1 {
@@ -275,7 +284,7 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 			for _, i := range members {
 				s := dz.series[i]
 				hit := false
-				for _, d := range s.doseOneRanges(arr.forLength(s.length), ends, birth.r.Lo, today) {
+				for _, d := range s.doseOneRanges(arr.forLength(s.length), ends, birth.r.Lo, today, unknown) {
 					hit = hit || s.start.mayContain(d, birth.r)
 					if !seen || d.Lo.Before(a) {
 						a, seen = d.Lo, true
@@ -352,8 +361,72 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 // The walks run without the maximum-age checks (issue #15 In scope 2), so
 // the bracket choice is S3b's: a dose 1 past a series' maximum age to start
 // stays dose 1's record, and those checks apply in step 5 after the choice.
-func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today Date) []Range {
-	s = s.withoutMaxAges()
+//
+// Which record is counted at position 1 moves with the versions, and the
+// bracket choice with it, in either direction (issue #39), so no one set
+// of versions in the walk keeps a dose with no product or another product
+// from being judged better than a dose of some catalog product it could
+// be. With unknown (such a dose record is given), the walk runs twice
+// (Q119): with the strict versions, which such a dose meets only within
+// every catalog product's tier, as in step 5 (Q116), and with their
+// lenient copies, all of which it meets. Every version a dose of a catalog
+// product meets is a compiled one (compileVersions), so for every reading
+// of such doses as catalog products the strict walk's versions are a
+// subset of the reading's, and the reading's a subset of the lenient
+// walk's. At a birth end, until a record counts at position 1 every walk
+// tries the same records there in the same order, and whether one counts
+// is monotone in the versions (datedVerdict). So every reading counts as
+// dose 1 a record from the lenient walk's dose 1 up to the strict walk's,
+// or up to the last record the strict walk tries when it counts none; a
+// reading that counts none at every end reads the strict walk's fallback.
+// When the two walks differ, the candidate is therefore one range, the
+// hull of both walks' candidates and every record the strict walk tries at
+// position 1 from the lenient walk's dose 1 on: every reading's dose 1
+// lies in it, and a wider candidate only adds matches (Q106's argument).
+// Named doses meet the same versions in both walks, so they never widen.
+func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today Date, unknown bool) []Range {
+	bare := s.withoutMaxAges()
+	strict := bare.doseOneWalk(pl, ends, birthLo, today)
+	if !unknown || s.lenient == nil {
+		return strict.ranges
+	}
+	bare.versions = s.lenient
+	lenient := bare.doseOneWalk(pl, ends, birthLo, today)
+	if slices.Equal(strict.at, lenient.at) && slices.Equal(strict.ranges, lenient.ranges) {
+		return strict.ranges
+	}
+	h := strict.ranges[0]
+	widen := func(rs []Range) {
+		for _, r := range rs {
+			h = Range{Lo: minDate(h.Lo, r.Lo), Hi: maxDate(h.Hi, r.Hi)}
+		}
+	}
+	widen(strict.ranges)
+	widen(lenient.ranges)
+	for e, k := range lenient.at {
+		if k >= 0 && k < len(strict.tried[e]) {
+			widen(strict.tried[e][k:])
+		}
+	}
+	return []Range{h}
+}
+
+// doseOneWalk is one run of doseOneRanges' walk, with s's versions as
+// they are.
+type doseOneWalk struct {
+	// ranges are the dose-1 candidates, as doseOneRanges returns them for
+	// one set of versions.
+	ranges []Range
+	// tried holds, per birth end, the items tried at position 1 in walk
+	// order up to the one counted there, as candidate ranges, and at the
+	// index of that one, or -1 when none is counted.
+	tried [][]Range
+	at    []int
+}
+
+// doseOneWalk walks pl at each birth end and reads its dose-1 candidates
+// (doseOneRanges).
+func (s seriesModel) doseOneWalk(pl placement, ends []birthEnd, birthLo, today Date) doseOneWalk {
 	upTo := today
 	if len(pl.dated) > 0 {
 		upTo = pl.dated[0].date.Hi
@@ -364,13 +437,21 @@ func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today
 		}
 		return Range{Lo: birthLo, Hi: upTo}
 	}
+	dw := doseOneWalk{tried: make([][]Range, len(ends)), at: make([]int, len(ends))}
 	var out, uncounted []Range
-	for _, b := range ends {
+	for e, b := range ends {
 		w := s.walk(b, today, pl)
 		var first *item // the first counted dated dose in the series
 		tried := false  // an uncounted item at position 1 was seen at b
+		dw.at[e] = -1
 		for i := range w.seq {
 			it := w.seq[i]
+			if it.pos == 1 && dw.at[e] < 0 {
+				dw.tried[e] = append(dw.tried[e], slot(it))
+				if it.counted {
+					dw.at[e] = len(dw.tried[e]) - 1
+				}
+			}
 			switch {
 			case it.pos == 1 && it.counted:
 				out = append(out, slot(it))
@@ -393,13 +474,15 @@ func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today
 	}
 	switch {
 	case len(out) > 0:
-		return out
+		dw.ranges = out
 	case len(uncounted) > 0:
-		return uncounted
+		dw.ranges = uncounted
 	case len(pl.dated) > 0:
-		return []Range{pl.dated[0].date}
+		dw.ranges = []Range{pl.dated[0].date}
+	default:
+		dw.ranges = []Range{{Lo: birthLo, Hi: today}}
 	}
-	return []Range{{Lo: birthLo, Hi: today}}
+	return dw
 }
 
 // firstHeld reports whether a record holds position 1 whatever the dates:

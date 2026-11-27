@@ -284,7 +284,7 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 			for _, i := range members {
 				s := dz.series[i]
 				hit := false
-				for _, d := range s.doseOneRanges(arr.forLength(s.length), ends, birth.r.Lo, today, unknown) {
+				for _, d := range s.doseOneRanges(arr.forLength(s.length), ends, birth.r.Lo, today, unknown, outside) {
 					hit = hit || s.start.mayContain(d, birth.r)
 					if !seen || d.Lo.Before(a) {
 						a, seen = d.Lo, true
@@ -379,12 +379,15 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 // dose 1 a record from the lenient walk's dose 1 up to the strict walk's,
 // or up to the last record the strict walk tries when it counts none; a
 // reading that counts none at every end reads the strict walk's fallback.
-// When the two walks differ, the candidate is therefore one range, the
-// hull of both walks' candidates and every record the strict walk tries at
-// position 1 from the lenient walk's dose 1 on: every reading's dose 1
-// lies in it, and a wider candidate only adds matches (Q106's argument).
-// Named doses meet the same versions in both walks, so they never widen.
-func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today Date, unknown bool) []Range {
+// A named record (outside false) meets the same versions in every walk and
+// every reading, so when the strict walk tries it at position 1 and does
+// not count it, no reading counts it there either. When the two walks
+// differ, the candidate is therefore one range, the hull of both walks'
+// candidates and every record with no product or another product that the
+// strict walk tries at position 1 from the lenient walk's dose 1 on: every
+// reading's dose 1 lies in it, and a wider candidate only adds matches
+// (Q106's argument).
+func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today Date, unknown bool, outside func(givenDose) bool) []Range {
 	bare := s.withoutMaxAges()
 	strict := bare.doseOneWalk(pl, ends, birthLo, today)
 	if !unknown || s.lenient == nil {
@@ -404,8 +407,13 @@ func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today
 	widen(strict.ranges)
 	widen(lenient.ranges)
 	for e, k := range lenient.at {
-		if k >= 0 && k < len(strict.tried[e]) {
-			widen(strict.tried[e][k:])
+		if k < 0 || k >= len(strict.tried[e]) {
+			continue
+		}
+		for _, t := range strict.tried[e][k:] {
+			if outside(t.dose) {
+				widen([]Range{t.r})
+			}
 		}
 	}
 	return []Range{h}
@@ -418,10 +426,17 @@ type doseOneWalk struct {
 	// one set of versions.
 	ranges []Range
 	// tried holds, per birth end, the items tried at position 1 in walk
-	// order up to the one counted there, as candidate ranges, and at the
-	// index of that one, or -1 when none is counted.
-	tried [][]Range
+	// order up to the one counted there, and at the index of that one, or
+	// -1 when none is counted.
+	tried [][]triedItem
 	at    []int
+}
+
+// triedItem is an item a doseOneWalk tries at position 1: its dose and its
+// candidate range.
+type triedItem struct {
+	dose givenDose
+	r    Range
 }
 
 // doseOneWalk walks pl at each birth end and reads its dose-1 candidates
@@ -437,7 +452,7 @@ func (s seriesModel) doseOneWalk(pl placement, ends []birthEnd, birthLo, today D
 		}
 		return Range{Lo: birthLo, Hi: upTo}
 	}
-	dw := doseOneWalk{tried: make([][]Range, len(ends)), at: make([]int, len(ends))}
+	dw := doseOneWalk{tried: make([][]triedItem, len(ends)), at: make([]int, len(ends))}
 	var out, uncounted []Range
 	for e, b := range ends {
 		w := s.walk(b, today, pl)
@@ -447,7 +462,7 @@ func (s seriesModel) doseOneWalk(pl placement, ends []birthEnd, birthLo, today D
 		for i := range w.seq {
 			it := w.seq[i]
 			if it.pos == 1 && dw.at[e] < 0 {
-				dw.tried[e] = append(dw.tried[e], slot(it))
+				dw.tried[e] = append(dw.tried[e], triedItem{dose: it.dose, r: slot(it)})
 				if it.counted {
 					dw.at[e] = len(dw.tried[e]) - 1
 				}

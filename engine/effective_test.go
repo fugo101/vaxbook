@@ -954,9 +954,12 @@ func TestUnknownProductVersionsEveryTier(t *testing.T) {
 // every end reads the first record tried, the strict walk's fallback. When
 // the two walks count different records at position 1, the dose-1
 // candidate is the hull of both walks' candidates (the strict walk's
-// fallback included) and every record the strict walk tries at position 1
-// from the lenient walk's dose 1 on. Every reading's dose 1 lies in it, so
-// the dose with no product is never ✅ where a named reading is not. Q119
+// fallback included) and every record with no product or another product
+// that the strict walk tries at position 1 from the lenient walk's dose 1
+// on; a named record meets the same versions in every reading, so one the
+// strict walk tries and does not count is no reading's dose 1 (route F).
+// Every reading's dose 1 lies in it, so the dose with no product is never
+// ✅ where a named reading is not. Q119
 // (a) words the candidate as the hull of the two walks' dose-1 ranges,
 // which misses a record the strict walk tries but does not count (route
 // D); the wider candidate is an amendment of Q119 (a) for the owner to
@@ -1029,6 +1032,18 @@ func TestUnknownProductVersionsEveryTier(t *testing.T) {
 //     lenient one counts rk at b_old only, so the candidate spans [06-15,
 //     06-30] → as rk px. A candidate that starts at the lenient walk's dose
 //     1 drops rf → ✅, a P1 failure.
+//   - Route F: route B's snapshot; r0 2017-05-26 (11m), r1 px 2017-06-30
+//     (12m 4d, below 13m). s-young counts r0 and matches in every
+//     reading. r0 px: xa alone counts both doses → ✅ [COMPLETE]. r0 q:
+//     g-old counts r0 under s-old at 11 months, below 1y, so only s-young
+//     matches; s-young and xa count both → ✅ [SAFEST_SERIES{s-young, px
+//     xa}, COMPLETE]. r0 px: s-old counts nothing and reads r0, the first
+//     record tried, again below 1y. No product: s-old's strict walk counts
+//     nothing (it tried r0 and r1), the lenient one counts r0. r1 is named,
+//     so it meets the same versions in every reading and no reading counts
+//     it at position 1: every reading's dose 1 under s-old is r0, and only
+//     s-young matches → as r0 q. A candidate widened through r1, at 12m 4d
+//     inside s-old's reach, would match s-old and turn this ✅ into ⚪.
 func TestUnknownProductBracketChoice(t *testing.T) {
 	t.Parallel()
 	from := func(sr ruleset.Series, min, max string) ruleset.Series { return ws(t, sr, "2020-01-01", "", min, max) }
@@ -1133,5 +1148,14 @@ func TestUnknownProductBracketChoice(t *testing.T) {
 			{"q", completeWith([]string{"s2"}, true)},
 			{"", px},
 		}, pqDose("rf", "2017-06-15", "q"), pqDose("rk", "2017-06-30", ""))
+	})
+	t.Run("route F", func(t *testing.T) {
+		t.Parallel()
+		young := completeWith([]string{"s-young", "xa"}, false, safest("", "s-young", "px", "xa"))
+		check(t, engineB, dayBirth, "r0", []reading{
+			{"px", completeWith([]string{"xa"}, false)},
+			{"q", young},
+			{"", young},
+		}, pqDose("r0", "2017-05-26", ""), pqDose("r1", "2017-06-30", "px"))
 	})
 }

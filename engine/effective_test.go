@@ -785,3 +785,307 @@ func TestVersionNoDoseOneReadsWholeRange(t *testing.T) {
 	checkAssessment(t, got, unknownWith([]string{"k3-2026"}, true,
 		invalidDose("r1", 1, engine.CheckMinAge), possiblyInvalid("r2", 2, engine.CheckMinInterval), complete))
 }
+
+// oneDose is a one-dose series of disease q with dose-1 minAge minAge;
+// product "" is generic.
+func oneDose(t testing.TB, id, product, minAge string) ruleset.Series {
+	t.Helper()
+	return qSeries(t, id, product, "", "", []ruleset.DoseRule{rule(t, minAge, "", "", ruleset.FromBirth, "P2Y")})
+}
+
+// threeDose is a series of disease q: dose 1 minAge minAge due birth + 2m,
+// doses 2 and 3 minInterval interval due previous + interval; product ""
+// is generic.
+func threeDose(t testing.TB, id, product, minAge, interval string) ruleset.Series {
+	t.Helper()
+	next := rule(t, "", interval, "", ruleset.FromPreviousDose, interval)
+	return qSeries(t, id, product, "", "", []ruleset.DoseRule{rule(t, minAge, "", "", ruleset.FromBirth, "P2M"), next, next})
+}
+
+// TestUnknownProductVersionsEveryTier (P1, SAD §5.7; issue #39, Q94, Q116,
+// Q117): a dose with no product could be any catalog product, so a rule
+// version of c's group counts it only when it would count a dose of every
+// catalog product (the version is in each one's tier on the dose date),
+// and a cross-group version never does. Each case but the last gives the
+// same result with the first dose named and with its product removed.
+// Disease q, birth 2016-06-26, today 2026-03-07 unless stated.
+//   - Brackets, two doses: catalog px; generic gold [2y, 5y) (one dose,
+//     minAge 6m) until 2020-01-01, generic gnew [6m, 2y) (6m, then 4w),
+//     px's xa [6m, 3y) (6m, then 8w). r0 px 2018-07-20 (2y 24d), r2 with
+//     no product 2022-09-25, so the candidates are gnew and xa. Under xa,
+//     r0 is dose 1 and r2 dose 2: complete. Under gnew, r0 is past the
+//     group's last max (2y); gold is not in px's tier in 2018 (px has xa),
+//     so it does not count a px dose, nor a dose with no product (not in
+//     every tier). Both doses are past the limit, gnew is out of age, and
+//     the disagreement gives CHECK_PRODUCT_NAME (Q52) → ⚪
+//     [SAFEST_SERIES{gnew, px xa}, CHECK_PRODUCT_NAME]. Main counted r0
+//     with no product through gold → ✅. The same with gold ending on
+//     2018-07-01, before r0 (a control, ⚪ on main too).
+//   - One dose, no brackets: catalog q; generic gold (6m) and q's qold (12m)
+//     until 2020-01-01, generic gnew (12m) from then. r0 2017-03-01 (8m
+//     3d). Today q takes the generic tier, so c is gnew. For a q dose,
+//     gold is not in q's tier in 2017 ({qold}) and qold (cross-group, gnew
+//     in q's tier today) fails 12m; for a dose with no product, gold is not
+//     in every tier and qold is cross-group → ⚪ [DOSE_INVALID{minAge, r0,
+//     1}]. Main counted r0 with no product through gold → ✅.
+//   - Product group: catalog p, q; p's p-old (6m, then 4w) until
+//     2020-01-01 and p-new (12m, then 4w) from then; q's qa (6m, then 4w).
+//     r0 q 2017-03-01, r2 with no product 2017-05-01 (10m 5d). Candidates
+//     p-new and qa. Under qa r0 and r2 (61 days later) count. Under p-new,
+//     p-old is in neither q's tier in 2017 nor every tier, so r0 and then
+//     r2 fail 12m at position 1 → ⚪ [SAFEST_SERIES{p p-new, q qa},
+//     DOSE_INVALID{minAge, r0, 1}, DOSE_INVALID{minAge, r2, 1}]. Main
+//     counted r2 through p-old, and r0 too with no product → ✅.
+//   - Envelope (Q105 (b)): TestEnvelopeInGapZero's w-old and w-new with px's
+//     xa (6w, then 8w, no window) beside them; catalog px, birth
+//     2025-06-01, today 2025-10-01; u px #2 undated, r1 with no product
+//     2025-08-20. Under xa, r1 is dose 1 and u needs r1 + 8w = 10-15,
+//     after today. Under w-new, r1 is past 2m and gap 0 needs 07-13 + 8w =
+//     09-07, after r1. w-old is not in px's tier, nor in every tier, so the
+//     envelope adds nothing for u; r1's DOSE_AFTER_MAX_AGE is dropped as a
+//     disagreement (Q52) → ⚪ [SAFEST_SERIES{w-new, px xa},
+//     DOSE_INVALID{minInterval, u, 2}, CHECK_PRODUCT_NAME], est. Main gave
+//     u with no product DOSE_POSSIBLY_INVALID as well, from w-old's 4w.
+//   - Q94 kept, ✅ [COMPLETE] each: the one-dose case without qold (q has
+//     the generic tier in 2017, so gold is in every tier and its 6m count
+//     r0), also with no catalog product at all (vacuously every tier); and
+//     with no generic series, catalog p, q, p-old (6m) until 2020-01-01 and
+//     p-new (12m) from then: q falls through to every series in both
+//     segments, so p-old is in p's tier and q's and counts r0 for p, q and
+//     no product alike.
+//   - Stricter than a product: catalog q; q's qold (6m) until 2020-01-01,
+//     generic gnew (12m) from then, no generic series before. For a q dose
+//     qold is a cross-group version (gnew in q's tier today) → ✅
+//     [COMPLETE]; a dose with no product never meets a cross-group version
+//     → ⚪ [DOSE_INVALID{minAge, r0, 1}] (Q116 is stricter than any one
+//     product here, by design).
+func TestUnknownProductVersionsEveryTier(t *testing.T) {
+	t.Parallel()
+	birth := dayDate("2016-06-26")
+	cpn := engine.Reason{Code: engine.ReasonCheckProductName}
+	// both checks want with the first dose of doses as given and with its
+	// product removed.
+	both := func(t *testing.T, e *engine.Engine, today string, birth engine.RecalledDate, want engine.Assessment, doses ...engine.DoseRecord) {
+		t.Helper()
+		for _, named := range []bool{true, false} {
+			ds := slices.Clone(doses)
+			if !named {
+				ds[0].Product = nil
+			}
+			checkAssessment(t, assessmentOf(t, e, "q", today, birth, ds...), want)
+		}
+	}
+	t.Run("brackets, two doses", func(t *testing.T) {
+		t.Parallel()
+		gold := ws(t, oneDose(t, "gold", "", "P6M"), "", "2020-01-01", "P2Y", "P5Y")
+		gnew := ws(t, twoDose(t, "gnew", "", "P6M", "P4W"), "", "", "P6M", "P2Y")
+		xa := ws(t, twoDose(t, "xa", "px", "P6M", "P8W"), "", "", "P6M", "P3Y")
+		want := unknownWith([]string{"gnew", "xa"}, false, safest("", "gnew", "px", "xa"), cpn)
+		doses := []engine.DoseRecord{pqDose("r0", "2018-07-20", "px"), pqDose("r2", "2022-09-25", "")}
+		both(t, newEngine(t, oneDiseaseSnapshot([]string{"px"}, gold, gnew, xa)), "2026-03-07", birth, want, doses...)
+		gold.ValidTo = &ruleset.Date{Year: 2018, Month: 7, Day: 1}
+		both(t, newEngine(t, oneDiseaseSnapshot([]string{"px"}, gold, gnew, xa)), "2026-03-07", birth, want, doses...)
+	})
+	t.Run("one dose, no brackets", func(t *testing.T) {
+		t.Parallel()
+		e := newEngine(t, oneDiseaseSnapshot([]string{"q"},
+			ws(t, oneDose(t, "gold", "", "P6M"), "", "2020-01-01", "", ""),
+			ws(t, oneDose(t, "gnew", "", "P12M"), "2020-01-01", "", "", ""),
+			ws(t, oneDose(t, "qold", "q", "P12M"), "", "2020-01-01", "", "")))
+		both(t, e, "2026-03-07", birth, unknownWith([]string{"gnew"}, false, invalidDose("r0", 1, engine.CheckMinAge)),
+			pqDose("r0", "2017-03-01", "q"))
+	})
+	t.Run("product group", func(t *testing.T) {
+		t.Parallel()
+		e := newEngine(t, oneDiseaseSnapshot([]string{"p", "q"},
+			ws(t, twoDose(t, "p-old", "p", "P6M", "P4W"), "", "2020-01-01", "", ""),
+			ws(t, twoDose(t, "p-new", "p", "P12M", "P4W"), "2020-01-01", "", "", ""),
+			twoDose(t, "qa", "q", "P6M", "P4W")))
+		both(t, e, "2026-03-07", birth, unknownWith([]string{"p-new", "qa"}, false, safest("p", "p-new", "q", "qa"),
+			invalidDose("r0", 1, engine.CheckMinAge), invalidDose("r2", 1, engine.CheckMinAge)),
+			pqDose("r0", "2017-03-01", "q"), pqDose("r2", "2017-05-01", ""))
+	})
+	t.Run("envelope", func(t *testing.T) {
+		t.Parallel()
+		w := func(id, interval string) ruleset.Series {
+			sr := twoDose(t, id, "", "P6W", interval)
+			sr.MaxAgeStart = spanOf(t, "P2M")
+			return sr
+		}
+		e := newEngine(t, oneDiseaseSnapshot([]string{"px"}, ws(t, w("w-old", "P4W"), "", "2025-09-01", "", ""),
+			ws(t, w("w-new", "P8W"), "2025-09-01", "", "", ""), twoDose(t, "xa", "px", "P6W", "P8W")))
+		both(t, e, "2025-10-01", dayDate("2025-06-01"), unknownWith([]string{"w-new", "xa"}, true, safest("", "w-new", "px", "xa"),
+			invalidDose("u", 2, engine.CheckMinInterval), cpn),
+			numbered(doseOf("q", "u", unknownDate, "px"), 2), qDose("r1", "2025-08-20"))
+	})
+	t.Run("Q94 kept", func(t *testing.T) {
+		t.Parallel()
+		gold, gnew := ws(t, oneDose(t, "gold", "", "P6M"), "", "2020-01-01", "", ""), ws(t, oneDose(t, "gnew", "", "P12M"), "2020-01-01", "", "", "")
+		both(t, newEngine(t, oneDiseaseSnapshot([]string{"q"}, gold, gnew)), "2026-03-07", birth, completeWith([]string{"gnew"}, false),
+			pqDose("r0", "2017-03-01", "q"))
+		both(t, newEngine(t, oneDiseaseSnapshot(nil, gold, gnew)), "2026-03-07", birth, completeWith([]string{"gnew"}, false),
+			pqDose("r0", "2017-03-01", ""))
+		e := newEngine(t, oneDiseaseSnapshot([]string{"p", "q"},
+			ws(t, oneDose(t, "p-old", "p", "P6M"), "", "2020-01-01", "", ""), ws(t, oneDose(t, "p-new", "p", "P12M"), "2020-01-01", "", "", "")))
+		for _, p := range []string{"p", "q"} {
+			both(t, e, "2026-03-07", birth, completeWith([]string{"p-new"}, false), pqDose("r0", "2017-03-01", p))
+		}
+	})
+	t.Run("stricter than a product", func(t *testing.T) {
+		t.Parallel()
+		e := newEngine(t, oneDiseaseSnapshot([]string{"q"},
+			ws(t, oneDose(t, "qold", "q", "P6M"), "", "2020-01-01", "", ""), ws(t, oneDose(t, "gnew", "", "P12M"), "2020-01-01", "", "", "")))
+		checkAssessment(t, assessmentOf(t, e, "q", "2026-03-07", birth, pqDose("r0", "2017-03-01", "q")), completeWith([]string{"gnew"}, false))
+		checkAssessment(t, assessmentOf(t, e, "q", "2026-03-07", birth, pqDose("r0", "2017-03-01", "")),
+			unknownWith([]string{"gnew"}, false, invalidDose("r0", 1, engine.CheckMinAge)))
+	})
+}
+
+// TestUnknownProductBracketChoice (P1, SAD §5.7; issue #39, Q106, Q116,
+// Q119): which record the bracket-choice walk counts as dose 1 decides
+// which brackets match, and it moves with the versions in either
+// direction. For a dose with no product the walk runs with the versions
+// every catalog product's dose meets (strict, Q116) and with every version
+// some catalog product's dose meets (lenient), and when they count
+// different records at position 1 the dose-1 candidate spans the lenient
+// walk's dose 1 and every record the strict walk tries at position 1 from
+// there on: every reading of the dose has its dose 1 there. So the dose
+// with no product is never ✅ where a named reading is not.
+//
+// Disease q, catalog q (no series of its own) and px (xa: two doses, 6w
+// then 4w, no window), generic g-old (three doses, 6w then 4w) until
+// 2020-01-01, today 2026-03-07. From 2020-01-01 a generic bracketed pair
+// whose dose-1 minAge 13m lies above the younger bracket's floor:
+//   - Route A: s1 [6w, 1y) (three doses, 13m then 4w) and s2 [1y, —) (two
+//     doses, 13m with tolerance 8w, then 4w). Birth 2016-06 (b_old 06-01,
+//     b_late 06-30), r0 2017-06-15 (12m 14d / 11m 16d), r1 q 2017-08-15.
+//     s2 counts r0 through its tolerance (13m − 8w = 06-04 at b_late) and
+//     its floor 1y (2017-06-01 at b_old) may hold it, so s2 always
+//     matches. r0 q: g-old (q's generic tier in 2017, alone in its group)
+//     counts r0 under s1, whose 1y may lie after 06-15 (b_late) → both
+//     match, s1 has more doses, r0 and r1 count, dose 3 due → 🔴
+//     [AGE_AT_START_UNCERTAIN{s1, s2}], est. r0 px: g-old is not in px's
+//     tier in 2017, so s1's dose 1 is r1, past 1y, and only s2 matches; s2
+//     and xa count both doses → ✅ [SAFEST_SERIES{s2, px xa}, COMPLETE],
+//     est. No product: s1's strict walk counts r1, the lenient one r0, so
+//     the candidate spans [06-15, 08-15] and s1 matches; step 5 is strict,
+//     so r0 fails 13m at both ends → ⚪ [AGE_AT_START_UNCERTAIN{s1, s2},
+//     SAFEST_SERIES{s1, px xa}, DOSE_INVALID{minAge, r0, 1}], est. The
+//     strict walk alone gives ✅.
+//   - Route B: s-young [6w, 1y) (two doses, 6w then 4w) and s-old [1y, —)
+//     (three doses, 13m). Birth 2016-06-26, r0 2017-03-01 (8m 3d), r1 q
+//     2017-08-15 (13m 20d). s-young counts r0 and matches. r0 px: s-old's
+//     dose 1 is r1 (no g-old for px), past 1y → both match, s-old → ⚪
+//     [AGE_AT_START_UNCERTAIN{s-young, s-old}, SAFEST_SERIES{s-old, px
+//     xa}, DOSE_INVALID{minAge, r0, 1}]. r0 q: g-old counts r0 under s-old
+//     at 8 months, below 1y, so only s-young matches → ✅ [COMPLETE]. No
+//     product: strict r1, lenient r0, the span reaches 08-15 → as r0 px.
+//     Main (Q94 in the walk) gives ✅.
+//   - Route C: catalog px only, with its own p-old (three doses, 6w then
+//     4w) until 2020-01-01 instead of g-old, then route A's pair (px falls
+//     to the generic tier). Birth 2016-06, r0 2017-06-15, r1 px
+//     2017-08-15. r0 px: p-old is a cross-group version of s1 (px's tier in
+//     2017, s1 in px's tier today) and counts r0 → 🔴
+//     [AGE_AT_START_UNCERTAIN{s1, s2}], est. No product: no cross-group
+//     version in the strict walk (r1), p-old in the lenient one (r0) → both
+//     match, s1, r0 fails 13m → ⚪ [AGE_AT_START_UNCERTAIN{s1, s2},
+//     DOSE_INVALID{minAge, r0, 1}], est. Main gives ✅.
+//   - Route D: route B's snapshot; r0 2017-03-01 and rm with no product
+//     2017-07-10 (12m 14d, below 13m). r0 px: s-old's strict walk counts
+//     neither r0 nor rm, the lenient one counts rm through g-old, past 1y
+//     → both match, s-old; strict step 5 fails both doses at position 1,
+//     xa counts them → ⚪ [AGE_AT_START_UNCERTAIN{s-young, s-old},
+//     SAFEST_SERIES{s-old, px xa}, DOSE_INVALID{minAge, r0, 1},
+//     DOSE_INVALID{minAge, rm, 1}]. r0 q: g-old counts r0 in both walks, so
+//     only s-young matches; s-young and xa count both → ✅
+//     [SAFEST_SERIES{s-young, px xa}, COMPLETE]. No product: strict counts
+//     nothing (it tried r0, rm), lenient counts r0, so the candidate spans
+//     [03-01, 07-10] → as r0 px. A hull of the two walks' own ranges
+//     misses rm: the strict walk falls back to r0, the first record it
+//     tried, the same range as the lenient walk's → ✅.
+func TestUnknownProductBracketChoice(t *testing.T) {
+	t.Parallel()
+	from := func(sr ruleset.Series, min, max string) ruleset.Series { return ws(t, sr, "2020-01-01", "", min, max) }
+	s2 := twoDose(t, "s2", "", "P13M", "P4W")
+	s2.Plans[0].Doses[0] = tolerant(t, s2.Plans[0].Doses[0], "P8W")
+	pairA := []ruleset.Series{from(threeDose(t, "s1", "", "P13M", "P4W"), "P6W", "P1Y"), from(s2, "P1Y", "")}
+	pairB := []ruleset.Series{from(twoDose(t, "s-young", "", "P6W", "P4W"), "P6W", "P1Y"), from(threeDose(t, "s-old", "", "P13M", "P4W"), "P1Y", "")}
+	gOld := ws(t, threeDose(t, "g-old", "", "P6W", "P4W"), "", "2020-01-01", "", "")
+	xa := twoDose(t, "xa", "px", "P6W", "P4W")
+	above, differs := ruleset.FirstDoseMinAgeAboveStartAge, ruleset.FirstDoseMinAgeDiffers
+	engineA := newEngine(t, oneDiseaseSnapshot([]string{"q", "px"}, gOld, pairA[0], pairA[1], xa), above, above)
+	engineB := newEngine(t, oneDiseaseSnapshot([]string{"q", "px"}, gOld, pairB[0], pairB[1], xa), above, differs)
+	engineC := newEngine(t, oneDiseaseSnapshot([]string{"px"}, ws(t, threeDose(t, "p-old", "px", "P6W", "P4W"), "", "2020-01-01", "", ""),
+		pairA[0], pairA[1]), above, above)
+	monthBirth, dayBirth := monthDate("2016-06"), dayDate("2016-06-26")
+	uncertain := func(a, b string) engine.Reason {
+		return engine.Reason{Code: engine.ReasonAgeAtStartUncertain, Params: engine.ReasonParams{Candidates: []engine.SeriesRef{{Series: a}, {Series: b}}}}
+	}
+	// overdue is a 🔴 assessment with next dose n; its dates are not
+	// compared.
+	overdue := func(series []string, products []string, n int, reasons ...engine.Reason) engine.Assessment {
+		return engine.Assessment{Disease: "q", Bucket: engine.BucketOverdue, SeriesUsed: series, Products: products, Estimated: true,
+			NextDose: &engine.NextDose{Number: n}, Reasons: reasons}
+	}
+	type reading struct {
+		product string // r0's product, "" for none
+		want    engine.Assessment
+	}
+	// check runs each reading with r0 on r0Date and rest after it, and
+	// checks the P1 shape: the reading with no product is ✅ only when every
+	// named one is.
+	check := func(t *testing.T, e *engine.Engine, birth engine.RecalledDate, r0Date string, readings []reading, rest ...engine.DoseRecord) {
+		t.Helper()
+		named, unknown := true, false
+		for _, r := range readings {
+			got := assessmentOf(t, e, "q", "2026-03-07", birth, append([]engine.DoseRecord{pqDose("r0", r0Date, r.product)}, rest...)...)
+			if r.want.Bucket == engine.BucketOverdue && got.NextDose != nil && got.NextDose.Number == r.want.NextDose.Number {
+				got.NextDose = r.want.NextDose
+			}
+			checkAssessment(t, got, r.want)
+			isComplete := got.Bucket == engine.BucketComplete
+			if r.product == "" {
+				unknown = isComplete
+			} else {
+				named = named && isComplete
+			}
+		}
+		if unknown && !named {
+			t.Errorf("r0 with no product gives ✅, a named reading does not")
+		}
+	}
+	t.Run("route A", func(t *testing.T) {
+		t.Parallel()
+		check(t, engineA, monthBirth, "2017-06-15", []reading{
+			{"q", overdue([]string{"s1"}, []string{"q"}, 3, uncertain("s1", "s2"))},
+			{"px", completeWith([]string{"s2", "xa"}, true, safest("", "s2", "px", "xa"))},
+			{"", unknownWith([]string{"s1", "xa"}, true, uncertain("s1", "s2"), safest("", "s1", "px", "xa"), invalidDose("r0", 1, engine.CheckMinAge))},
+		}, pqDose("r1", "2017-08-15", "q"))
+	})
+	t.Run("route B", func(t *testing.T) {
+		t.Parallel()
+		px := unknownWith([]string{"s-old", "xa"}, false, uncertain("s-young", "s-old"), safest("", "s-old", "px", "xa"), invalidDose("r0", 1, engine.CheckMinAge))
+		check(t, engineB, dayBirth, "2017-03-01", []reading{
+			{"px", px},
+			{"q", completeWith([]string{"s-young"}, false)},
+			{"", px},
+		}, pqDose("r1", "2017-08-15", "q"))
+	})
+	t.Run("route C", func(t *testing.T) {
+		t.Parallel()
+		check(t, engineC, monthBirth, "2017-06-15", []reading{
+			{"px", overdue([]string{"s1"}, []string{"px"}, 3, uncertain("s1", "s2"))},
+			{"", unknownWith([]string{"s1"}, true, uncertain("s1", "s2"), invalidDose("r0", 1, engine.CheckMinAge))},
+		}, pqDose("r1", "2017-08-15", "px"))
+	})
+	t.Run("route D", func(t *testing.T) {
+		t.Parallel()
+		px := unknownWith([]string{"s-old", "xa"}, false, uncertain("s-young", "s-old"), safest("", "s-old", "px", "xa"),
+			invalidDose("r0", 1, engine.CheckMinAge), invalidDose("rm", 1, engine.CheckMinAge))
+		check(t, engineB, dayBirth, "2017-03-01", []reading{
+			{"px", px},
+			{"q", completeWith([]string{"s-young", "xa"}, false, safest("", "s-young", "px", "xa"))},
+			{"", px},
+		}, pqDose("rm", "2017-07-10", ""))
+	})
+}

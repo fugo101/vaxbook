@@ -94,7 +94,8 @@ func segmentOf(tl diseaseTimeline, day Date) int {
 //   - Q94: d is in the tier of the dose's catalog product in j, and d is in
 //     c's group or c is in that product's tier today, neither tier the
 //     every-series fall-through; a dose with no product or another product
-//     only meets c's group;
+//     only meets c's group, and of it only the series in the tier in j of
+//     every catalog product (Q116; vacuous with no catalog product);
 //   - Q96: d has at least pos doses, and pos is d's last when it is c's;
 //   - Q93, Q95, Q106: certain when d has no bracket or is alone in its
 //     group in j, or, with a birth date, every birth date and dose-1 day
@@ -122,6 +123,9 @@ func qualifying(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, firstBr 
 	for di, d := range mj.series {
 		sameGroup := d.product == c.product
 		applies := sameGroup
+		for _, p := range mj.catalog {
+			applies = applies && slices.Contains(mj.tier[p], di)
+		}
 		if _, catalog := mj.tier[product]; catalog {
 			applies = slices.Contains(mj.tier[product], di) &&
 				(sameGroup || !mj.fallsThrough[product] && !mi.fallsThrough[product] && slices.Contains(mi.tier[product], ci))
@@ -215,14 +219,20 @@ func passesOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd pred
 //     qualifies for the dose, certainly or possibly, passes any day of the
 //     range for any birth date of the range (passesOnDay, Q93, Q107): a
 //     version that passes at one end only, or only between the ends (m-old),
-//     must leave the verdict possible.
+//     must leave the verdict possible;
+//   - for a dose with no product or another product, is never better than
+//     the verdict for the same dose of any catalog product (P1, SAD §5.7,
+//     Q116), and a counter fails when versions never help such a dose
+//     (diseases x, g and m have no catalog product, so Q94 still applies
+//     there; k's catalog products p and q have different tiers in each
+//     segment, so no version helps such a dose of k).
 //
 // Birth dates, ranges and products are random, and the ranges often cross
 // a boundary. The whole-walk counterexample is
 // TestVersionsNotMonotoneOverWalk.
 func TestPropertyVersionsOnlyHelp(t *testing.T) {
 	t.Parallel()
-	helped, counted, definite := 0, 0, 0
+	helped, counted, definite, unknownHelped := 0, 0, 0, 0
 	for _, tl := range versionTimelines(t) {
 		rng := rand.New(rand.NewPCG(83, uint64(len(tl.id))))
 		base := d(t, "2024-01-01")
@@ -277,6 +287,19 @@ func TestPropertyVersionsOnlyHelp(t *testing.T) {
 			if v.sev() < vc.sev() {
 				helped++
 			}
+			// Unknown is never less safe (P1, Q116), per dose: a dose with no
+			// product or another product could be any catalog product.
+			if _, catalog := dz.tier[product]; !catalog {
+				if v.sev() < vc.sev() {
+					unknownHelped++
+				}
+				for _, p := range dz.catalog {
+					if vp := s.datedVerdict(pos, b, x, pd, first, firstBr, p); v.sev() < vp.sev() {
+						t.Fatalf("%s %s: pos %d on %v (birth %+v, first %v, dose-1 range %v): product %q gives %+v, better than product %q's %+v",
+							tl.id, s.id, pos, x, b, first, firstBr, product, v, p, vp)
+					}
+				}
+			}
 			if v.sev() == verdictDefinite && segmentOf(tl, x.Lo) == segmentOf(tl, x.Hi) {
 				definite++
 				for y := x.Lo; !y.After(x.Hi); y = y.AddDays(1) {
@@ -298,8 +321,9 @@ func TestPropertyVersionsOnlyHelp(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("versions helped %d times, made %d doses count; %d definite verdicts checked", helped, counted, definite)
-	if helped == 0 || counted == 0 || definite == 0 {
-		t.Fatal("no version ever helped or made a dose count, or no verdict was definite; the property is vacuous")
+	t.Logf("versions helped %d times (%d for a dose with no product or another product), made %d doses count; %d definite verdicts checked",
+		helped, unknownHelped, counted, definite)
+	if helped == 0 || unknownHelped == 0 || counted == 0 || definite == 0 {
+		t.Fatal("no version ever helped a dose of a catalog product or one outside the catalog, or made a dose count, or no verdict was definite; the property is vacuous")
 	}
 }

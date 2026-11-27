@@ -389,7 +389,7 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 // (Q106's argument). Q119 (a) words the candidate as the hull of the two
 // walks' own ranges, which holds the strict walk's fallback but misses a
 // record the strict walk tries outside both walks' candidates; adding those
-// records is an amendment that awaits the owner's confirmation. Route D of
+// records is Q120 (a), the owner's widening of Q119 (a). Route D of
 // TestUnknownProductBracketChoice and the bracketed-pair grid of
 // TestPropertyUnknownProductVersions need it, routes F (named records) and
 // G (records before the lenient walk's dose 1) bound it, and route E needs

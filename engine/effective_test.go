@@ -962,8 +962,7 @@ func TestUnknownProductVersionsEveryTier(t *testing.T) {
 // ✅ where a named reading is not. Q119
 // (a) words the candidate as the hull of the two walks' dose-1 ranges,
 // which misses a record the strict walk tries but does not count (route
-// D); the wider candidate is an amendment of Q119 (a) for the owner to
-// confirm.
+// D); the wider candidate is Q120 (a), the owner's widening of Q119 (a).
 //
 // Disease q, catalog q (no series of its own) and px (xa: two doses, 6w
 // then 4w, no window), generic g-old (three doses, 6w then 4w) until

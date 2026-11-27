@@ -94,7 +94,8 @@ func segmentOf(tl diseaseTimeline, day Date) int {
 //   - Q94: d is in the tier of the dose's catalog product in j, and d is in
 //     c's group or c is in that product's tier today, neither tier the
 //     every-series fall-through; a dose with no product or another product
-//     only meets c's group;
+//     only meets c's group, and of it only the series in the tier in j of
+//     every catalog product (Q116; vacuous with no catalog product);
 //   - Q96: d has at least pos doses, and pos is d's last when it is c's;
 //   - Q93, Q95, Q106: certain when d has no bracket or is alone in its
 //     group in j, or, with a birth date, every birth date and dose-1 day
@@ -122,6 +123,9 @@ func qualifying(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, firstBr 
 	for di, d := range mj.series {
 		sameGroup := d.product == c.product
 		applies := sameGroup
+		for _, p := range mj.catalog {
+			applies = applies && slices.Contains(mj.tier[p], di)
+		}
 		if _, catalog := mj.tier[product]; catalog {
 			applies = slices.Contains(mj.tier[product], di) &&
 				(sameGroup || !mj.fallsThrough[product] && !mi.fallsThrough[product] && slices.Contains(mi.tier[product], ci))
@@ -215,14 +219,20 @@ func passesOnDay(tl diseaseTimeline, i, ci, pos int, b birthEnd, y Date, pd pred
 //     qualifies for the dose, certainly or possibly, passes any day of the
 //     range for any birth date of the range (passesOnDay, Q93, Q107): a
 //     version that passes at one end only, or only between the ends (m-old),
-//     must leave the verdict possible.
+//     must leave the verdict possible;
+//   - for a dose with no product or another product, is never better than
+//     the verdict for the same dose of any catalog product (P1, SAD §5.7,
+//     Q116), and a counter fails when versions never help such a dose
+//     (diseases x, g and m have no catalog product, so Q94 still applies
+//     there; k's catalog products p and q have different tiers in each
+//     segment, so no version helps such a dose of k).
 //
 // Birth dates, ranges and products are random, and the ranges often cross
 // a boundary. The whole-walk counterexample is
 // TestVersionsNotMonotoneOverWalk.
 func TestPropertyVersionsOnlyHelp(t *testing.T) {
 	t.Parallel()
-	helped, counted, definite := 0, 0, 0
+	helped, counted, definite, unknownHelped := 0, 0, 0, 0
 	for _, tl := range versionTimelines(t) {
 		rng := rand.New(rand.NewPCG(83, uint64(len(tl.id))))
 		base := d(t, "2024-01-01")
@@ -277,6 +287,19 @@ func TestPropertyVersionsOnlyHelp(t *testing.T) {
 			if v.sev() < vc.sev() {
 				helped++
 			}
+			// Unknown is never less safe (P1, Q116), per dose: a dose with no
+			// product or another product could be any catalog product.
+			if _, catalog := dz.tier[product]; !catalog {
+				if v.sev() < vc.sev() {
+					unknownHelped++
+				}
+				for _, p := range dz.catalog {
+					if vp := s.datedVerdict(pos, b, x, pd, first, firstBr, p); v.sev() < vp.sev() {
+						t.Fatalf("%s %s: pos %d on %v (birth %+v, first %v, dose-1 range %v): product %q gives %+v, better than product %q's %+v",
+							tl.id, s.id, pos, x, b, first, firstBr, product, v, p, vp)
+					}
+				}
+			}
 			if v.sev() == verdictDefinite && segmentOf(tl, x.Lo) == segmentOf(tl, x.Hi) {
 				definite++
 				for y := x.Lo; !y.After(x.Hi); y = y.AddDays(1) {
@@ -298,8 +321,107 @@ func TestPropertyVersionsOnlyHelp(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("versions helped %d times, made %d doses count; %d definite verdicts checked", helped, counted, definite)
-	if helped == 0 || counted == 0 || definite == 0 {
-		t.Fatal("no version ever helped or made a dose count, or no verdict was definite; the property is vacuous")
+	t.Logf("versions helped %d times (%d for a dose with no product or another product), made %d doses count; %d definite verdicts checked",
+		helped, unknownHelped, counted, definite)
+	if helped == 0 || unknownHelped == 0 || counted == 0 || definite == 0 {
+		t.Fatal("no version ever helped a dose of a catalog product or one outside the catalog, or made a dose count, or no verdict was definite; the property is vacuous")
+	}
+}
+
+// TestLenientCopiesCoverEveryReading (issue #39, Q116, Q119) checks the
+// version lists of every series c of every segment, for the bracket
+// choice's two walks (doseOneRanges):
+//   - a strict version that a dose outside the catalog ("" or "x") meets is
+//     met by a dose of every catalog product (Q116), so the strict walk
+//     never counts such a dose by a rule a reading of it would not;
+//   - lenient holds bare's copies, each met by such a dose, so the lenient
+//     walk's versions hold every reading's; it is nil exactly when every
+//     bare version already applies to such a dose;
+//   - every version is in c's group with no twin (Q94) or met by a dose of
+//     some catalog product, so the lenient walk is no wider than Q119 (a)'s
+//     lenient set and needs no catalog loop to build.
+//
+// The timelines are versionTimelines' and a disease t whose generic t-g,
+// in effect throughout, is a twin of itself kept as a version (Q109):
+// product p has its own t-p-old until 2026-01-01 and product q its own
+// t-q-new from then, so t-g is in q's tier before and in p's after. A
+// counter fails when no lenient copy differs from its strict version, or
+// none has a twin.
+func TestLenientCopiesCoverEveryReading(t *testing.T) {
+	t.Parallel()
+	one := func(id, extra string) string {
+		return `{"id": "` + id + `", "disease": "t", "stage": "childhood", ` + extra +
+			`"plans": [{"id": "a", "doses": [{"minAge": "P6W", "recommended": {"from": "birth", "offset": "P2M"}}]}]}`
+	}
+	doc := `{"version": "v", "illustrative": true, "diseases": [{"id": "t", "name": "T"}],
+	  "products": [{"id": "p", "name": "P", "diseases": ["t"], "live": false}, {"id": "q", "name": "Q", "diseases": ["t"], "live": false}],
+	  "series": [` + strings.Join([]string{
+		one("t-g", ""),
+		one("t-p-old", `"product": "p", "validTo": "2026-01-01", `),
+		one("t-q-new", `"product": "q", "validFrom": "2026-01-01", `),
+	}, ", ") + `]}`
+	s, err := ruleset.Decode([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := New(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	differs, twins := 0, 0
+	for _, tl := range append(versionTimelines(t), e.diseases...) {
+		for i, m := range tl.models {
+			for _, c := range m.series {
+				if len(c.lenient) != 0 && len(c.lenient) != len(c.bare) {
+					t.Fatalf("%s segment %d %s: %d lenient copies of %d bare versions", tl.id, i, c.id, len(c.lenient), len(c.bare))
+				}
+				strict := true
+				for k, v := range c.bare {
+					some := false
+					for _, p := range m.catalog {
+						some = some || v.applies(p)
+					}
+					for _, other := range []string{"", "x"} {
+						if !v.applies(other) {
+							strict = false
+							continue
+						}
+						for _, p := range m.catalog {
+							if !v.applies(p) {
+								t.Errorf("%s segment %d %s: version %s applies to product %q but not to catalog product %q", tl.id, i, c.id, v.s.id, other, p)
+							}
+						}
+					}
+					if (!v.sameGroup || v.twin != nil) && !some {
+						t.Errorf("%s segment %d %s: version %s is outside c's group or has a twin, and no catalog product's dose meets it", tl.id, i, c.id, v.s.id)
+					}
+					if len(c.lenient) == 0 {
+						continue
+					}
+					l := c.lenient[k]
+					if l.s != v.s || l.seg != v.seg || !l.applies("") || !l.applies("x") {
+						t.Errorf("%s segment %d %s: lenient copy %d of version %s is not its copy met by a dose outside the catalog", tl.id, i, c.id, k, v.s.id)
+					}
+					for _, p := range m.catalog {
+						if l.applies(p) != v.applies(p) {
+							t.Errorf("%s segment %d %s: lenient copy of version %s changes product %q", tl.id, i, c.id, v.s.id, p)
+						}
+					}
+					if !v.applies("") {
+						differs++
+						if v.twin != nil {
+							twins++
+						}
+					}
+				}
+				if strict != (len(c.lenient) == 0) {
+					t.Errorf("%s segment %d %s: lenient set is %v, but every bare version applies to a dose outside the catalog is %v", tl.id, i, c.id, c.lenient != nil, strict)
+				}
+			}
+		}
+	}
+	t.Logf("%d lenient copies differ from their strict version, %d of them with a twin", differs, twins)
+	if differs == 0 || twins == 0 {
+		t.Fatal("no lenient copy differs from its strict version, or none has a twin; the test is vacuous")
 	}
 }

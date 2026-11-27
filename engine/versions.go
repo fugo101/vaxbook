@@ -82,10 +82,10 @@ func bracketMatch(v version, b birthEnd, firstBr Range) match {
 //     OK, it is the verdict.
 //   - x is split at the versions' segment bounds. On each part, c is judged
 //     on the part at b, and each version d whose segment holds the part,
-//     that applies to the dose's product (Q94) and to position pos (Q96),
-//     and whose bracket matches (Q93, Q95) is judged on the part at b_old
-//     and b_late (at b with no birth date), with d's rule, tolerance and
-//     maximum ages from its own segment. Dose 1's range for the match is
+//     that applies to the dose's product (Q94, Q116) and to position pos
+//     (Q96), and whose bracket matches (Q93, Q95) is judged on the part at
+//     b_old and b_late (at b with no birth date), with d's rule, tolerance
+//     and maximum ages from its own segment. Dose 1's range for the match is
 //     the part itself for pos 1, else firstBr, else [b_old, x.Hi]: with no
 //     dose 1 counted, dose 1 lies between birth and the dose being judged
 //     (Q106).

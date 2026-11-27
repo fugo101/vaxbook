@@ -1101,8 +1101,9 @@ func (w *walkResult) beforeTrailing() (p *item, us []item) {
 // envelope returns, for the last trailing fixed slot last, a copy of s
 // whose plans are s's plus those of every version of s that could apply to
 // it (issue #29 In scope 3, Q105 (b), F05.10): the version applies to
-// last's product (an implied slot has none, so c's group only, Q94) and to
-// its position (Q96), and its segment meets [P.Lo, today], P the latest
+// last's product (Q94; an implied slot or a slot with no product meets c's
+// group only, within every catalog product's tier, Q116) and to its
+// position (Q96), and its segment meets [P.Lo, today], P the latest
 // counted or numbered dated dose before the run (beforeTrailing), else
 // [b_old, today], else (−∞, today]. Every placement of last lies after P,
 // since the gap search searches only the gaps after P. There is no bracket

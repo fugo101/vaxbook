@@ -85,10 +85,14 @@ type seriesModel struct {
 	// may count a dose of this series as the rule in effect on its date
 	// (version, issue #29 In scope 3), and cuts their segment bounds,
 	// ascending. bare are the same versions with no maximum age, for the
-	// walk of the start-age bracket choice (withoutMaxAges). All are nil on
-	// a windowless snapshot.
-	versions, bare []version
-	cuts           []Date
+	// walk of the start-age bracket choice (withoutMaxAges): the strict
+	// copies, which a dose with no product or another product meets as in
+	// step 5 (Q116). lenient are bare's lenient copies, which such a dose
+	// meets all of, for that walk's second run (doseOneRanges, Q119); nil
+	// when every bare version applies to such a dose already, so the two
+	// runs agree. All are nil on a windowless snapshot.
+	versions, bare, lenient []version
+	cuts                    []Date
 }
 
 // hasMaxAges reports whether the series has any maximum age. Without one,
@@ -99,7 +103,8 @@ func (s seriesModel) hasMaxAges() bool {
 
 // withoutMaxAges returns s with no maximum age: the walk of the start-age
 // bracket choice (issue #15 In scope 2), so that the series chosen and the
-// item counted at position 1 stay S3b's.
+// item counted at position 1 stay S3b's. Its versions are the strict bare
+// copies; doseOneRanges swaps in the lenient ones for its second walk.
 func (s seriesModel) withoutMaxAges() seriesModel {
 	s.maxStart, s.maxComplete, s.groupMax = optSpan{}, optSpan{}, optSpan{}
 	s.versions = s.bare

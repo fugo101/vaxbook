@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"maps"
+	"math/bits"
 	"math/rand/v2"
 	"reflect"
 	"slices"
@@ -1539,9 +1540,6 @@ func TestPropertyCandidates(t *testing.T) {
 // the smallest L).
 func TestPropertyUnknownProductNeverLessSafe(t *testing.T) {
 	t.Parallel()
-	complete := func(a engine.Assessment) bool {
-		return a.Bucket == engine.BucketComplete && hasCode(a, engine.ReasonComplete)
-	}
 	for _, fx := range fixtures(t) {
 		if len(fx.snap.Products) == 0 {
 			continue
@@ -1558,28 +1556,251 @@ func TestPropertyUnknownProductNeverLessSafe(t *testing.T) {
 			if len(known) == 0 {
 				continue
 			}
-			out, _ := evaluate(t, fx.engine, in)
-			unknown := cloneInput(in)
-			i := known[rng.IntN(len(known))]
-			unknown.Doses[i].Product = nil
-			got, _ := evaluate(t, fx.engine, unknown)
-			for j, a := range out.Assessments {
-				b := got.Assessments[j]
-				if !complete(a) && complete(b) {
-					t.Fatalf("%s %s: removing product %s of %s made the result complete\nknown   %+v\nunknown %+v\ninput %+v",
-						fx.name, a.Disease, *in.Doses[i].Product, in.Doses[i].ID, a, b, in)
+			checkUnknownNeverLessSafe(t, fx.name, fx.engine, in, known[rng.IntN(len(known))])
+		}
+	}
+}
+
+// checkUnknownNeverLessSafe is TestPropertyUnknownProductNeverLessSafe's
+// check on one input in, with dose i's product removed. It returns both
+// outputs.
+func checkUnknownNeverLessSafe(t *testing.T, name string, e *engine.Engine, in engine.Input, i int) (known, unknown engine.Output) {
+	t.Helper()
+	complete := func(a engine.Assessment) bool {
+		return a.Bucket == engine.BucketComplete && hasCode(a, engine.ReasonComplete)
+	}
+	out, _ := evaluate(t, e, in)
+	without := cloneInput(in)
+	without.Doses[i].Product = nil
+	got, _ := evaluate(t, e, without)
+	for j, a := range out.Assessments {
+		b := got.Assessments[j]
+		if !complete(a) && complete(b) {
+			t.Fatalf("%s %s: removing product %s of %s made the result complete\nknown   %+v\nunknown %+v\ninput %+v",
+				name, a.Disease, *in.Doses[i].Product, in.Doses[i].ID, a, b, in)
+		}
+		if a.NextDose == nil || b.NextDose == nil || a.NextDose.Number != b.NextDose.Number {
+			continue
+		}
+		uncapped := !isCapped(a) && !isCapped(b)
+		if b.NextDose.Earliest.Before(a.NextDose.Earliest) || uncapped && (b.NextDose.Due.Before(a.NextDose.Due) || b.NextDose.Overdue.Before(a.NextDose.Overdue)) {
+			t.Fatalf("%s %s: removing product %s of %s moved a date earlier\nknown   %+v\nunknown %+v\ninput %+v",
+				name, a.Disease, *in.Doses[i].Product, in.Doses[i].ID, *a.NextDose, *b.NextDose, in)
+		}
+	}
+	return out, got
+}
+
+// TestPropertyUnknownProductVersions is TestPropertyUnknownProductNeverLessSafe
+// on exhaustive grids of windowed in-test snapshots, so that it does not
+// depend on a seed (issue #39, Q94, Q116, Q119). Disease q, products px and
+// q, today 2026-03-07, every named dose of every input losing its product
+// in turn.
+//   - Versions: birth 2016-06-26. A lenient generic gold (dose-1 minAge 6w,
+//     interval 4w) ends on 2020-01-01 and a generic gnew starts then; q's
+//     qold ends then and px's xa has no window, each absent or present.
+//     Every series has n doses (1 or 2), and gnew, qold and xa each have
+//     minAge 6w or 12m and, for n = 2, interval 4w or 6m. Dose 1 is at 2, 8
+//     or 14 months, dose 2 five weeks or eight months later, each with
+//     product px, q or none. A counter fails when no dose with no product
+//     is counted through gold (✅ with gnew at 12m and dose 1 under 12
+//     months, dose 1 having no product once the product is removed), so
+//     the grid still reaches Q94's versions for such a dose.
+//   - Bracketed pair: until 2020-01-01 a generic g-old or q's q-old
+//     (three doses, 6w then 4w), and px's xa (two doses, 6w then 4w, no
+//     window) absent or present; from 2020-01-01 a generic bracketed pair
+//     whose dose-1 minAge 13m lies above the younger bracket's floor:
+//     s1 [6w, 1y) (three doses) and s2 [1y, —) (two doses, tolerance 8w),
+//     or s-young [6w, 1y) (two doses, 6w) and s-old [1y, —) (three doses).
+//     Birth 2016-06-26 or 2016-06; two, three or four doses on 2017-02-26,
+//     06-10, 07-10 and 08-10 (about 8, 11.5, 12.5 and 13.5 months), each
+//     with product px, q or none. A counter fails when the two named
+//     readings of a removed dose (px and q) never choose different
+//     brackets of the pair, so the grid still reaches inputs where the
+//     bracket choice moves with the dose's product, as in
+//     TestUnknownProductBracketChoice's routes. The counter does not show
+//     that the walk widens for a dose with no product; the P1 check does,
+//     as it fails with the strict walk alone (Q119 (c)), with Q94's
+//     versions alone (Q119 (b)) and with the hull of the two walks' own
+//     ranges (route D).
+func TestPropertyUnknownProductVersions(t *testing.T) {
+	t.Parallel()
+	today := mustDate(t, "2026-03-07")
+	// products calls f with every assignment of px, q and none to n doses.
+	products := func(n int, f func([]string)) {
+		ps := make([]string, n)
+		var rec func(k int)
+		rec = func(k int) {
+			if k == n {
+				f(ps)
+				return
+			}
+			for _, p := range []string{"px", "q", ""} {
+				ps[k] = p
+				rec(k + 1)
+			}
+		}
+		rec(0)
+	}
+	t.Run("versions", func(t *testing.T) {
+		t.Parallel()
+		birth := mustDate(t, "2016-06-26")
+		type rules struct{ age, interval string }
+		var opts []rules
+		for _, a := range []string{"P6W", "P12M"} {
+			for _, iv := range []string{"P4W", "P6M"} {
+				opts = append(opts, rules{a, iv})
+			}
+		}
+		optional := []*rules{nil}
+		for i := range opts {
+			optional = append(optional, &opts[i])
+		}
+		checked, viaGold := 0, 0
+		for n := 1; n <= 2; n++ {
+			series := func(id, product, from, to string, r rules) ruleset.Series {
+				doses := []ruleset.DoseRule{rule(t, r.age, "", "", ruleset.FromBirth, "P12M")}
+				if n == 2 {
+					doses = append(doses, rule(t, "", r.interval, "", ruleset.FromPreviousDose, "P6M"))
 				}
-				if a.NextDose == nil || b.NextDose == nil || a.NextDose.Number != b.NextDose.Number {
-					continue
-				}
-				uncapped := !isCapped(a) && !isCapped(b)
-				if b.NextDose.Earliest.Before(a.NextDose.Earliest) || uncapped && (b.NextDose.Due.Before(a.NextDose.Due) || b.NextDose.Overdue.Before(a.NextDose.Overdue)) {
-					t.Fatalf("%s %s: removing product %s of %s moved a date earlier\nknown   %+v\nunknown %+v\ninput %+v",
-						fx.name, a.Disease, *in.Doses[i].Product, in.Doses[i].ID, *a.NextDose, *b.NextDose, in)
+				return ws(t, qSeries(t, id, product, "", "", doses), from, to, "", "")
+			}
+			gaps := []int{0}
+			if n == 2 {
+				gaps = []int{35, 243}
+			}
+			for _, gnew := range opts {
+				for _, qold := range optional {
+					for _, xa := range optional {
+						if n == 1 && (gnew.interval != "P4W" || qold != nil && qold.interval != "P4W" || xa != nil && xa.interval != "P4W") {
+							continue
+						}
+						s := oneDiseaseSnapshot([]string{"px", "q"},
+							series("gold", "", "", "2020-01-01", rules{"P6W", "P4W"}), series("gnew", "", "2020-01-01", "", gnew))
+						if qold != nil {
+							s.Series = append(s.Series, series("qold", "q", "", "2020-01-01", *qold))
+						}
+						if xa != nil {
+							s.Series = append(s.Series, series("xa", "px", "", "", *xa))
+						}
+						e := newEngine(t, s)
+						for _, m := range []int{2, 8, 14} {
+							d0 := birth.AddMonths(m)
+							for _, gap := range gaps {
+								products(n, func(ps []string) {
+									in := engine.Input{Today: today, Profile: engine.Profile{Birth: dayDate(birth.String())},
+										Doses: []engine.DoseRecord{pqDose("r0", d0.String(), ps[0])}}
+									if n == 2 {
+										in.Doses = append(in.Doses, pqDose("r1", d0.AddDays(gap).String(), ps[1]))
+									}
+									for i, r := range in.Doses {
+										if r.Product == nil {
+											continue
+										}
+										_, got := checkUnknownNeverLessSafe(t, "versions grid", e, in, i)
+										checked++
+										if (i == 0 || in.Doses[0].Product == nil) && got.Assessments[0].Bucket == engine.BucketComplete && gnew.age == "P12M" && m < 12 {
+											viaGold++
+										}
+									}
+								})
+							}
+						}
+					}
 				}
 			}
 		}
-	}
+		t.Logf("%d inputs checked; a dose with no product counted through gold %d times", checked, viaGold)
+		if viaGold == 0 {
+			t.Fatal("no dose with no product was counted through a version; the grid no longer reaches Q94")
+		}
+	})
+	t.Run("bracketed pair", func(t *testing.T) {
+		t.Parallel()
+		from := func(sr ruleset.Series, min, max string) ruleset.Series { return ws(t, sr, "2020-01-01", "", min, max) }
+		s2 := twoDose(t, "s2", "", "P13M", "P4W")
+		s2.Plans[0].Doses[0] = tolerant(t, s2.Plans[0].Doses[0], "P8W")
+		above, differs := ruleset.FirstDoseMinAgeAboveStartAge, ruleset.FirstDoseMinAgeDiffers
+		pairs := []struct {
+			series []ruleset.Series
+			warns  []ruleset.ProblemCode
+		}{
+			{[]ruleset.Series{from(threeDose(t, "s1", "", "P13M", "P4W"), "P6W", "P1Y"), from(s2, "P1Y", "")}, []ruleset.ProblemCode{above, above}},
+			{[]ruleset.Series{from(twoDose(t, "s-young", "", "P6W", "P4W"), "P6W", "P1Y"), from(threeDose(t, "s-old", "", "P13M", "P4W"), "P1Y", "")},
+				[]ruleset.ProblemCode{above, differs}},
+		}
+		gOld := ws(t, threeDose(t, "g-old", "", "P6W", "P4W"), "", "2020-01-01", "", "")
+		qOld := ws(t, threeDose(t, "q-old", "q", "P6W", "P4W"), "", "2020-01-01", "", "")
+		days := []string{"2017-02-26", "2017-06-10", "2017-07-10", "2017-08-10"}
+		// choice is the pair's bracket choice in a: the matches that
+		// AGE_AT_START_UNCERTAIN lists, else the pair's series a uses.
+		choice := func(a engine.Assessment, pair []ruleset.Series) []string {
+			var out []string
+			for _, r := range a.Reasons {
+				if r.Code == engine.ReasonAgeAtStartUncertain {
+					for _, c := range r.Params.Candidates {
+						out = append(out, c.Series)
+					}
+					return out
+				}
+			}
+			for _, sr := range pair {
+				if slices.Contains(a.SeriesUsed, sr.ID) {
+					out = append(out, sr.ID)
+				}
+			}
+			return out
+		}
+		checked, moved := 0, 0
+		for _, old := range []ruleset.Series{gOld, qOld} {
+			for _, xa := range []bool{false, true} {
+				for _, pair := range pairs {
+					series := slices.Concat([]ruleset.Series{old}, pair.series)
+					if xa {
+						series = append(series, twoDose(t, "xa", "px", "P6W", "P4W"))
+					}
+					e := newEngine(t, oneDiseaseSnapshot([]string{"q", "px"}, series...), pair.warns...)
+					for _, birth := range []engine.RecalledDate{dayDate("2016-06-26"), monthDate("2016-06")} {
+						for mask := range 1 << len(days) {
+							n := bits.OnesCount(uint(mask))
+							if n < 2 {
+								continue
+							}
+							products(n, func(ps []string) {
+								in := engine.Input{Today: today, Profile: engine.Profile{Birth: birth}}
+								for k, day := range days {
+									if mask&(1<<k) != 0 {
+										in.Doses = append(in.Doses, pqDose(fmt.Sprintf("r%d", k), day, ps[len(in.Doses)]))
+									}
+								}
+								for i, r := range in.Doses {
+									if r.Product == nil {
+										continue
+									}
+									known, _ := checkUnknownNeverLessSafe(t, "bracketed pair grid", e, in, i)
+									checked++
+									other, p := cloneInput(in), "px"
+									if *r.Product == "px" {
+										p = "q"
+									}
+									other.Doses[i].Product = &p
+									alt, _ := evaluate(t, e, other)
+									a, b := choice(known.Assessments[0], pair.series), choice(alt.Assessments[0], pair.series)
+									if len(a) > 0 && len(b) > 0 && !slices.Equal(a, b) {
+										moved++
+									}
+								}
+							})
+						}
+					}
+				}
+			}
+		}
+		t.Logf("%d inputs checked; the two named readings of the removed dose chose different brackets %d times", checked, moved)
+		if moved == 0 {
+			t.Fatal("the named readings of a removed dose never chose different brackets; the grid no longer reaches the routes' shape")
+		}
+	})
 }
 
 // TestPropertyMergeCoversCandidates compares the merged result with each

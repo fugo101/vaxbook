@@ -946,11 +946,21 @@ func TestUnknownProductVersionsEveryTier(t *testing.T) {
 // which brackets match, and it moves with the versions in either
 // direction. For a dose with no product the walk runs with the versions
 // every catalog product's dose meets (strict, Q116) and with every version
-// some catalog product's dose meets (lenient), and when they count
-// different records at position 1 the dose-1 candidate spans the lenient
-// walk's dose 1 and every record the strict walk tries at position 1 from
-// there on: every reading of the dose has its dose 1 there. So the dose
-// with no product is never ✅ where a named reading is not.
+// some catalog product's dose meets (lenient). Counting at position 1 is
+// monotone in the versions, so at each birth end every reading of the dose
+// counts as dose 1 a record from the lenient walk's dose 1 up to the
+// strict walk's, or up to the last record the strict walk tries at
+// position 1 when it counts none there; a reading that counts none at
+// every end reads the first record tried, the strict walk's fallback. When
+// the two walks count different records at position 1, the dose-1
+// candidate is the hull of both walks' candidates (the strict walk's
+// fallback included) and every record the strict walk tries at position 1
+// from the lenient walk's dose 1 on. Every reading's dose 1 lies in it, so
+// the dose with no product is never ✅ where a named reading is not. Q119
+// (a) words the candidate as the hull of the two walks' dose-1 ranges,
+// which misses a record the strict walk tries but does not count (route
+// D); the wider candidate is an amendment of Q119 (a) for the owner to
+// confirm.
 //
 // Disease q, catalog q (no series of its own) and px (xa: two doses, 6w
 // then 4w, no window), generic g-old (three doses, 6w then 4w) until
@@ -1000,9 +1010,25 @@ func TestUnknownProductVersionsEveryTier(t *testing.T) {
 //     only s-young matches; s-young and xa count both → ✅
 //     [SAFEST_SERIES{s-young, px xa}, COMPLETE]. No product: strict counts
 //     nothing (it tried r0, rm), lenient counts r0, so the candidate spans
-//     [03-01, 07-10] → as r0 px. A hull of the two walks' own ranges
-//     misses rm: the strict walk falls back to r0, the first record it
-//     tried, the same range as the lenient walk's → ✅.
+//     [03-01, 07-10] → as r0 px. Q119 (a)'s hull of the two walks' own
+//     ranges misses rm: the strict walk falls back to r0, the first record
+//     it tried, the same range as the lenient walk's → ✅, a P1 failure.
+//   - Route E: route A's snapshot, but g-old's dose-1 minAge is 55w and
+//     s2's and xa's dose 2 come 2w after dose 1. Birth 2016-06, rf q
+//     2017-06-15, rk 2017-06-30. g-old's 55w falls on 06-21 at b_old and
+//     07-20 at b_late, 13m on 07-01 and 07-30. rf fails s1 and g-old at
+//     both ends, and s2 counts it through its tolerance and always
+//     matches, as in route A. rk px: no version, so s1 counts nothing and
+//     reads rf, the first record tried, which may lie before 1y (06-30 at
+//     b_late) → both match, s1; rf and rk fail 13m, xa counts both (15 days
+//     apart) → ⚪ [AGE_AT_START_UNCERTAIN{s1, s2}, SAFEST_SERIES{s1, px
+//     xa}, DOSE_INVALID{minAge, rf, 1}, DOSE_INVALID{minAge, rk, 1}], est.
+//     rk q: g-old counts rk under s1 at b_old only, and 06-30 is 1y at
+//     b_late, so only s2 matches; s2 counts rf and rk → ✅ [COMPLETE], est.
+//     No product: the strict walk counts nothing (fallback rf), the
+//     lenient one counts rk at b_old only, so the candidate spans [06-15,
+//     06-30] → as rk px. A candidate that starts at the lenient walk's dose
+//     1 drops rf → ✅, a P1 failure.
 func TestUnknownProductBracketChoice(t *testing.T) {
 	t.Parallel()
 	from := func(sr ruleset.Series, min, max string) ruleset.Series { return ws(t, sr, "2020-01-01", "", min, max) }
@@ -1028,17 +1054,23 @@ func TestUnknownProductBracketChoice(t *testing.T) {
 			NextDose: &engine.NextDose{Number: n}, Reasons: reasons}
 	}
 	type reading struct {
-		product string // r0's product, "" for none
+		product string // the product of the dose under test, "" for none
 		want    engine.Assessment
 	}
-	// check runs each reading with r0 on r0Date and rest after it, and
-	// checks the P1 shape: the reading with no product is ✅ only when every
-	// named one is.
-	check := func(t *testing.T, e *engine.Engine, birth engine.RecalledDate, r0Date string, readings []reading, rest ...engine.DoseRecord) {
+	// check runs each reading on doses, the dose with ID vary given the
+	// reading's product, and checks the P1 shape: the reading with no
+	// product is ✅ only when every named one is.
+	check := func(t *testing.T, e *engine.Engine, birth engine.RecalledDate, vary string, readings []reading, doses ...engine.DoseRecord) {
 		t.Helper()
 		named, unknown := true, false
 		for _, r := range readings {
-			got := assessmentOf(t, e, "q", "2026-03-07", birth, append([]engine.DoseRecord{pqDose("r0", r0Date, r.product)}, rest...)...)
+			ds := slices.Clone(doses)
+			for k, d := range ds {
+				if d.ID == vary {
+					ds[k] = pqDose(vary, d.Date.Value, r.product)
+				}
+			}
+			got := assessmentOf(t, e, "q", "2026-03-07", birth, ds...)
 			if r.want.Bucket == engine.BucketOverdue && got.NextDose != nil && got.NextDose.Number == r.want.NextDose.Number {
 				got.NextDose = r.want.NextDose
 			}
@@ -1051,41 +1083,55 @@ func TestUnknownProductBracketChoice(t *testing.T) {
 			}
 		}
 		if unknown && !named {
-			t.Errorf("r0 with no product gives ✅, a named reading does not")
+			t.Errorf("%s with no product gives ✅, a named reading does not", vary)
 		}
 	}
 	t.Run("route A", func(t *testing.T) {
 		t.Parallel()
-		check(t, engineA, monthBirth, "2017-06-15", []reading{
+		check(t, engineA, monthBirth, "r0", []reading{
 			{"q", overdue([]string{"s1"}, []string{"q"}, 3, uncertain("s1", "s2"))},
 			{"px", completeWith([]string{"s2", "xa"}, true, safest("", "s2", "px", "xa"))},
 			{"", unknownWith([]string{"s1", "xa"}, true, uncertain("s1", "s2"), safest("", "s1", "px", "xa"), invalidDose("r0", 1, engine.CheckMinAge))},
-		}, pqDose("r1", "2017-08-15", "q"))
+		}, pqDose("r0", "2017-06-15", ""), pqDose("r1", "2017-08-15", "q"))
 	})
 	t.Run("route B", func(t *testing.T) {
 		t.Parallel()
 		px := unknownWith([]string{"s-old", "xa"}, false, uncertain("s-young", "s-old"), safest("", "s-old", "px", "xa"), invalidDose("r0", 1, engine.CheckMinAge))
-		check(t, engineB, dayBirth, "2017-03-01", []reading{
+		check(t, engineB, dayBirth, "r0", []reading{
 			{"px", px},
 			{"q", completeWith([]string{"s-young"}, false)},
 			{"", px},
-		}, pqDose("r1", "2017-08-15", "q"))
+		}, pqDose("r0", "2017-03-01", ""), pqDose("r1", "2017-08-15", "q"))
 	})
 	t.Run("route C", func(t *testing.T) {
 		t.Parallel()
-		check(t, engineC, monthBirth, "2017-06-15", []reading{
+		check(t, engineC, monthBirth, "r0", []reading{
 			{"px", overdue([]string{"s1"}, []string{"px"}, 3, uncertain("s1", "s2"))},
 			{"", unknownWith([]string{"s1"}, true, uncertain("s1", "s2"), invalidDose("r0", 1, engine.CheckMinAge))},
-		}, pqDose("r1", "2017-08-15", "px"))
+		}, pqDose("r0", "2017-06-15", ""), pqDose("r1", "2017-08-15", "px"))
 	})
 	t.Run("route D", func(t *testing.T) {
 		t.Parallel()
 		px := unknownWith([]string{"s-old", "xa"}, false, uncertain("s-young", "s-old"), safest("", "s-old", "px", "xa"),
 			invalidDose("r0", 1, engine.CheckMinAge), invalidDose("rm", 1, engine.CheckMinAge))
-		check(t, engineB, dayBirth, "2017-03-01", []reading{
+		check(t, engineB, dayBirth, "r0", []reading{
 			{"px", px},
 			{"q", completeWith([]string{"s-young", "xa"}, false, safest("", "s-young", "px", "xa"))},
 			{"", px},
-		}, pqDose("rm", "2017-07-10", ""))
+		}, pqDose("r0", "2017-03-01", ""), pqDose("rm", "2017-07-10", ""))
+	})
+	t.Run("route E", func(t *testing.T) {
+		t.Parallel()
+		s2E := twoDose(t, "s2", "", "P13M", "P2W")
+		s2E.Plans[0].Doses[0] = tolerant(t, s2E.Plans[0].Doses[0], "P8W")
+		e := newEngine(t, oneDiseaseSnapshot([]string{"q", "px"}, ws(t, threeDose(t, "g-old", "", "P55W", "P4W"), "", "2020-01-01", "", ""),
+			pairA[0], from(s2E, "P1Y", ""), twoDose(t, "xa", "px", "P6W", "P2W")), above, above)
+		px := unknownWith([]string{"s1", "xa"}, true, uncertain("s1", "s2"), safest("", "s1", "px", "xa"),
+			invalidDose("rf", 1, engine.CheckMinAge), invalidDose("rk", 1, engine.CheckMinAge))
+		check(t, e, monthBirth, "rk", []reading{
+			{"px", px},
+			{"q", completeWith([]string{"s2"}, true)},
+			{"", px},
+		}, pqDose("rf", "2017-06-15", "q"), pqDose("rk", "2017-06-30", ""))
 	})
 }

@@ -1604,19 +1604,25 @@ func checkUnknownNeverLessSafe(t *testing.T, name string, e *engine.Engine, in e
 //     or 14 months, dose 2 five weeks or eight months later, each with
 //     product px, q or none. A counter fails when no dose with no product
 //     is counted through gold (✅ with gnew at 12m and dose 1 under 12
-//     months), so the grid still reaches Q94's versions for such a dose.
+//     months, dose 1 having no product once the product is removed), so
+//     the grid still reaches Q94's versions for such a dose.
 //   - Bracketed pair: until 2020-01-01 a generic g-old or q's q-old
 //     (three doses, 6w then 4w), and px's xa (two doses, 6w then 4w, no
 //     window) absent or present; from 2020-01-01 a generic bracketed pair
 //     whose dose-1 minAge 13m lies above the younger bracket's floor:
 //     s1 [6w, 1y) (three doses) and s2 [1y, —) (two doses, tolerance 8w),
 //     or s-young [6w, 1y) (two doses, 6w) and s-old [1y, —) (three doses).
-//     Birth 2016-06-26 or 2016-06; two or three doses on 2017-02-26,
+//     Birth 2016-06-26 or 2016-06; two, three or four doses on 2017-02-26,
 //     06-10, 07-10 and 08-10 (about 8, 11.5, 12.5 and 13.5 months), each
-//     with product px, q or none. These reach TestUnknownProductBracketChoice's
-//     routes A to D. A counter fails when the bracket choice never widens
-//     for a dose with no product (AGE_AT_START_UNCERTAIN with no product,
-//     not with the dose named).
+//     with product px, q or none. A counter fails when the two named
+//     readings of a removed dose (px and q) never choose different
+//     brackets of the pair, so the grid still reaches inputs where the
+//     bracket choice moves with the dose's product, as in
+//     TestUnknownProductBracketChoice's routes. The counter does not show
+//     that the walk widens for a dose with no product; the P1 check does,
+//     as it fails with the strict walk alone (Q119 (c)), with Q94's
+//     versions alone (Q119 (b)) and with the hull of the two walks' own
+//     ranges (route D).
 func TestPropertyUnknownProductVersions(t *testing.T) {
 	t.Parallel()
 	today := mustDate(t, "2026-03-07")
@@ -1693,7 +1699,7 @@ func TestPropertyUnknownProductVersions(t *testing.T) {
 										}
 										_, got := checkUnknownNeverLessSafe(t, "versions grid", e, in, i)
 										checked++
-										if got.Assessments[0].Bucket == engine.BucketComplete && gnew.age == "P12M" && m < 12 {
+										if (i == 0 || in.Doses[0].Product == nil) && got.Assessments[0].Bucket == engine.BucketComplete && gnew.age == "P12M" && m < 12 {
 											viaGold++
 										}
 									}
@@ -1726,7 +1732,26 @@ func TestPropertyUnknownProductVersions(t *testing.T) {
 		gOld := ws(t, threeDose(t, "g-old", "", "P6W", "P4W"), "", "2020-01-01", "", "")
 		qOld := ws(t, threeDose(t, "q-old", "q", "P6W", "P4W"), "", "2020-01-01", "", "")
 		days := []string{"2017-02-26", "2017-06-10", "2017-07-10", "2017-08-10"}
-		checked, widened := 0, 0
+		// choice is the pair's bracket choice in a: the matches that
+		// AGE_AT_START_UNCERTAIN lists, else the pair's series a uses.
+		choice := func(a engine.Assessment, pair []ruleset.Series) []string {
+			var out []string
+			for _, r := range a.Reasons {
+				if r.Code == engine.ReasonAgeAtStartUncertain {
+					for _, c := range r.Params.Candidates {
+						out = append(out, c.Series)
+					}
+					return out
+				}
+			}
+			for _, sr := range pair {
+				if slices.Contains(a.SeriesUsed, sr.ID) {
+					out = append(out, sr.ID)
+				}
+			}
+			return out
+		}
+		checked, moved := 0, 0
 		for _, old := range []ruleset.Series{gOld, qOld} {
 			for _, xa := range []bool{false, true} {
 				for _, pair := range pairs {
@@ -1752,10 +1777,17 @@ func TestPropertyUnknownProductVersions(t *testing.T) {
 									if r.Product == nil {
 										continue
 									}
-									known, unknown := checkUnknownNeverLessSafe(t, "bracketed pair grid", e, in, i)
+									known, _ := checkUnknownNeverLessSafe(t, "bracketed pair grid", e, in, i)
 									checked++
-									if hasCode(unknown.Assessments[0], engine.ReasonAgeAtStartUncertain) && !hasCode(known.Assessments[0], engine.ReasonAgeAtStartUncertain) {
-										widened++
+									other, p := cloneInput(in), "px"
+									if *r.Product == "px" {
+										p = "q"
+									}
+									other.Doses[i].Product = &p
+									alt, _ := evaluate(t, e, other)
+									a, b := choice(known.Assessments[0], pair.series), choice(alt.Assessments[0], pair.series)
+									if len(a) > 0 && len(b) > 0 && !slices.Equal(a, b) {
+										moved++
 									}
 								}
 							})
@@ -1764,9 +1796,9 @@ func TestPropertyUnknownProductVersions(t *testing.T) {
 				}
 			}
 		}
-		t.Logf("%d inputs checked; the bracket choice widened for a dose with no product %d times", checked, widened)
-		if widened == 0 {
-			t.Fatal("the bracket choice never widened for a dose with no product; the grid no longer reaches routes A to D")
+		t.Logf("%d inputs checked; the two named readings of the removed dose chose different brackets %d times", checked, moved)
+		if moved == 0 {
+			t.Fatal("the named readings of a removed dose never chose different brackets; the grid no longer reaches the routes' shape")
 		}
 	})
 }

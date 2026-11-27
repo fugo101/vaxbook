@@ -132,10 +132,17 @@ type version struct {
 	// product P under c (Q94) when d is in P's tier in seg (inTier), and d is
 	// in c's group, or c is in P's tier today (cTier), neither tier being the
 	// every-series fall-through (fallsThrough in seg; cTier leaves out
-	// today's). A dose with no product or another product has every series
-	// as its tier, so d applies to it iff sameGroup. The three tables are
-	// shared by every version that reads them.
-	sameGroup                   bool
+	// today's). The three tables are shared by every version that reads
+	// them.
+	//
+	// A dose with no product or another product has every series as its
+	// tier, so it meets c's group only; and since it could be any catalog
+	// product, d applies to it only when d is also in the tier in seg of
+	// every catalog product (everyTier, Q116). It is then never counted by a
+	// rule that a dose of one of them would not meet (P1, SAD §5.7). A
+	// fall-through product's tier holds every series, so it adds no
+	// restriction, and with no catalog product everyTier holds.
+	sameGroup, everyTier        bool
 	inTier, fallsThrough, cTier map[string]bool
 	// twin, when not nil, is the tier table of d's twins in today's segment
 	// (compileVersions, Q109): d does not apply to a dose of a catalog
@@ -143,20 +150,23 @@ type version struct {
 	// another product, since today's candidate choice already decides those
 	// doses with the same rules.
 	twin map[string]bool
+	// lenient marks a copy for the lenient walk of the bracket choice
+	// (seriesModel.lenient, Q119): a dose with no product or another
+	// product meets it, whatever the rules above say.
+	lenient bool
 }
 
-// applies reports whether the version applies to a dose of product
-// (Q94).
+// applies reports whether the version applies to a dose of product (Q94,
+// Q109, Q116; Q119 for a lenient copy). A product the catalog tier tables
+// do not hold (none, another product, a retired one or free text) is
+// tested before the twin, so that a lenient copy reaches it.
 func (v version) applies(product string) bool {
-	if v.twin != nil {
-		if in, catalog := v.twin[product]; !catalog || in {
-			return false
-		}
-	}
 	in, catalog := v.inTier[product]
 	switch {
 	case !catalog:
-		return v.sameGroup
+		return v.lenient || v.sameGroup && v.everyTier && v.twin == nil
+	case v.twin != nil && v.twin[product]:
+		return false
 	case v.sameGroup:
 		return in
 	}
@@ -172,10 +182,13 @@ func (v version) lastDose(pos, n int) bool {
 
 // tierSet is an interned tier table of compileVersions: a map from each
 // catalog product to whether a series is in its tier, and an id equal for
-// equal contents.
+// equal contents. all: every catalog product's tier holds the series
+// (version.everyTier, Q116), true for an empty catalog; it follows from
+// the contents, so equal tables share it.
 type tierSet struct {
 	id  int
 	set map[string]bool
+	all bool
 }
 
 // sameSegmentRules reports whether a and b, one series compiled in two
@@ -270,9 +283,10 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 		if t, ok := sets[string(key)]; ok {
 			return t
 		}
-		t := tierSet{id: len(sets), set: make(map[string]bool, len(catalog))}
+		t := tierSet{id: len(sets), set: make(map[string]bool, len(catalog)), all: true}
 		for k, p := range catalog {
 			t.set[p] = key[k] == 1
+			t.all = t.all && key[k] == 1
 		}
 		sets[string(key)] = t
 		return t
@@ -337,7 +351,7 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 			// group).
 			ci := g.series[0]
 			c := mi.series[ci]
-			var versions, bareVersions []version
+			var versions, bareVersions, lenient []version
 			var ids [][3]int // the tier ids of versions[k]: inTier, fallsThrough, twin (-1 for none)
 			var cuts []Date
 			last := map[string]int{} // d's id → its latest version in versions
@@ -358,7 +372,7 @@ func (tl diseaseTimeline) compileVersions(rank map[string]int) {
 				for _, di := range slices.Compact(found) {
 					d := &orig[j][di]
 					v := version{s: d, seg: segs[j], lone: len(mj.groups[mj.groupOf[di]].series) == 1, sameGroup: d.product == c.product,
-						inTier: inTier[j][di].set, fallsThrough: mj.fallsThrough, cTier: cTier[i][ci]}
+						everyTier: inTier[j][di].all, inTier: inTier[j][di].set, fallsThrough: mj.fallsThrough, cTier: cTier[i][ci]}
 					id := [3]int{inTier[j][di].id, fallsID[j], -1}
 					if tw, ok := twins[i][twinKeys[j][di]]; ok {
 						sp, seen := spans[[2]int{j, i}]

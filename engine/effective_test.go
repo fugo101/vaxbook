@@ -1044,6 +1044,19 @@ func TestUnknownProductVersionsEveryTier(t *testing.T) {
 //     it at position 1: every reading's dose 1 under s-old is r0, and only
 //     s-young matches → as r0 q. A candidate widened through r1, at 12m 4d
 //     inside s-old's reach, would match s-old and turn this ✅ into ⚪.
+//   - Route G: route A's snapshot, birth 2016-06-26; ra with no product
+//     2016-07-15 (19 days, below every dose-1 minAge), rb 2017-07-01 (12m
+//     5d), rc q 2017-08-15 (13m 20d). ra fails position 1 in every walk and
+//     under every candidate. s2 counts rb through its tolerance and matches
+//     in every reading. rb q: g-old counts rb under s1, past 1y; rb px: s1
+//     counts rc; so only s2 matches, and s2 and xa count rb and rc → ⚪
+//     [SAFEST_SERIES{s2, px xa}, DOSE_INVALID{minAge, ra, 1}, COMPLETE].
+//     No product: s1's strict walk counts rc (it tried ra and rb), the
+//     lenient one counts rb, so the candidate spans [07-01, 08-15] → as rb
+//     q. The lenient walk tried ra before rb and did not count it, so no
+//     reading counts it at position 1: a candidate widened through every
+//     record the strict walk tries, ra included, at 19 days inside s1's
+//     reach, would match s1 too and pick it (three doses).
 func TestUnknownProductBracketChoice(t *testing.T) {
 	t.Parallel()
 	from := func(sr ruleset.Series, min, max string) ruleset.Series { return ws(t, sr, "2020-01-01", "", min, max) }
@@ -1157,5 +1170,14 @@ func TestUnknownProductBracketChoice(t *testing.T) {
 			{"q", young},
 			{"", young},
 		}, pqDose("r0", "2017-05-26", ""), pqDose("r1", "2017-06-30", "px"))
+	})
+	t.Run("route G", func(t *testing.T) {
+		t.Parallel()
+		want := unknownWith([]string{"s2", "xa"}, false, safest("", "s2", "px", "xa"), invalidDose("ra", 1, engine.CheckMinAge), complete)
+		check(t, engineA, dayBirth, "rb", []reading{
+			{"q", want},
+			{"px", want},
+			{"", want},
+		}, pqDose("ra", "2016-07-15", ""), pqDose("rb", "2017-07-01", ""), pqDose("rc", "2017-08-15", "q"))
 	})
 }

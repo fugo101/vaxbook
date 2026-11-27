@@ -386,7 +386,10 @@ func (dz diseaseModel) byAgeAtDoseOne(arr placement, union []int, birth birthRan
 // candidates and every record with no product or another product that the
 // strict walk tries at position 1 from the lenient walk's dose 1 on: every
 // reading's dose 1 lies in it, and a wider candidate only adds matches
-// (Q106's argument).
+// (Q106's argument). Q119 (a) words the candidate as the hull of the two
+// walks' own ranges; adding the records the strict walk tries is an
+// amendment that awaits the owner's confirmation (routes D, E and F of
+// TestUnknownProductBracketChoice).
 func (s seriesModel) doseOneRanges(pl placement, ends []birthEnd, birthLo, today Date, unknown bool, outside func(givenDose) bool) []Range {
 	bare := s.withoutMaxAges()
 	strict := bare.doseOneWalk(pl, ends, birthLo, today)

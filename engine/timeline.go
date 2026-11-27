@@ -230,6 +230,19 @@ func sameSegmentRules(a, b *seriesModel) bool {
 // time; and the envelope's checks do not depend on the order or repeats of
 // its plans.
 //
+// bare holds the same versions without maximum ages, for the bracket
+// choice's walk (withoutMaxAges), and lenient their copies, which a dose
+// with no product or another product meets (Q119), only when some bare
+// version does not apply to such a dose already. The copies need no
+// catalog loop: every version a dose of a catalog product meets is found
+// above, and each version found is in c's group with no twin or met by a
+// dose of some catalog product, so they are exactly Q119 (a)'s lenient
+// set. A version of c's group kept beside a twin is kept because some
+// product's tier in j holds it and its tier today holds no twin
+// (tierSpan.covers). One found through product p's tier is met by a dose
+// of p: c is in p's tier today and not in d's group, so p's tier today
+// holds no twin of d.
+//
 // Which versions apply depends on c only through its product group: its
 // product, and the tiers that hold it, which are whole groups. So the
 // versions are compiled once per group and segment, and its series share

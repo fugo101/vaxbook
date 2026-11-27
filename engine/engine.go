@@ -103,7 +103,8 @@ func (s seriesModel) hasMaxAges() bool {
 
 // withoutMaxAges returns s with no maximum age: the walk of the start-age
 // bracket choice (issue #15 In scope 2), so that the series chosen and the
-// item counted at position 1 stay S3b's.
+// item counted at position 1 stay S3b's. Its versions are the strict bare
+// copies; doseOneRanges swaps in the lenient ones for its second walk.
 func (s seriesModel) withoutMaxAges() seriesModel {
 	s.maxStart, s.maxComplete, s.groupMax = optSpan{}, optSpan{}, optSpan{}
 	s.versions = s.bare
